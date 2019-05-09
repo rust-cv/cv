@@ -7,3 +7,6 @@ edition = "2018"
 [dependencies]
 vslam = { path = "../vslam", version = "0.1.0" }
 vslam-akaze = { path = "../vslam-akaze", version = "0.1.0" }
+structopt = "0.2.15"
+serde = { version = "1.0.91", features = ["derive"] }
+
