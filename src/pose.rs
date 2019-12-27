@@ -7,7 +7,7 @@ use sample_consensus::Model;
 /// This means that the real-world units of the pose are unknown, but the
 /// unit of distance and orientation are the same as the current reconstruction.
 #[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, Constructor, Deref, DerefMut, From, Into)]
-pub struct WorldPose(Isometry3<f32>);
+pub struct WorldPose(pub Isometry3<f32>);
 
 impl Model<KeypointWorldMatch> for WorldPose {
     fn residual(&self, data: &KeypointWorldMatch) -> f32 {
