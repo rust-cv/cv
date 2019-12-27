@@ -3,8 +3,15 @@ name = "cv-core"
 version = "0.1.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
+description = "Contains core primitives used in computer vision applications"
+documentation = "https://docs.rs/cv-core/"
+repository = "https://github.com/rust-photogrammetry/cv-core"
+keywords = ["computer", "vision", "core", "cv", "photogrammetry"]
+categories = ["algorithms", "science", "science::robotics"]
+license = "MIT"
+readme = "README.md"
 
 [dependencies]
-nalgebra = { version = "0.19.0", default-features = false, features = ["matrixmultiply"] }
+nalgebra = { version = "0.19.0", default-features = false }
 derive_more = "0.99.2"
 sample-consensus = "0.2.0"
