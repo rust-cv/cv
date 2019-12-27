@@ -44,6 +44,10 @@ pub struct ImageKeyPoint(Point2<f32>);
 )]
 pub struct NormalizedKeyPoint(Point2<f32>);
 
+/// Normalized keypoint match
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Constructor)]
+pub struct KeypointMatch(Point2<f32>, Point2<f32>);
+
 /// This contains intrinsic camera parameters as per
 /// [this Wikipedia page](https://en.wikipedia.org/wiki/Camera_resectioning#Intrinsic_parameters).
 ///
