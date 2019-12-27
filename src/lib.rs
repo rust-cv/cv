@@ -1,7 +1,7 @@
 pub use nalgebra;
 
 use derive_more::{AsMut, AsRef, Constructor, Deref, DerefMut, From, Into};
-use nalgebra::{Matrix3, Point2, Vector2};
+use nalgebra::{Isometry3, Matrix3, Point2, Vector2};
 
 /// A point on an image frame. This type should only be used when
 /// the point location is on the image frame in pixel coordinates.
@@ -47,6 +47,12 @@ pub struct NormalizedKeyPoint(Point2<f32>);
 /// Normalized keypoint match
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Constructor)]
 pub struct KeypointMatch(Point2<f32>, Point2<f32>);
+
+/// This contains a camera pose. The pose is in "world" coordinates.
+/// This means that the real-world units of the pose are unknown, but the
+/// unit of distance and orientation are the same as the current reconstruction.
+#[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, Constructor, Deref, DerefMut, From, Into)]
+pub struct WorldPose(Isometry3<f32>);
 
 /// This contains intrinsic camera parameters as per
 /// [this Wikipedia page](https://en.wikipedia.org/wiki/Camera_resectioning#Intrinsic_parameters).
