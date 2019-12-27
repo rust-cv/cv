@@ -1,6 +1,10 @@
 use derive_more::Constructor;
-use nalgebra::Point2;
+use crate::{NormalizedKeyPoint, WorldPoint};
 
 /// Normalized keypoint match
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Constructor)]
-pub struct KeypointMatch(Point2<f32>, Point2<f32>);
+pub struct KeypointsMatch(pub NormalizedKeyPoint, pub NormalizedKeyPoint);
+
+/// Normalized keypoint to world point match
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Constructor)]
+pub struct KeypointWorldMatch(pub NormalizedKeyPoint, pub WorldPoint);
