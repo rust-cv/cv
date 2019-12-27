@@ -18,7 +18,7 @@ use nalgebra::Point2;
     From,
     Into,
 )]
-pub struct ImageKeyPoint(Point2<f32>);
+pub struct ImageKeyPoint(pub Point2<f32>);
 
 /// A point in normalized image coordinates. This keypoint has been corrected
 /// for distortion and normalized based on the camrea intrinsic matrix.
@@ -40,4 +40,4 @@ pub struct ImageKeyPoint(Point2<f32>);
     From,
     Into,
 )]
-pub struct NormalizedKeyPoint(Point2<f32>);
+pub struct NormalizedKeyPoint(pub Point2<f32>);
