@@ -1,3 +1,5 @@
+pub use nalgebra;
+
 use derive_more::{AsMut, AsRef, Constructor, Deref, DerefMut, From, Into};
 use nalgebra::{Matrix3, Point2, Vector2};
 
