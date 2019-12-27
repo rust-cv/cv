@@ -7,3 +7,4 @@ edition = "2018"
 [dependencies]
 nalgebra = { version = "0.19.0", default-features = false, features = [] }
 derive_more = "0.99.2"
+sample-consensus = "0.1.0"
