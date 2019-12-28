@@ -1,5 +1,5 @@
 use derive_more::{AsMut, AsRef, Constructor, Deref, DerefMut, From, Into};
-use nalgebra::{Point2, Point3, Vector2, Matrix3};
+use nalgebra::{Matrix3, Point2, Point3, Vector2};
 
 /// A point on an image frame. This type should only be used when
 /// the point location is on the image frame in pixel coordinates.
@@ -44,7 +44,7 @@ pub struct NormalizedKeyPoint(pub Point2<f32>);
 
 impl NormalizedKeyPoint {
     pub fn with_depth(self, depth: f32) -> CameraPoint {
-        CameraPoint(self.coords.push(depth).into())
+        CameraPoint((depth * self.coords).push(depth).into())
     }
 }
 
