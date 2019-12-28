@@ -3,8 +3,8 @@ use crate::{NormalizedKeyPoint, WorldPoint};
 
 /// Normalized keypoint match
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Constructor)]
-pub struct KeypointsMatch(pub NormalizedKeyPoint, pub NormalizedKeyPoint);
+pub struct KeyPointsMatch(pub NormalizedKeyPoint, pub NormalizedKeyPoint);
 
 /// Normalized keypoint to world point match
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Constructor)]
-pub struct KeypointWorldMatch(pub NormalizedKeyPoint, pub WorldPoint);
+pub struct KeyPointWorldMatch(pub NormalizedKeyPoint, pub WorldPoint);
