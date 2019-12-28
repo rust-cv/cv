@@ -18,4 +18,4 @@ use nalgebra::Point3;
     From,
     Into,
 )]
-pub struct WorldPoint(Point3<f32>);
+pub struct WorldPoint(pub Point3<f32>);
