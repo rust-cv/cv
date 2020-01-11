@@ -107,7 +107,7 @@ impl WorldPose {
             npcz2,  npcz2,
         );
 
-        - dp_dtq * dk_dp
+        dp_dtq * dk_dp
     }
 
     pub fn to_vec(&self) -> VectorN<f32, U7> {
