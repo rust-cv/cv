@@ -1,8 +1,9 @@
 use crate::{KeyPointWorldMatch, NormalizedKeyPoint, WorldPoint};
 use derive_more::{AsMut, AsRef, Constructor, Deref, DerefMut, From, Into};
 use nalgebra::{
-    dimension::{U2, U7, U3},
-    Isometry3, MatrixMN, Vector2,Matrix3, Matrix3x2
+    dimension::{U2, U3, U7},
+    Isometry3, Matrix3, Matrix3x2, MatrixMN, Quaternion, Translation3, UnitQuaternion, Vector2,
+    Vector3, Vector4, VectorN,
 };
 use sample_consensus::Model;
 
@@ -106,7 +107,21 @@ impl WorldPose {
             npcz2,  npcz2,
         );
 
-        dp_dtq * dk_dp
+        - dp_dtq * dk_dp
+    }
+
+    pub fn to_vec(&self) -> VectorN<f32, U7> {
+        let Self(iso) = *self;
+        let t = iso.translation.vector;
+        let rc = iso.rotation.quaternion().coords;
+        t.push(rc.x).push(rc.y).push(rc.z).push(rc.w)
+    }
+
+    pub fn from_vec(v: VectorN<f32, U7>) -> Self {
+        Self(Isometry3::from_parts(
+            Translation3::from(Vector3::new(v[0], v[1], v[2])),
+            UnitQuaternion::from_quaternion(Quaternion::from(Vector4::new(v[3], v[4], v[5], v[6]))),
+        ))
     }
 }
 
