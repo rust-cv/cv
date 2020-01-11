@@ -1,5 +1,5 @@
-use derive_more::Constructor;
 use crate::{NormalizedKeyPoint, WorldPoint};
+use derive_more::Constructor;
 
 /// Normalized keypoint match
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Constructor)]
