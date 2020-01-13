@@ -4,13 +4,15 @@ use nalgebra::{
     dimension::{U2, U3, U7},
     Isometry3, Matrix3, Matrix3x2, MatrixMN, Quaternion, Translation3, UnitQuaternion, Vector2,
     Vector3, Vector4, VectorN,
+    SVD,
+    Rotation3,
 };
 use sample_consensus::Model;
+use approx::AbsDiffEq;
 
 /// This contains a world pose, which is a pose of the world relative to the camera.
-/// This transforms world points into camera points. These camera points are 3d
-/// and the `z` axis represents the depth. Projecting these points onto the plane
-/// at `z = 1` will tell you where the points are in normalized image coordinates on the image.
+/// This maps [`WorldPoint`] into [`CameraPoint`], changing an absolute position into
+/// a vector relative to the camera.
 #[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, Constructor, Deref, DerefMut, From, Into)]
 pub struct WorldPose(pub Isometry3<f32>);
 
@@ -210,7 +212,7 @@ impl From<WorldPose> for CameraPose {
     From,
     Into,
 )]
-struct EssentialMatrix(pub Matrix3<f32>);
+pub struct EssentialMatrix(pub Matrix3<f32>);
 
 impl Model<KeyPointsMatch> for EssentialMatrix {
     fn residual(&self, data: &KeyPointsMatch) -> f32 {
@@ -219,5 +221,54 @@ impl Model<KeyPointsMatch> for EssentialMatrix {
 
         // The result is a 1x1 matrix which we must get element 0 from.
         (a.to_homogeneous().transpose() * mat * b.to_homogeneous())[0]
+    }
+}
+
+impl EssentialMatrix {
+    /// Returns two possible rotations for the essential matrix along with a translation
+    /// direction of unit length. The translation's length is unknown and must be
+    /// solved for by using a prior.
+    /// 
+    /// `max_iterations` is the maximum number of iterations that singular value decomposition
+    /// will run on this matrix. Use this in soft realtime systems to cap the execution time.
+    /// A `max_iterations` of `0` may execute indefinitely and is not recommended.
+    pub fn possible_poses(&self, max_iterations: usize) -> Option<(Rotation3<f32>, Rotation3<f32>, Vector3<f32>)> {
+        let Self(essential) = *self;
+
+        // `W` from https://en.wikipedia.org/wiki/Essential_matrix#Finding_one_solution.
+        let w = Matrix3::new(
+            0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0
+        );
+        // Transpose of `W` from https://en.wikipedia.org/wiki/Essential_matrix#Finding_one_solution.
+        let wt = w.transpose();
+
+        // Perform SVD.
+        let svd = SVD::try_new(essential, true, true, f32::default_epsilon(), max_iterations);
+        // Extract only the U and V matrix from the SVD.
+        let u_v = svd.map(|svd| {
+            if let SVD { u: Some(u), v_t: Some(v_t), .. } = svd {
+                (u, v_t.transpose())
+            } else {
+                panic!("Didn't get U and V matrix in SVD");
+            }
+        });
+        // Force the determinants to be positive. I do not know precisely
+        // why this is done since it isn't apparent from the Wikipedia page
+        // on this subject, but this is what TheiaSfM does in essential_matrix_utils.cc.
+        let u_v = u_v.map(|(mut u, mut v)| {
+            let fix_det = |m: &mut Matrix3<f32>|  if m.determinant() < 0.0 {
+                for n in m.column_mut(2).iter_mut() {
+                    *n *= -1.0;
+                }
+            };
+            fix_det(&mut u);
+            fix_det(&mut v);
+            (u, v)
+        });
+        // Compute the possible rotations and the normalized bearing.
+        u_v.map(|(u, v)| {
+            let vt = v.transpose();
+            (Rotation3::from_matrix_unchecked(u * wt * vt), Rotation3::from_matrix_unchecked(u * w * vt), u.column(2).into_owned().normalize())
+        })
     }
 }
