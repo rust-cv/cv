@@ -1,5 +1,5 @@
 use derive_more::{AsMut, AsRef, Constructor, Deref, DerefMut, From, Into};
-use nalgebra::{Matrix3, Point2, Point3, Vector2};
+use nalgebra::{Matrix3, Point2, Vector2, Vector3};
 
 /// A point on an image frame. This type should only be used when
 /// the point location is on the image frame in pixel coordinates.
@@ -19,6 +19,31 @@ use nalgebra::{Matrix3, Point2, Point3, Vector2};
     Into,
 )]
 pub struct ImageKeyPoint(pub Point2<f32>);
+
+/// A 3d vector which is relative to the camera's optical center and orientation where
+/// the positive Y axis is up and positive Z axis is forwards from the center of the
+/// camera. The unit of distance of a `CameraPoint` is unspecified and relative to
+/// the current reconstruction.
+///
+/// A `CameraPoint` can be turned into a [`NormalizedKeyPoint`] by using the `Into` or
+/// `From` impl. This is done by projecting the `CameraPoint` onto the virtual plane
+/// at a depth `z = 1.0`. The operation cannot be done in reverse because the depth
+/// (`z` component) or distance from optical center (length) is unknown.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    PartialOrd,
+    AsMut,
+    AsRef,
+    Constructor,
+    Deref,
+    DerefMut,
+    From,
+    Into,
+)]
+pub struct CameraPoint(pub Vector3<f32>);
 
 /// A point in normalized image coordinates. This keypoint has been corrected
 /// for distortion and normalized based on the camrea intrinsic matrix.
@@ -50,29 +75,9 @@ impl NormalizedKeyPoint {
 
 impl From<CameraPoint> for NormalizedKeyPoint {
     fn from(camera: CameraPoint) -> Self {
-        NormalizedKeyPoint(camera.xy() / camera.z)
+        NormalizedKeyPoint(Point2::from(camera.xy()) / camera.z)
     }
 }
-
-/// A 3d point in camera coordinates (relative to camera).
-/// If the point is divided by the `z` component (projected onto a plane at `z` = 1),
-/// then the `x` and `y` components form a `NormalizedKeypoint`. This is because a point
-/// at that location would appear on the camera at that location.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    PartialOrd,
-    AsMut,
-    AsRef,
-    Constructor,
-    Deref,
-    DerefMut,
-    From,
-    Into,
-)]
-pub struct CameraPoint(pub Point3<f32>);
 
 /// This contains intrinsic camera parameters as per
 /// [this Wikipedia page](https://en.wikipedia.org/wiki/Camera_resectioning#Intrinsic_parameters).

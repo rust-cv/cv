@@ -1,4 +1,4 @@
-use crate::{KeyPointWorldMatch, NormalizedKeyPoint, WorldPoint};
+use crate::{KeyPointWorldMatch, NormalizedKeyPoint, WorldPoint, CameraPoint};
 use derive_more::{AsMut, AsRef, Constructor, Deref, DerefMut, From, Into};
 use nalgebra::{
     dimension::{U2, U3, U7},
@@ -34,10 +34,14 @@ impl WorldPose {
     }
 
     /// Projects the `WorldPoint` onto the camera as a `NormalizedKeyPoint`.
-    pub fn project(&self, WorldPoint(point): WorldPoint) -> NormalizedKeyPoint {
+    pub fn project(&self, point: WorldPoint) -> NormalizedKeyPoint {
+        self.project_camera(point).into()
+    }
+
+    /// Projects the [`WorldPoint`] into camera space as a [`CameraPoint`].
+    pub fn project_camera(&self, WorldPoint(point): WorldPoint) -> CameraPoint {
         let WorldPose(iso) = *self;
-        let camera_point = iso * point;
-        NormalizedKeyPoint(camera_point.xy() / camera_point.z)
+        CameraPoint((iso * point).coords)
     }
 
     /// Computes the Jacobian of the projection in respect to the `WorldPose`.
@@ -142,3 +146,68 @@ impl From<WorldPose> for CameraPose {
         Self(world.inverse())
     }
 }
+
+/// This stores an essential matrix, which is satisfied by the following constraint:
+/// 
+/// transpose(x') * E * x = 0
+/// 
+/// Where `x'` and `x` are homogeneous normalized image coordinates. You can get a
+/// homogeneous normalized image coordinate by appending `1.0` to a `NormalizedKeyPoint`.
+/// 
+/// The essential matrix embodies the epipolar constraint between two images. Given that light
+/// travels in a perfectly straight line (it will not, but for short distances it mostly does)
+/// and assuming a pinhole camera model, for any point on the camera sensor, the light source
+/// for that point exists somewhere along a line extending out from the bearing (direction
+/// of travel) of that point. For a normalized image coordinate, that bearing is `(x, y, 1.0)`.
+/// That is because normalized image coordinates exist on a virtual plane (the sensor)
+/// a distance `z = 1.0` from the optical center (the location of the focal point) where
+/// the unit of distance is the focal length. In epipolar geometry, the point on the virtual
+/// plane is called an epipole. The line through 3d space created by the bearing that travels
+/// from the optical center through the epipole is called an epipolar line.
+/// 
+/// If you look at every point along an epipolar line, each one of those points would show
+/// up as a different point on the camera sensor of another image (if they are in view).
+/// If you traced every point along this epipolar line to where it would appear on the sensor
+/// of the camera (projection of the 3d points into normalized image coordinates), then
+/// the points would form a straight line. This means that you can draw epipolar lines
+/// that do not pass through the optical center of an image on that image.
+/// 
+/// The essential matrix makes it possible to create a vector that is perpendicular to all
+/// bearings that are formed from the epipolar line on the second image's sensor. This is
+/// done by computing `E * x`, where `x` is a homogeneous normalized image coordinate
+/// from the first image. The transpose of the resulting vector then has a dot product
+/// with the transpose of the second image coordinate `x'` which is equal to `0.0`.
+/// This can be written as:
+/// 
+/// ```no_build,no_run
+/// dot(transpose(E * x), x') = 0
+/// ```
+/// 
+/// This can be re-written into the form given above:
+/// 
+/// ```no_build,no_run
+/// transpose(x') * E * x = 0
+/// ```
+/// 
+/// Where the first operation creates a pependicular vector to the epipoles on the first image
+/// and the second takes the dot product which should result in 0.
+/// 
+/// With a `EssentialMatrix`, you can retrieve the rotation and translation given
+/// one normalized image coordinate and one bearing that is scaled to the depth
+/// of the point relative to the current reconstruction. This kind of point can be computed
+/// using [`WorldPose::project_camera`] to convert a [`WorldPoint`] to a [`CameraPoint`].
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    PartialOrd,
+    AsMut,
+    AsRef,
+    Constructor,
+    Deref,
+    DerefMut,
+    From,
+    Into,
+)]
+struct EssentialMatrix(pub Matrix3<f32>);
