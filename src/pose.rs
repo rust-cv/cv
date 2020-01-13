@@ -1,4 +1,4 @@
-use crate::{KeyPointWorldMatch, NormalizedKeyPoint, WorldPoint, CameraPoint};
+use crate::{KeyPointWorldMatch, NormalizedKeyPoint, WorldPoint, CameraPoint, KeyPointsMatch};
 use derive_more::{AsMut, AsRef, Constructor, Deref, DerefMut, From, Into};
 use nalgebra::{
     dimension::{U2, U3, U7},
@@ -211,3 +211,13 @@ impl From<WorldPose> for CameraPose {
     Into,
 )]
 struct EssentialMatrix(pub Matrix3<f32>);
+
+impl Model<KeyPointsMatch> for EssentialMatrix {
+    fn residual(&self, data: &KeyPointsMatch) -> f32 {
+        let Self(mat) = *self;
+        let KeyPointsMatch(NormalizedKeyPoint(a), NormalizedKeyPoint(b)) = *data;
+
+        // The result is a 1x1 matrix which we must get element 0 from.
+        (a.to_homogeneous().transpose() * mat * b.to_homogeneous())[0]
+    }
+}
