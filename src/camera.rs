@@ -68,8 +68,47 @@ pub struct CameraPoint(pub Vector3<f32>);
 pub struct NormalizedKeyPoint(pub Point2<f32>);
 
 impl NormalizedKeyPoint {
+    /// Appends a `z` component to the normalized keypoint to create
+    /// a [`CameraPoint`]. This `z` component must be the depth of
+    /// the keypoint in the direction the camera is pointing from the
+    /// camera's optical center.
+    ///
+    /// The `depth` is computed as the dot product of the unit camera norm
+    /// with the vector that represents the position delta of the point from
+    /// the camera.
     pub fn with_depth(self, depth: f32) -> CameraPoint {
-        CameraPoint((depth * self.coords).push(depth).into())
+        CameraPoint((self.coords * depth).push(depth).into())
+    }
+
+    /// Projects the keypoint out to the [`CameraPoint`] that is
+    /// `distance` away from the optical center of the camera. This
+    /// `distance` is defined as the norm of the vector that represents
+    /// the position delta of the point from the camera.
+    pub fn with_distance(self, distance: f32) -> CameraPoint {
+        CameraPoint((distance * self.bearing()).into())
+    }
+
+    /// Get the epipolar point as a [`CameraPoint`].
+    ///
+    /// The epipolar point is the point that is formed on the virtual
+    /// image at a depth 1.0 in front of the camera. For that reason,
+    /// this is the exact same as calling `nkp.with_depth(1.0)`.
+    pub fn epipolar_point(self) -> CameraPoint {
+        self.with_depth(1.0)
+    }
+
+    /// Returns a unit vector of the direction that the epipolar line
+    /// created by this `NormalizedKeyPoint` projects out of the
+    /// optical center of the camera. This is defined as the the
+    /// normalized position delta of the epipolar point from the
+    /// optical center of the camera.
+    pub fn bearing(self) -> Vector3<f32> {
+        self.0.coords.push(1.0).normalize()
+    }
+
+    /// Same as [`bearing`], but it is returned unnormalized.
+    pub fn bearing_unnormalized(self) -> Vector3<f32> {
+        self.0.coords.push(1.0).normalize()
     }
 }
 

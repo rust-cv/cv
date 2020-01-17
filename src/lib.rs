@@ -1,5 +1,6 @@
 #![no_std]
 mod camera;
+pub mod geom;
 mod matching;
 mod pose;
 mod world;

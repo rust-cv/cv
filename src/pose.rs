@@ -1,4 +1,4 @@
-use crate::{KeyPointWorldMatch, NormalizedKeyPoint, WorldPoint, CameraPoint, KeyPointsMatch};
+use crate::{KeyPointWorldMatch, NormalizedKeyPoint, WorldPoint, CameraPoint, KeyPointsMatch, geom};
 use derive_more::{AsMut, AsRef, Constructor, Deref, DerefMut, From, Into};
 use nalgebra::{
     dimension::{U2, U3, U7},
@@ -9,6 +9,7 @@ use nalgebra::{
 };
 use sample_consensus::Model;
 use approx::AbsDiffEq;
+use core::cmp::Ordering;
 
 /// This contains a world pose, which is a pose of the world relative to the camera.
 /// This maps [`WorldPoint`] into [`CameraPoint`], changing an absolute position into
@@ -37,11 +38,11 @@ impl WorldPose {
 
     /// Projects the `WorldPoint` onto the camera as a `NormalizedKeyPoint`.
     pub fn project(&self, point: WorldPoint) -> NormalizedKeyPoint {
-        self.project_camera(point).into()
+        self.transform(point).into()
     }
 
     /// Projects the [`WorldPoint`] into camera space as a [`CameraPoint`].
-    pub fn project_camera(&self, WorldPoint(point): WorldPoint) -> CameraPoint {
+    pub fn transform(&self, WorldPoint(point): WorldPoint) -> CameraPoint {
         let WorldPose(iso) = *self;
         CameraPoint((iso * point).coords)
     }
@@ -146,6 +147,29 @@ pub struct CameraPose(pub Isometry3<f32>);
 impl From<WorldPose> for CameraPose {
     fn from(world: WorldPose) -> Self {
         Self(world.inverse())
+    }
+}
+
+/// This contains a relative pose, which is a pose that transforms the [`CameraPoint`]
+/// of one image into the corresponding [`CameraPoint`] of another image. This transforms
+/// the point from the camera space of camera `A` to camera `B`.
+/// 
+/// Camera space for a given camera is defined as thus:
+/// 
+/// * Origin is the optical center
+/// * Positive z axis is forwards
+/// * Positive y axis is up
+/// * Positive x axis is right
+/// 
+/// Note that this is a left-handed coordinate space.
+#[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, Constructor, Deref, DerefMut, From, Into)]
+pub struct RelativeCameraPose(pub Isometry3<f32>);
+
+impl RelativeCameraPose {
+    // The relative pose transforms the point in camera space from camera `A` to camera `B`.
+    pub fn transform(&self, CameraPoint(point): CameraPoint) -> CameraPoint {
+        let Self(iso) = *self;
+        CameraPoint(iso * point)
     }
 }
 
@@ -269,6 +293,98 @@ impl EssentialMatrix {
         u_v.map(|(u, v)| {
             let vt = v.transpose();
             (Rotation3::from_matrix_unchecked(u * wt * vt), Rotation3::from_matrix_unchecked(u * w * vt), u.column(2).into_owned().normalize())
+        })
+    }
+
+    /// Return the [`RelativeCameraPose`] that transforms a [`CameraPoint`] of image
+    /// `A` (source of `a`) to the corresponding [`CameraPoint`] of image B (source of `b`).
+    /// This determines the average expected translation from the points themselves and
+    /// if the points agree with the rotation (points must be in front of the camera).
+    /// The function takes an iterator containing tuples in the form `(depth, a, b)`:
+    /// 
+    /// * `depth` - The actual depth (`z` axis, not distance) of normalized keypoint `a`
+    /// * `a` - A keypoint from image `A`
+    /// * `b` - A keypoint from image `B`
+    /// 
+    /// `self` must satisfy the constraint:
+    /// 
+    /// ```no_build,no_run
+    /// transpose(homogeneous(a)) * E * homogeneous(b) = 0
+    /// ```
+    /// 
+    /// Also, `a` and `b` must be a correspondence.
+    /// 
+    /// This will take the average translation over the entire iterator. This is done
+    /// to smooth out noise and outliers (if present).
+    /// 
+    /// `consensus_ratio` is the ratio of points which must be in front of the camera for the model
+    /// to be accepted and return Some. Otherwise, None is returned.
+    /// 
+    /// `max_iterations` is the maximum number of iterations that singular value decomposition
+    /// will run on this matrix. Use this in soft realtime systems to cap the execution time.
+    /// A `max_iterations` of `0` may execute indefinitely and is not recommended.
+    /// 
+    /// This does not communicate which points were outliers. To determine the outlier points,
+    /// get the [`CameraPoint`] for all points and place them in front of 
+    pub fn solve_pose(&self, consensus_ratio: f32, max_iterations: usize, correspondences: impl Iterator<Item=(f32, NormalizedKeyPoint, NormalizedKeyPoint)>) -> Option<RelativeCameraPose> {
+        // Get the possible rotations and the translation
+        self.possible_poses(max_iterations).and_then(|(rot_x, rot_y, t)| {
+            // Find the translation for both x and y.
+            let tx_dir = rot_x.transpose() * t;
+            let ty_dir = rot_y.transpose() * t;
+            // Get the net translation scale of points that agree with a and b
+            // in addition to the number of points that agree with a and b.
+            let (xt, yt, xn, yn, total) = correspondences.fold(
+                (0.0, 0.0, 0usize, 0usize, 0usize),
+                |(mut xt, mut yt, mut xn, mut yn, total), (depth, a, b)| {
+                    // Compute the CameraPoint of a.
+                    let a_point = depth * a.with_depth(1.0).0;
+                    let trans_and_agree = |rotation, t_dir| {
+                        // Triangulate the position of the CameraPoint of b.
+                        // We know the precise 3d position of the a point relative
+                        // to camera A, but we do not know the
+                        // 3d point in relation to camera B since the translation of
+                        // the point is unknown. We do know the direction of translation
+                        // of the point. We know only the rotation of the camera B
+                        // relative to camera A and the epipolar point on camera B.
+                        // What we will need to do is start by rotating the point in space.
+                        // After rotating the point, we then need to solve for the translation
+                        // that minimizes the reprojection error of the untranslated point as much
+                        // as possible. See the documentation for reproject_along_translation
+                        // to get more details on the process.
+                        let untranslated: Vector3<f32> = rotation * a_point;
+                        let translation_scale = geom::reproject_along_translation(untranslated.xy(), b, t_dir);
+                        // Now that we have the translation, we can just verify that the point
+                        // is in front (z > 1.0) of the camera to see if it agrees with the model.
+                        (translation_scale, translation_scale * t_dir.z + untranslated.z > 1.0)
+                    };
+
+                    // Do it for X.
+                    if let (scale, true) = trans_and_agree(rot_x, tx_dir) {
+                        xt += scale;
+                        xn += 1;
+                    }
+
+                    // Do it for Y.
+                    if let (scale, true) = trans_and_agree(rot_y, ty_dir) {
+                        yt += scale;
+                        yn += 1;
+                    }
+
+                    (xt, yt, xn, yn, total + 1)
+                }
+            );
+            // Ensure that the best one exceeds the consensus ratio.
+            if (core::cmp::max(xn, yn) as f32 / total as f32) < consensus_ratio {
+                return None;
+            }
+            // TODO: Perhaps if its closer than this we should assume the frame itself is an outlier.
+            let (rot, trans) = match xn.cmp(&yn) {
+                Ordering::Equal => return None,
+                Ordering::Greater => (rot_x, xt / xn as f32 * tx_dir),
+                Ordering::Less => (rot_y, yt / yn as f32 * ty_dir),
+            };
+            Some(RelativeCameraPose(Isometry3::from_parts(trans.into(), UnitQuaternion::from_rotation_matrix(&rot))))
         })
     }
 }
