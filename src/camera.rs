@@ -1,23 +1,10 @@
-use derive_more::{AsMut, AsRef, Constructor, Deref, DerefMut, From, Into};
+use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use nalgebra::{Matrix3, Point2, Vector2, Vector3};
 
 /// A point on an image frame. This type should only be used when
 /// the point location is on the image frame in pixel coordinates.
 /// This means the keypoint is neither undistorted nor normalized.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    PartialOrd,
-    AsMut,
-    AsRef,
-    Constructor,
-    Deref,
-    DerefMut,
-    From,
-    Into,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
 pub struct ImageKeyPoint(pub Point2<f32>);
 
 /// A 3d vector which is relative to the camera's optical center and orientation where
@@ -29,20 +16,7 @@ pub struct ImageKeyPoint(pub Point2<f32>);
 /// `From` impl. This is done by projecting the `CameraPoint` onto the virtual plane
 /// at a depth `z = 1.0`. The operation cannot be done in reverse because the depth
 /// (`z` component) or distance from optical center (length) is unknown.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    PartialOrd,
-    AsMut,
-    AsRef,
-    Constructor,
-    Deref,
-    DerefMut,
-    From,
-    Into,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
 pub struct CameraPoint(pub Vector3<f32>);
 
 /// A point in normalized image coordinates. This keypoint has been corrected
@@ -51,20 +25,7 @@ pub struct CameraPoint(pub Vector3<f32>);
 /// and any magnification to the image. Ultimately, the key points must be
 /// represented by their position on the camera sensor and normalized to the
 /// focal length of the camera.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    PartialOrd,
-    AsMut,
-    AsRef,
-    Constructor,
-    Deref,
-    DerefMut,
-    From,
-    Into,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
 pub struct NormalizedKeyPoint(pub Point2<f32>);
 
 impl NormalizedKeyPoint {
@@ -123,7 +84,7 @@ impl From<CameraPoint> for NormalizedKeyPoint {
 ///
 /// For a high quality camera, this may be sufficient to normalize image coordinates.
 /// Undistortion may also be necessary to normalize image coordinates.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Constructor)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct CameraIntrinsics {
     pub focals: Vector2<f32>,
     pub principal_point: Point2<f32>,
@@ -181,7 +142,7 @@ impl CameraIntrinsics {
 /// that can typically be changed and images can also be magnified.
 ///
 /// All distance units should be in meters to avoid conversion issues.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Constructor)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct CameraSpecification {
     pub pixels: Vector2<usize>,
     pub pixel_dimensions: Vector2<f32>,

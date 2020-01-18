@@ -1,4 +1,4 @@
-use derive_more::{AsMut, AsRef, Constructor, Deref, DerefMut, From, Into};
+use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use nalgebra::Point3;
 
 /// A point in "world" coordinates.
@@ -30,18 +30,5 @@ use nalgebra::Point3;
 /// reconstruction, please use the closest known refenence in the view graph to scale
 /// it appropriately. In the future we will add APIs to utilize references
 /// as optimization constraints when a known reference reconstruction is present.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    PartialOrd,
-    AsMut,
-    AsRef,
-    Constructor,
-    Deref,
-    DerefMut,
-    From,
-    Into,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
 pub struct WorldPoint(pub Point3<f32>);

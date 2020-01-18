@@ -3,7 +3,7 @@ use crate::{
 };
 use approx::AbsDiffEq;
 use core::cmp::Ordering;
-use derive_more::{AsMut, AsRef, Constructor, Deref, DerefMut, From, Into};
+use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use nalgebra::{
     dimension::{U2, U3, U7},
     Isometry3, Matrix3, Matrix3x2, MatrixMN, Quaternion, Rotation3, Translation3, UnitQuaternion,
@@ -14,7 +14,7 @@ use sample_consensus::Model;
 /// This contains a world pose, which is a pose of the world relative to the camera.
 /// This maps [`WorldPoint`] into [`CameraPoint`], changing an absolute position into
 /// a vector relative to the camera.
-#[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, Constructor, Deref, DerefMut, From, Into)]
+#[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, Deref, DerefMut, From, Into)]
 pub struct WorldPose(pub Isometry3<f32>);
 
 impl Model<KeyPointWorldMatch> for WorldPose {
@@ -141,7 +141,7 @@ impl From<CameraPose> for WorldPose {
 /// This contains a camera pose, which is a pose of the camera relative to the world.
 /// This transforms camera points (with depth as `z`) into world coordinates.
 /// This also tells you where the camera is located and oriented in the world.
-#[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, Constructor, Deref, DerefMut, From, Into)]
+#[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, Deref, DerefMut, From, Into)]
 pub struct CameraPose(pub Isometry3<f32>);
 
 impl From<WorldPose> for CameraPose {
@@ -162,7 +162,7 @@ impl From<WorldPose> for CameraPose {
 /// * Positive x axis is right
 ///
 /// Note that this is a left-handed coordinate space.
-#[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, Constructor, Deref, DerefMut, From, Into)]
+#[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, Deref, DerefMut, From, Into)]
 pub struct RelativeCameraPose(pub Isometry3<f32>);
 
 impl RelativeCameraPose {
@@ -222,20 +222,7 @@ impl RelativeCameraPose {
 /// one normalized image coordinate and one bearing that is scaled to the depth
 /// of the point relative to the current reconstruction. This kind of point can be computed
 /// using [`WorldPose::project_camera`] to convert a [`WorldPoint`] to a [`CameraPoint`].
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    PartialOrd,
-    AsMut,
-    AsRef,
-    Constructor,
-    Deref,
-    DerefMut,
-    From,
-    Into,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
 pub struct EssentialMatrix(pub Matrix3<f32>);
 
 impl Model<KeyPointsMatch> for EssentialMatrix {
