@@ -33,8 +33,10 @@
 // Author: Chris Sweeney (cmsweeney@cs.ucsb.edu)
 //
 // Translated to Rust by Geordon Worley <vadixidav@gmail.com>
+
 #![no_std]
 extern crate alloc;
+
 use alloc::{vec, vec::Vec};
 use cv_core::nalgebra::{
     self,
