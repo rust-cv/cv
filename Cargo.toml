@@ -1,0 +1,10 @@
+[package]
+name = "nister-stewenius"
+version = "0.1.0"
+authors = ["Geordon Worley <vadixidav@gmail.com>", "Chris Sweeney <cmsweeney@cs.ucsb.edu>"]
+edition = "2018"
+license = "BSD"
+
+[dependencies]
+cv-core = "0.3.0"
+nalgebra = "0.19.0"
