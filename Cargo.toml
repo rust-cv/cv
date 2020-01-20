@@ -7,3 +7,6 @@ license = "BSD"
 
 [dependencies]
 cv-core = "0.3.0"
+
+[dev-dependencies]
+itertools = "0.8.2"

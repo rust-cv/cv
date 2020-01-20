@@ -43,6 +43,7 @@ use cv_core::nalgebra::{
     dimension::{U10, U20, U3, U4, U5, U9},
     Matrix3, MatrixMN, Vector2, Vector4, VectorN,
 };
+use cv_core::{EssentialMatrix, NormalizedKeyPoint};
 
 /// Multiply two degree one polynomials of variables x, y, z.
 /// E.g. p1 = a[0]x + a[1]y + a[2]z + a[3]
@@ -195,23 +196,28 @@ fn build_constraint_matrix(null_space: [[Vector4<f32>; 3]; 3]) -> MatrixMN<f32, 
     constraint_matrix
 }
 
-// Implementation of Nister from "An Efficient Solution to the Five-Point Relative Pose Problem".
+/// Implementation of Nister from "An Efficient Solution to the Five-Point Relative Pose Problem".
+///
+/// Currently, this only uses 5 points regardless of what you pass in.
 pub fn five_point_relative_pose(
     max_iter: usize,
-    image1_points: &[Vector2<f32>],
-    image2_points: &[Vector2<f32>],
-) -> Vec<Matrix3<f32>> {
-    assert_eq!(image1_points.len(), image2_points.len());
-    assert!(
-        image1_points.len() >= 5,
-        "You must supply at least 5 correspondences for the 5 point essential matrix algorithm"
-    );
+    image1_points: impl Iterator<Item = NormalizedKeyPoint> + Clone,
+    image2_points: impl Iterator<Item = NormalizedKeyPoint> + Clone,
+) -> Vec<EssentialMatrix> {
+    let count1 = image1_points.clone().count();
+    let count2 = image2_points.clone().count();
+    assert_eq!(count1, count2);
 
     // Step 1. Create the 5x9 matrix containing epipolar constraints.
     //   Essential matrix is a linear combination of the 4 vectors spanning the
     //   null space of this matrix.
     let mut epipolar_constraint: MatrixMN<f32, U5, U9> = nalgebra::zero();
-    for (i, points) in image1_points.iter().zip(image2_points).enumerate() {
+    for (i, points) in image1_points
+        .clone()
+        .zip(image2_points.clone())
+        .enumerate()
+        .take(5)
+    {
         // Fill matrix with the epipolar constraint from q'_t*E*q = 0. Where q is
         // from the first image, and q' is from the second.
         epipolar_constraint.row_mut(i).copy_from_slice(&[
@@ -308,5 +314,6 @@ pub fn five_point_relative_pose(
         .map(|eigenvector| {
             Matrix3::from_iterator((null_space_transpose * eigenvector).iter().copied())
         })
+        .map(EssentialMatrix)
         .collect()
 }
