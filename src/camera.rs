@@ -29,8 +29,9 @@ pub struct CameraPoint(pub Vector3<f32>);
 pub struct NormalizedKeyPoint(pub Point2<f32>);
 
 impl NormalizedKeyPoint {
-    /// Appends a `z` component to the normalized keypoint to create
-    /// a [`CameraPoint`]. This `z` component must be the depth of
+    /// Conceptually appends a `1.0` component to the normalized keypoint to create
+    /// a [`CameraPoint`] on the virtual image plane and then multiplies
+    /// the point by `depth`. This `z`/`depth` component must be the depth of
     /// the keypoint in the direction the camera is pointing from the
     /// camera's optical center.
     ///

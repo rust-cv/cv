@@ -349,7 +349,7 @@ impl EssentialMatrix {
                     (0.0, 0.0, 0usize, 0usize, 0usize),
                     |(mut xt, mut yt, mut xn, mut yn, total), (depth, a, b)| {
                         // Compute the CameraPoint of a.
-                        let a_point = depth * a.with_depth(1.0).0;
+                        let a_point = a.with_depth(depth).0;
                         let trans_and_agree = |rotation, t_dir| {
                             // Triangulate the position of the CameraPoint of b.
                             // We know the precise 3d position of the a point relative
