@@ -1,4 +1,7 @@
-use cv_core::nalgebra::{Isometry3, UnitQuaternion, Vector2, Vector3};
+use cv_core::nalgebra::{
+    dimension::{U3, U5},
+    Isometry3, MatrixMN, UnitQuaternion, Vector2, Vector3,
+};
 use cv_core::sample_consensus::Model;
 use cv_core::{CameraPoint, KeyPointsMatch, NormalizedKeyPoint, RelativeCameraPose};
 use itertools::izip;
@@ -32,24 +35,29 @@ fn simple_non_degenerate_case() {
     let norm_image_coords_b: Vec<NormalizedKeyPoint> =
         camera_points_b.iter().cloned().map(|p| p.into()).collect();
 
-    // let essentials = nister_stewenius::five_point_relative_pose(
-    //     1000,
-    //     0.1,
-    //     norm_image_coords_a.iter().copied(),
-    //     norm_image_coords_b.iter().copied(),
-    // );
+    let x1 = MatrixMN::<f32, U3, U5>::from_iterator(
+        norm_image_coords_a.iter().flat_map(|p| p.iter().copied()),
+    );
 
-    // for essential in essentials {
-    //     for (&a, &b) in norm_image_coords_a.iter().zip(norm_image_coords_b.iter()) {
-    //         let residual = essential.residual(&KeyPointsMatch(b, a));
-    //         eprintln!("residual: {:?}", residual);
-    //         // assert!(residual.abs() < 1e-5);
-    //     }
-    //     let depths = camera_points_a.iter().map(|p| p.z);
-    //     let b_coords = norm_image_coords_b.iter().copied();
-    //     let a_coords = norm_image_coords_a.iter().copied();
-    //     let pose = essential.solve_pose(0.1, 500, izip!(depths, a_coords, b_coords));
-    //     eprintln!("pose: {:?}", pose);
-    //     eprintln!("actual: {:?}", relative_pose);
-    // }
+    let x2 = MatrixMN::<f32, U3, U5>::from_iterator(
+        norm_image_coords_b.iter().flat_map(|p| p.iter().copied()),
+    );
+
+    let essentials = nister_stewenius::five_points_relative_pose(&x1, &x2);
+
+    for essential in essentials {
+        eprintln!("essential: {:?}", essential);
+        for (&a, &b) in norm_image_coords_a.iter().zip(norm_image_coords_b.iter()) {
+            let residual = essential.residual(&KeyPointsMatch(a, b));
+            eprintln!("residual: {:?}", residual);
+            // assert!(residual.abs() < 1e-5);
+        }
+        let depths = camera_points_a.iter().map(|p| p.z);
+        let b_coords = norm_image_coords_b.iter().copied();
+        let a_coords = norm_image_coords_a.iter().copied();
+        let pose = essential.solve_pose(0.1, 500, izip!(depths, a_coords, b_coords));
+        eprintln!("pose: {:?}", pose);
+        eprintln!("actual: {:?}", relative_pose);
+    }
+    panic!();
 }

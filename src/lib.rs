@@ -193,7 +193,6 @@ pub fn five_points_relative_pose(x1: &Input, x2: &Input) -> impl Iterator<Item =
     } else {
         return essentials_from_action_ebasis(&Square10::zeros(), &NullspaceMat::zeros());
     };
-    let b = m.fixed_slice::<U10, U10>(0, 10);
 
     // For next steps we follow the matlab code given in Stewenius et al [1].
 
@@ -201,11 +200,11 @@ pub fn five_points_relative_pose(x1: &Input, x2: &Input) -> impl Iterator<Item =
 
     let mut at = Square10::zeros();
     at.fixed_slice_mut::<U3, U10>(0, 0)
-        .copy_from(&b.fixed_slice::<U3, U10>(0, 0));
+        .copy_from(&m.fixed_slice::<U3, U10>(0, 0));
 
-    at.row_mut(3).copy_from(&b.row(4));
-    at.row_mut(4).copy_from(&b.row(5));
-    at.row_mut(5).copy_from(&b.row(7));
+    at.row_mut(3).copy_from(&m.row(4));
+    at.row_mut(4).copy_from(&m.row(5));
+    at.row_mut(5).copy_from(&m.row(7));
     at[(6, 0)] = -1.0;
     at[(7, 1)] = -1.0;
     at[(8, 3)] = -1.0;
