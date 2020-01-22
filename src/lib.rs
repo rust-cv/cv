@@ -52,3 +52,18 @@ fn five_points_nullspace_basis(x1: &Input, x2: &Input) -> Option<MatrixMN<f32, U
     ee.try_symmetric_eigen(EIGEN_CONVERGENCE, EIGEN_ITERATIONS)
         .map(|m| m.eigenvectors.fixed_columns::<U4>(0).into_owned())
 }
+
+fn o1(a: Vector4<f32>, b: Vector4<f32>) -> VectorN<f32, U20> {
+    let mut res: VectorN<f32, U20> = nalgebra::zero();
+    res[BASIS_XX] = a.x * b.x;
+    res[BASIS_XY] = a.x * b.y + a.y * b.x;
+    res[BASIS_XZ] = a.x * b.z + a.z * b.x;
+    res[BASIS_YY] = a.y * b.y;
+    res[BASIS_YZ] = a.y * b.z + a.z * b.y;
+    res[BASIS_ZZ] = a.z * b.z;
+    res[BASIS_X] = a.x * b.w + a.w * b.x;
+    res[BASIS_Y] = a.y * b.w + a.w * b.y;
+    res[BASIS_Z] = a.z * b.w + a.w * b.z;
+    res[BASIS_1] = a.w * b.w;
+    res
+}
