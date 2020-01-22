@@ -34,7 +34,9 @@ const EIGEN_CONVERGENCE: f32 = 1e-9;
 const EIGEN_ITERATIONS: usize = 100;
 
 type Input = MatrixMN<f32, U3, U5>;
-type BasisVec = VectorN<f32, U20>;
+type PolyBasisVec = VectorN<f32, U20>;
+type NullspaceMat = MatrixMN<f32, U9, U4>;
+type ConstraintMat = MatrixMN<f32, U10, U20>;
 
 fn encode_epipolar_equation(x1: &Input, x2: &Input) -> MatrixMN<f32, U5, U9> {
     let mut a: MatrixMN<f32, U5, U9> = nalgebra::zero();
@@ -47,15 +49,15 @@ fn encode_epipolar_equation(x1: &Input, x2: &Input) -> MatrixMN<f32, U5, U9> {
     a
 }
 
-fn five_points_nullspace_basis(x1: &Input, x2: &Input) -> Option<MatrixMN<f32, U9, U4>> {
+fn five_points_nullspace_basis(x1: &Input, x2: &Input) -> Option<NullspaceMat> {
     let epipolar_constraint = encode_epipolar_equation(x1, x2);
     let ee = epipolar_constraint.transpose() * epipolar_constraint;
     ee.try_symmetric_eigen(EIGEN_CONVERGENCE, EIGEN_ITERATIONS)
         .map(|m| m.eigenvectors.fixed_columns::<U4>(0).into_owned())
 }
 
-fn o1(a: Vector4<f32>, b: Vector4<f32>) -> BasisVec {
-    let mut res = BasisVec::zeros();
+fn o1(a: Vector4<f32>, b: Vector4<f32>) -> PolyBasisVec {
+    let mut res = PolyBasisVec::zeros();
     res[BASIS_XX] = a.x * b.x;
     res[BASIS_XY] = a.x * b.y + a.y * b.x;
     res[BASIS_XZ] = a.x * b.z + a.z * b.x;
@@ -69,27 +71,83 @@ fn o1(a: Vector4<f32>, b: Vector4<f32>) -> BasisVec {
     res
 }
 
-fn o2(a: &BasisVec, b: &BasisVec) -> BasisVec {
-    let mut res = BasisVec::zeros();
-    res[BASIS_XXX] = a[BASIS_XX] * b[BASIS_X];
-    res[BASIS_XXY] = a[BASIS_XX] * b[BASIS_Y] + a[BASIS_XY] * b[BASIS_X];
-    res[BASIS_XXZ] = a[BASIS_XX] * b[BASIS_Z] + a[BASIS_XZ] * b[BASIS_X];
-    res[BASIS_XYY] = a[BASIS_XY] * b[BASIS_Y] + a[BASIS_YY] * b[BASIS_X];
-    res[BASIS_XYZ] = a[BASIS_XY] * b[BASIS_Z] + a[BASIS_YZ] * b[BASIS_X] + a[BASIS_XZ] * b[BASIS_Y];
-    res[BASIS_XZZ] = a[BASIS_XZ] * b[BASIS_Z] + a[BASIS_ZZ] * b[BASIS_X];
-    res[BASIS_YYY] = a[BASIS_YY] * b[BASIS_Y];
-    res[BASIS_YYZ] = a[BASIS_YY] * b[BASIS_Z] + a[BASIS_YZ] * b[BASIS_Y];
-    res[BASIS_YZZ] = a[BASIS_YZ] * b[BASIS_Z] + a[BASIS_ZZ] * b[BASIS_Y];
-    res[BASIS_ZZZ] = a[BASIS_ZZ] * b[BASIS_Z];
-    res[BASIS_XX] = a[BASIS_XX] * b[BASIS_1] + a[BASIS_X] * b[BASIS_X];
-    res[BASIS_XY] = a[BASIS_XY] * b[BASIS_1] + a[BASIS_X] * b[BASIS_Y] + a[BASIS_Y] * b[BASIS_X];
-    res[BASIS_XZ] = a[BASIS_XZ] * b[BASIS_1] + a[BASIS_X] * b[BASIS_Z] + a[BASIS_Z] * b[BASIS_X];
-    res[BASIS_YY] = a[BASIS_YY] * b[BASIS_1] + a[BASIS_Y] * b[BASIS_Y];
-    res[BASIS_YZ] = a[BASIS_YZ] * b[BASIS_1] + a[BASIS_Y] * b[BASIS_Z] + a[BASIS_Z] * b[BASIS_Y];
-    res[BASIS_ZZ] = a[BASIS_ZZ] * b[BASIS_1] + a[BASIS_Z] * b[BASIS_Z];
-    res[BASIS_X] = a[BASIS_X] * b[BASIS_1] + a[BASIS_1] * b[BASIS_X];
-    res[BASIS_Y] = a[BASIS_Y] * b[BASIS_1] + a[BASIS_1] * b[BASIS_Y];
-    res[BASIS_Z] = a[BASIS_Z] * b[BASIS_1] + a[BASIS_1] * b[BASIS_Z];
-    res[BASIS_1] = a[BASIS_1] * b[BASIS_1];
+fn o2(a: PolyBasisVec, b: Vector4<f32>) -> PolyBasisVec {
+    let mut res = PolyBasisVec::zeros();
+    res[BASIS_XXX] = a[BASIS_XX] * b.x;
+    res[BASIS_XXY] = a[BASIS_XX] * b.y + a[BASIS_XY] * b.x;
+    res[BASIS_XXZ] = a[BASIS_XX] * b.z + a[BASIS_XZ] * b.x;
+    res[BASIS_XYY] = a[BASIS_XY] * b.y + a[BASIS_YY] * b.x;
+    res[BASIS_XYZ] = a[BASIS_XY] * b.z + a[BASIS_YZ] * b.x + a[BASIS_XZ] * b.y;
+    res[BASIS_XZZ] = a[BASIS_XZ] * b.z + a[BASIS_ZZ] * b.x;
+    res[BASIS_YYY] = a[BASIS_YY] * b.y;
+    res[BASIS_YYZ] = a[BASIS_YY] * b.z + a[BASIS_YZ] * b.y;
+    res[BASIS_YZZ] = a[BASIS_YZ] * b.z + a[BASIS_ZZ] * b.y;
+    res[BASIS_ZZZ] = a[BASIS_ZZ] * b.z;
+    res[BASIS_XX] = a[BASIS_XX] * b.w + a[BASIS_X] * b.x;
+    res[BASIS_XY] = a[BASIS_XY] * b.w + a[BASIS_X] * b.y + a[BASIS_Y] * b.x;
+    res[BASIS_XZ] = a[BASIS_XZ] * b.w + a[BASIS_X] * b.z + a[BASIS_Z] * b.x;
+    res[BASIS_YY] = a[BASIS_YY] * b.w + a[BASIS_Y] * b.y;
+    res[BASIS_YZ] = a[BASIS_YZ] * b.w + a[BASIS_Y] * b.z + a[BASIS_Z] * b.y;
+    res[BASIS_ZZ] = a[BASIS_ZZ] * b.w + a[BASIS_Z] * b.z;
+    res[BASIS_X] = a[BASIS_X] * b.w + a[BASIS_1] * b.x;
+    res[BASIS_Y] = a[BASIS_Y] * b.w + a[BASIS_1] * b.y;
+    res[BASIS_Z] = a[BASIS_Z] * b.w + a[BASIS_1] * b.z;
+    res[BASIS_1] = a[BASIS_1] * b.w;
     return res;
+}
+
+fn five_points_polynomial_constraints(nullspace: &NullspaceMat) -> ConstraintMat {
+    // Build the polynomial form of E (equation (8) in Stewenius et al. [1])
+    let mut e = [[Vector4::zeros(); 3]; 3];
+    for i in 0..3 {
+        for j in 0..3 {
+            let x = nullspace[(3 * i + j, 0)];
+            let y = nullspace[(3 * i + j, 1)];
+            let z = nullspace[(3 * i + j, 2)];
+            let w = nullspace[(3 * i + j, 3)];
+            e[i][j] = Vector4::new(x, y, z, w);
+        }
+    }
+
+    // The constraint matrix.
+    let mut m = ConstraintMat::zeros();
+    // Determinant constraint det(E) = 0; equation (19) of Nister [2].
+    m.row_mut(0).copy_from(
+        &(o2(o1(e[0][1], e[1][2]) - o1(e[0][2], e[1][1]), e[2][0])
+            + o2(o1(e[0][2], e[1][0]) - o1(e[0][0], e[1][2]), e[2][1])
+            + o2(o1(e[0][0], e[1][1]) - o1(e[0][1], e[1][0]), e[2][2]))
+        .transpose(),
+    );
+
+    // Cubic singular values constraint.
+    // Equation (20).
+    let mut eet = [[PolyBasisVec::zeros(); 3]; 3];
+    for i in 0..3 {
+        // Since EET is symmetric, we only compute
+        for j in 0..3 {
+            // its upper triangular part.
+            if i <= j {
+                eet[i][j] = o1(e[i][0], e[j][0]) + o1(e[i][1], e[j][1]) + o1(e[i][2], e[j][2]);
+            } else {
+                eet[i][j] = eet[j][i];
+            }
+        }
+    }
+
+    // Equation (21).
+    let mut l = eet;
+    let trace = 0.5 * (eet[0][0] + eet[1][1] + eet[2][2]);
+    for i in 0..3 {
+        l[i][i] -= trace;
+    }
+
+    // Equation (23).
+    for i in 0..3 {
+        for j in 0..3 {
+            let leij = o2(l[i][0], e[0][j]) + o2(l[i][1], e[1][j]) + o2(l[i][2], e[2][j]);
+            m.row_mut(1 + i * 3 + j).copy_from(&leij.transpose());
+        }
+    }
+
+    m
 }
