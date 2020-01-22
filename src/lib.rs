@@ -1,6 +1,3 @@
-#![no_std]
-extern crate alloc;
-
 const BASIS_XXX: usize = 0;
 const BASIS_XXY: usize = 1;
 const BASIS_XYY: usize = 2;
@@ -22,13 +19,12 @@ const BASIS_Y: usize = 17;
 const BASIS_Z: usize = 18;
 const BASIS_1: usize = 19;
 
-use alloc::{vec, vec::Vec};
 use cv_core::nalgebra::{
     self,
-    dimension::{Dynamic, U1, U10, U20, U3, U4, U5, U6, U9},
-    Matrix3, MatrixMN, SymmetricEigen, Vector4, VectorN,
+    dimension::{U1, U10, U20, U3, U4, U5, U9},
+    Matrix3, MatrixMN, MatrixN, Vector4, VectorN,
 };
-use cv_core::{EssentialMatrix, NormalizedKeyPoint};
+use cv_core::EssentialMatrix;
 
 const EIGEN_CONVERGENCE: f32 = 1e-9;
 const EIGEN_ITERATIONS: usize = 100;
@@ -37,6 +33,7 @@ type Input = MatrixMN<f32, U3, U5>;
 type PolyBasisVec = VectorN<f32, U20>;
 type NullspaceMat = MatrixMN<f32, U9, U4>;
 type ConstraintMat = MatrixMN<f32, U10, U20>;
+type Square10 = MatrixN<f32, U10>;
 
 fn encode_epipolar_equation(x1: &Input, x2: &Input) -> MatrixMN<f32, U5, U9> {
     let mut a: MatrixMN<f32, U5, U9> = nalgebra::zero();
@@ -150,4 +147,69 @@ fn five_points_polynomial_constraints(nullspace: &NullspaceMat) -> ConstraintMat
     }
 
     m
+}
+
+fn essentials_from_action_ebasis(
+    at: &Square10,
+    eb: &NullspaceMat,
+) -> impl Iterator<Item = EssentialMatrix> {
+    let eigenvalues = at.complex_eigenvalues();
+    eigenvalues
+        .iter()
+        .filter_map(|e| {
+            if e.im == 0.0 {
+                let e = e.re;
+                // Solve for the eigen vector.
+                let li = Square10::from_diagonal_element(e);
+                let lu = (at - li).full_piv_lu();
+                lu.solve(&VectorN::<f32, U10>::zeros())
+                    .map(|v| v.fixed_rows::<U4>(5).into_owned())
+            } else {
+                None
+            }
+        })
+        .map(|vector| Matrix3::from_iterator((eb * vector).iter().copied()).transpose())
+        .map(EssentialMatrix)
+        .collect::<Vec<_>>()
+        .into_iter()
+}
+
+pub fn five_points_relative_pose(x1: &Input, x2: &Input) -> impl Iterator<Item = EssentialMatrix> {
+    // Step 1: Nullspace Extraction.
+    let e_basis = if let Some(m) = five_points_nullspace_basis(x1, x2) {
+        m
+    } else {
+        return essentials_from_action_ebasis(&Square10::zeros(), &NullspaceMat::zeros());
+    };
+
+    // Step 2: Constraint Expansion.
+    let e_constraints = five_points_polynomial_constraints(&e_basis);
+
+    // Step 3: Gauss-Jordan Elimination (done thanks to a LU decomposition).
+    let c_lu = e_constraints.fixed_slice::<U10, U10>(0, 0).full_piv_lu();
+    let m = if let Some(m) = c_lu.solve(&e_constraints.fixed_slice::<U10, U10>(0, 10).into_owned())
+    {
+        m
+    } else {
+        return essentials_from_action_ebasis(&Square10::zeros(), &NullspaceMat::zeros());
+    };
+    let b = m.fixed_slice::<U10, U10>(0, 10);
+
+    // For next steps we follow the matlab code given in Stewenius et al [1].
+
+    // Build action matrix.
+
+    let mut at = Square10::zeros();
+    at.fixed_slice_mut::<U3, U10>(0, 0)
+        .copy_from(&b.fixed_slice::<U3, U10>(0, 0));
+
+    at.row_mut(3).copy_from(&b.row(4));
+    at.row_mut(4).copy_from(&b.row(5));
+    at.row_mut(5).copy_from(&b.row(7));
+    at[(6, 0)] = -1.0;
+    at[(7, 1)] = -1.0;
+    at[(8, 3)] = -1.0;
+    at[(9, 6)] = -1.0;
+
+    essentials_from_action_ebasis(&at, &e_basis)
 }
