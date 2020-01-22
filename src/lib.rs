@@ -26,9 +26,12 @@ use alloc::{vec, vec::Vec};
 use cv_core::nalgebra::{
     self,
     dimension::{Dynamic, U1, U10, U20, U3, U4, U5, U6, U9},
-    Matrix3, MatrixMN, Vector4, VectorN,
+    Matrix3, MatrixMN, SymmetricEigen, Vector4, VectorN,
 };
 use cv_core::{EssentialMatrix, NormalizedKeyPoint};
+
+const EIGEN_CONVERGENCE: f32 = 1e-9;
+const EIGEN_ITERATIONS: usize = 100;
 
 type Input = MatrixMN<f32, U3, U5>;
 
@@ -41,4 +44,11 @@ fn encode_epipolar_equation(x1: &Input, x2: &Input) -> MatrixMN<f32, U5, U9> {
         }
     }
     a
+}
+
+fn five_points_nullspace_basis(x1: &Input, x2: &Input) -> Option<MatrixMN<f32, U9, U4>> {
+    let epipolar_constraint = encode_epipolar_equation(x1, x2);
+    let ee = epipolar_constraint.transpose() * epipolar_constraint;
+    ee.try_symmetric_eigen(EIGEN_CONVERGENCE, EIGEN_ITERATIONS)
+        .map(|m| m.eigenvectors.fixed_columns::<U4>(0).into_owned())
 }
