@@ -28,6 +28,11 @@ use cv_core::EssentialMatrix;
 
 const EIGEN_CONVERGENCE: f32 = 1e-9;
 const EIGEN_ITERATIONS: usize = 100;
+const SVD_CONVERGENCE: f32 = 1e-9;
+const SVD_ITERATIONS: usize = 100;
+/// The threshold which the singular value must be below for it
+/// to be considered the null-space.
+const SVD_NULL_THRESHOLD: f32 = 0.1;
 
 type Input = MatrixMN<f32, U3, U5>;
 type PolyBasisVec = VectorN<f32, U20>;
@@ -149,6 +154,27 @@ fn five_points_polynomial_constraints(nullspace: &NullspaceMat) -> ConstraintMat
     m
 }
 
+fn compute_eigenvector(m: &Square10, lambda: f32) -> Option<VectorN<f32, U10>> {
+    (m - Square10::from_diagonal_element(lambda))
+        .try_svd(false, true, SVD_CONVERGENCE, SVD_ITERATIONS)
+        .and_then(|svd| {
+            eprintln!("singular values: {:?}", svd.singular_values);
+            // Find the lowest singular value's index and value.
+            let (ix, &v) = svd
+                .singular_values
+                .iter()
+                .enumerate()
+                .min_by_key(|&(_, &v)| float_ord::FloatOrd(v))
+                .unwrap();
+            // Ensure that the singular value is below a threshold.
+            if v < SVD_NULL_THRESHOLD {
+                Some(svd.v_t.unwrap().column(ix).into_owned())
+            } else {
+                None
+            }
+        })
+}
+
 fn essentials_from_action_ebasis(
     at: &Square10,
     eb: &NullspaceMat,
@@ -160,10 +186,7 @@ fn essentials_from_action_ebasis(
             if e.im == 0.0 {
                 let e = e.re;
                 // Solve for the eigen vector.
-                let li = Square10::from_diagonal_element(e);
-                let lu = (at - li).full_piv_lu();
-                lu.solve(&VectorN::<f32, U10>::zeros())
-                    .map(|v| v.fixed_rows::<U4>(5).into_owned())
+                compute_eigenvector(at, e).map(|v| v.fixed_rows::<U4>(5).into_owned())
             } else {
                 None
             }

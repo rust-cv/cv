@@ -1,6 +1,6 @@
 use cv_core::nalgebra::{
     dimension::{U3, U5},
-    Isometry3, MatrixMN, UnitQuaternion, Vector2, Vector3,
+    Isometry3, MatrixMN, UnitQuaternion, Vector3,
 };
 use cv_core::sample_consensus::Model;
 use cv_core::{CameraPoint, KeyPointsMatch, NormalizedKeyPoint, RelativeCameraPose};
@@ -50,7 +50,7 @@ fn simple_non_degenerate_case() {
         for (&a, &b) in norm_image_coords_a.iter().zip(norm_image_coords_b.iter()) {
             let residual = essential.residual(&KeyPointsMatch(a, b));
             eprintln!("residual: {:?}", residual);
-            // assert!(residual.abs() < 1e-5);
+            assert!(residual.abs() < 1e-5);
         }
         let depths = camera_points_a.iter().map(|p| p.z);
         let b_coords = norm_image_coords_b.iter().copied();
@@ -59,5 +59,4 @@ fn simple_non_degenerate_case() {
         eprintln!("pose: {:?}", pose);
         eprintln!("actual: {:?}", relative_pose);
     }
-    panic!();
 }
