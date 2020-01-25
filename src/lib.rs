@@ -1,3 +1,5 @@
+#![no_std]
+
 const BASIS_XXX: usize = 0;
 const BASIS_XXY: usize = 1;
 const BASIS_XYY: usize = 2;
@@ -22,7 +24,7 @@ const BASIS_1: usize = 19;
 use cv_core::nalgebra::{
     self,
     dimension::{U1, U10, U20, U3, U4, U5, U9},
-    Matrix3, MatrixMN, MatrixN, Vector4, VectorN,
+    DimName, Matrix3, MatrixMN, MatrixN, Vector4, VectorN,
 };
 use cv_core::EssentialMatrix;
 
@@ -34,15 +36,17 @@ const SVD_ITERATIONS: usize = 100;
 /// to be considered the null-space.
 const SVD_NULL_THRESHOLD: f32 = 0.1;
 
-type Input = MatrixMN<f32, U3, U5>;
+type NIn = U5;
+
+type Input = MatrixMN<f32, U3, NIn>;
 type PolyBasisVec = VectorN<f32, U20>;
 type NullspaceMat = MatrixMN<f32, U9, U4>;
 type ConstraintMat = MatrixMN<f32, U10, U20>;
 type Square10 = MatrixN<f32, U10>;
 
-fn encode_epipolar_equation(x1: &Input, x2: &Input) -> MatrixMN<f32, U5, U9> {
-    let mut a: MatrixMN<f32, U5, U9> = nalgebra::zero();
-    for i in 0..5 {
+fn encode_epipolar_equation(x1: &Input, x2: &Input) -> MatrixMN<f32, NIn, U9> {
+    let mut a: MatrixMN<f32, NIn, U9> = nalgebra::zero();
+    for i in 0..NIn::dim() {
         for j in 0..3 {
             let v = x2[(j, i)] * x1.column(i).transpose();
             a.fixed_slice_mut::<U1, U3>(i, 3 * j).copy_from(&v);
@@ -158,7 +162,6 @@ fn compute_eigenvector(m: &Square10, lambda: f32) -> Option<VectorN<f32, U10>> {
     (m - Square10::from_diagonal_element(lambda))
         .try_svd(false, true, SVD_CONVERGENCE, SVD_ITERATIONS)
         .and_then(|svd| {
-            eprintln!("singular values: {:?}", svd.singular_values);
             // Find the lowest singular value's index and value.
             let (ix, &v) = svd
                 .singular_values
@@ -176,25 +179,23 @@ fn compute_eigenvector(m: &Square10, lambda: f32) -> Option<VectorN<f32, U10>> {
 }
 
 fn essentials_from_action_ebasis(
-    at: &Square10,
-    eb: &NullspaceMat,
+    at: Square10,
+    eb: NullspaceMat,
 ) -> impl Iterator<Item = EssentialMatrix> {
     let eigenvalues = at.complex_eigenvalues();
-    eigenvalues
-        .iter()
-        .filter_map(|e| {
+    (0..eigenvalues.len())
+        .filter_map(move |i| {
+            let e = eigenvalues[i];
             if e.im == 0.0 {
                 let e = e.re;
                 // Solve for the eigen vector.
-                compute_eigenvector(at, e).map(|v| v.fixed_rows::<U4>(5).into_owned())
+                compute_eigenvector(&at, e).map(|v| v.fixed_rows::<U4>(5).into_owned())
             } else {
                 None
             }
         })
-        .map(|vector| Matrix3::from_iterator((eb * vector).iter().copied()).transpose())
+        .map(move |vector| Matrix3::from_iterator((eb * vector).iter().copied()).transpose())
         .map(EssentialMatrix)
-        .collect::<Vec<_>>()
-        .into_iter()
 }
 
 pub fn five_points_relative_pose(x1: &Input, x2: &Input) -> impl Iterator<Item = EssentialMatrix> {
@@ -202,7 +203,7 @@ pub fn five_points_relative_pose(x1: &Input, x2: &Input) -> impl Iterator<Item =
     let e_basis = if let Some(m) = five_points_nullspace_basis(x1, x2) {
         m
     } else {
-        return essentials_from_action_ebasis(&Square10::zeros(), &NullspaceMat::zeros());
+        return essentials_from_action_ebasis(Square10::zeros(), NullspaceMat::zeros());
     };
 
     // Step 2: Constraint Expansion.
@@ -214,7 +215,7 @@ pub fn five_points_relative_pose(x1: &Input, x2: &Input) -> impl Iterator<Item =
     {
         m
     } else {
-        return essentials_from_action_ebasis(&Square10::zeros(), &NullspaceMat::zeros());
+        return essentials_from_action_ebasis(Square10::zeros(), NullspaceMat::zeros());
     };
 
     // For next steps we follow the matlab code given in Stewenius et al [1].
@@ -233,5 +234,5 @@ pub fn five_points_relative_pose(x1: &Input, x2: &Input) -> impl Iterator<Item =
     at[(8, 3)] = -1.0;
     at[(9, 6)] = -1.0;
 
-    essentials_from_action_ebasis(&at, &e_basis)
+    essentials_from_action_ebasis(at, e_basis)
 }
