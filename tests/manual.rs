@@ -1,6 +1,6 @@
 use cv_core::nalgebra::{
     dimension::{U3, U5},
-    Isometry3, MatrixMN, UnitQuaternion, Vector3,
+    Isometry3, Matrix3, MatrixMN, UnitQuaternion, Vector3,
 };
 use cv_core::sample_consensus::Model;
 use cv_core::{
@@ -8,9 +8,35 @@ use cv_core::{
 };
 use itertools::izip;
 
+const NEAR: f32 = 1e-4;
+
+#[test]
+fn five_points_nullspace_basis() {
+    let (_, _, x1, x2) = some_test_data();
+    let e_basis = nister_stewenius::five_points_nullspace_basis(&x1, &x2)
+        .expect("unable to compute nullspace basis");
+    for s in 0..4 {
+        let mut e = Matrix3::zeros();
+        for i in 0..3 {
+            for j in 0..3 {
+                e[(i, j)] = e_basis[(3 * i + j, s)];
+            }
+        }
+
+        for i in 0..5 {
+            let a = x1.column(i).into_owned();
+            let b = x2.column(i).into_owned();
+
+            let dot = b.dot(&(e * a)).abs();
+
+            assert!(dot < NEAR, "{} not small enough", dot);
+        }
+    }
+}
+
 #[test]
 fn five_points_relative_pose() {
-    let (relative_pose, real_essential, x1, x2) = some_test_data();
+    let (_, real_essential, x1, x2) = some_test_data();
 
     let essentials = nister_stewenius::five_points_relative_pose(&x1, &x2);
 

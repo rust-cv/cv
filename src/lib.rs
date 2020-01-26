@@ -47,10 +47,12 @@ type Square10 = MatrixN<f32, U10>;
 fn encode_epipolar_equation(x1: &Input, x2: &Input) -> MatrixMN<f32, NIn, U9> {
     let mut a: MatrixMN<f32, NIn, U9> = nalgebra::zero();
     for i in 0..NIn::dim() {
+        let mut row = VectorN::<f32, U9>::zeros();
         for j in 0..3 {
-            let v = x2[(j, i)] * x1.column(i).transpose();
-            a.fixed_slice_mut::<U1, U3>(i, 3 * j).copy_from(&v);
+            let v = x2[(j, i)] * x1.column(i);
+            row.fixed_rows_mut::<U3>(3 * j).copy_from(&v);
         }
+        a.row_mut(i).copy_from(&row.transpose());
     }
     a
 }
@@ -59,7 +61,16 @@ pub fn five_points_nullspace_basis(x1: &Input, x2: &Input) -> Option<NullspaceMa
     let epipolar_constraint = encode_epipolar_equation(x1, x2);
     let ee = epipolar_constraint.transpose() * epipolar_constraint;
     ee.try_symmetric_eigen(EIGEN_CONVERGENCE, EIGEN_ITERATIONS)
-        .map(|m| m.eigenvectors.fixed_columns::<U4>(0).into_owned())
+        .map(|m| {
+            // We need to sort the eigenvectors by their corresponding eigenvalue.
+            let mut sources = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+            sources.sort_by_key(|&ix| float_ord::FloatOrd(m.eigenvalues[ix]));
+            let mut sorted = NullspaceMat::zeros();
+            for (&ix, mut column) in sources.iter().zip(sorted.column_iter_mut()) {
+                column.copy_from(&m.eigenvectors.column(ix));
+            }
+            sorted
+        })
 }
 
 fn o1(a: Vector4<f32>, b: Vector4<f32>) -> PolyBasisVec {
