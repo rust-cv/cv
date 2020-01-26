@@ -231,7 +231,7 @@ impl Model<KeyPointsMatch> for EssentialMatrix {
         let KeyPointsMatch(NormalizedKeyPoint(a), NormalizedKeyPoint(b)) = *data;
 
         // The result is a 1x1 matrix which we must get element 0 from.
-        (a.to_homogeneous().transpose() * mat * b.to_homogeneous())[0]
+        (b.to_homogeneous().transpose() * mat * a.to_homogeneous())[0]
     }
 }
 
