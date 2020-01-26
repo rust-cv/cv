@@ -55,7 +55,7 @@ fn encode_epipolar_equation(x1: &Input, x2: &Input) -> MatrixMN<f32, NIn, U9> {
     a
 }
 
-fn five_points_nullspace_basis(x1: &Input, x2: &Input) -> Option<NullspaceMat> {
+pub fn five_points_nullspace_basis(x1: &Input, x2: &Input) -> Option<NullspaceMat> {
     let epipolar_constraint = encode_epipolar_equation(x1, x2);
     let ee = epipolar_constraint.transpose() * epipolar_constraint;
     ee.try_symmetric_eigen(EIGEN_CONVERGENCE, EIGEN_ITERATIONS)
