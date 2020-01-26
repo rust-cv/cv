@@ -26,7 +26,7 @@ use cv_core::nalgebra::{
     dimension::{U1, U10, U20, U3, U4, U5, U9},
     DimName, Matrix3, MatrixMN, MatrixN, Vector4, VectorN,
 };
-use cv_core::EssentialMatrix;
+use cv_core::{EssentialMatrix, NormalizedKeyPoint};
 
 const EIGEN_CONVERGENCE: f32 = 1e-9;
 const EIGEN_ITERATIONS: usize = 100;
@@ -36,29 +36,34 @@ const SVD_ITERATIONS: usize = 100;
 /// to be considered the null-space.
 const SVD_NULL_THRESHOLD: f32 = 0.1;
 
-type NIn = U5;
-
-type Input = MatrixMN<f32, U3, NIn>;
 type PolyBasisVec = VectorN<f32, U20>;
 type NullspaceMat = MatrixMN<f32, U9, U4>;
 type ConstraintMat = MatrixMN<f32, U10, U20>;
 type Square10 = MatrixN<f32, U10>;
 
-fn encode_epipolar_equation(x1: &Input, x2: &Input) -> MatrixMN<f32, NIn, U9> {
-    let mut a: MatrixMN<f32, NIn, U9> = nalgebra::zero();
-    for i in 0..NIn::dim() {
+fn encode_epipolar_equation(
+    a: &[NormalizedKeyPoint; 5],
+    b: &[NormalizedKeyPoint; 5],
+) -> MatrixMN<f32, U5, U9> {
+    let mut out: MatrixMN<f32, U5, U9> = nalgebra::zero();
+    for i in 0..U5::dim() {
         let mut row = VectorN::<f32, U9>::zeros();
+        let ap = a[i].epipolar_point();
+        let bp = b[i].epipolar_point();
         for j in 0..3 {
-            let v = x2[(j, i)] * x1.column(i);
+            let v = bp[j] * ap.0;
             row.fixed_rows_mut::<U3>(3 * j).copy_from(&v);
         }
-        a.row_mut(i).copy_from(&row.transpose());
+        out.row_mut(i).copy_from(&row.transpose());
     }
-    a
+    out
 }
 
-pub fn five_points_nullspace_basis(x1: &Input, x2: &Input) -> Option<NullspaceMat> {
-    let epipolar_constraint = encode_epipolar_equation(x1, x2);
+pub fn five_points_nullspace_basis(
+    a: &[NormalizedKeyPoint; 5],
+    b: &[NormalizedKeyPoint; 5],
+) -> Option<NullspaceMat> {
+    let epipolar_constraint = encode_epipolar_equation(a, b);
     let ee = epipolar_constraint.transpose() * epipolar_constraint;
     ee.try_symmetric_eigen(EIGEN_CONVERGENCE, EIGEN_ITERATIONS)
         .map(|m| {
@@ -209,9 +214,13 @@ fn essentials_from_action_ebasis(
         .map(EssentialMatrix)
 }
 
-pub fn five_points_relative_pose(x1: &Input, x2: &Input) -> impl Iterator<Item = EssentialMatrix> {
+/// Takes in two sets of 3d bearings from
+pub fn five_points_relative_pose(
+    a: &[NormalizedKeyPoint; 5],
+    b: &[NormalizedKeyPoint; 5],
+) -> impl Iterator<Item = EssentialMatrix> {
     // Step 1: Nullspace Extraction.
-    let e_basis = if let Some(m) = five_points_nullspace_basis(x1, x2) {
+    let e_basis = if let Some(m) = five_points_nullspace_basis(a, b) {
         m
     } else {
         return essentials_from_action_ebasis(Square10::zeros(), NullspaceMat::zeros());
