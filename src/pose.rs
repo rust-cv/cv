@@ -1,7 +1,6 @@
 use crate::{
     geom, CameraPoint, KeyPointWorldMatch, KeyPointsMatch, NormalizedKeyPoint, WorldPoint,
 };
-use approx::AbsDiffEq;
 use core::cmp::Ordering;
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use nalgebra::{
@@ -268,6 +267,10 @@ impl EssentialMatrix {
     /// direction of arbitrary length. The translation's length is unknown and must be
     /// solved for by using a prior.
     ///
+    /// `epsilon` is the threshold by which the singular value decomposition is considered
+    /// complete. Making this smaller may improve the precision. It is recommended to
+    /// set this to no higher than `1e-6`.
+    ///
     /// `max_iterations` is the maximum number of iterations that singular value decomposition
     /// will run on this matrix. Use this in soft realtime systems to cap the execution time.
     /// A `max_iterations` of `0` may execute indefinitely and is not recommended.
@@ -279,17 +282,23 @@ impl EssentialMatrix {
     ///     Vector3::new(0.3, 0.4, 0.5).into(),
     ///     UnitQuaternion::from_euler_angles(0.2, 0.3, 0.4),
     /// ));
-    /// let (rot_a, rot_b, _) = pose.essential_matrix().possible_poses(100).unwrap();
+    /// // Get the possible poses for the essential matrix created from `pose`.
+    /// // The translation of unknown scale is discarded here.
+    /// let (rot_a, rot_b, _) = pose.essential_matrix().possible_poses(1e-6, 5).unwrap();
+    /// // Extract vector from quaternion.
     /// let qcoord = |uquat: UnitQuaternion<f32>| uquat.quaternion().coords;
+    /// // Convert rotations into quaternion form.
     /// let quat_a = UnitQuaternion::from(rot_a);
     /// let quat_b = UnitQuaternion::from(rot_b);
+    /// // Compute residual via cosine distance of quaternions (guaranteed positive w).
     /// let a_close = 1.0 - qcoord(quat_a).dot(&qcoord(pose.rotation)) < 1e-6;
     /// let b_close = 1.0 - qcoord(quat_b).dot(&qcoord(pose.rotation)) < 1e-6;
-    /// eprintln!("{:?}\n{:?}\n{:?}", pose.rotation, quat_a, quat_b);
+    /// // At least one rotation is correct.
     /// assert!(a_close || b_close);
     /// ```
     pub fn possible_poses(
         &self,
+        epsilon: f32,
         max_iterations: usize,
     ) -> Option<(Rotation3<f32>, Rotation3<f32>, Vector3<f32>)> {
         let Self(essential) = *self;
@@ -300,13 +309,7 @@ impl EssentialMatrix {
         let wt = w.transpose();
 
         // Perform SVD.
-        let svd = SVD::try_new(
-            essential,
-            true,
-            true,
-            f32::default_epsilon(),
-            max_iterations,
-        );
+        let svd = SVD::try_new(essential, true, true, epsilon, max_iterations);
         // Extract only the U and V matrix from the SVD.
         let u_v_t = svd.map(|svd| {
             if let SVD {
@@ -317,14 +320,14 @@ impl EssentialMatrix {
             {
                 // Sort the singular vectors in U and V*.
                 let mut sources: [usize; 3] = [0, 1, 2];
-                sources.sort_unstable_by_key(|&ix| float_ord::FloatOrd(singular_values[ix]));
+                sources.sort_unstable_by_key(|&ix| float_ord::FloatOrd(-singular_values[ix]));
                 let mut sorted_v_t = Matrix3::zeros();
                 let mut sorted_u = Matrix3::zeros();
-                for (&ix, mut column) in sources.iter().zip(sorted_v_t.column_iter_mut()) {
-                    column.copy_from(&v_t.column(ix));
+                for (&ix, mut row) in sources.iter().zip(sorted_v_t.row_iter_mut()) {
+                    row.copy_from(&v_t.row(ix));
                 }
-                for (&ix, mut row) in sources.iter().zip(sorted_u.column_iter_mut()) {
-                    row.copy_from(&u.column(ix));
+                for (&ix, mut column) in sources.iter().zip(sorted_u.column_iter_mut()) {
+                    column.copy_from(&u.column(ix));
                 }
                 (sorted_u, sorted_v_t)
             } else {
@@ -335,13 +338,13 @@ impl EssentialMatrix {
         // why this is done since it isn't apparent from the Wikipedia page
         // on this subject, but this is what TheiaSfM does in essential_matrix_utils.cc.
         let u_v_t = u_v_t.map(|(mut u, mut v_t)| {
-            // Make determinant of U positive.
+            // Last column of U is undetermined since d = (a a 0).
             if u.determinant() < 0.0 {
                 for n in u.column_mut(2).iter_mut() {
                     *n *= -1.0;
                 }
             }
-            // Make determinant of V* positive.
+            // Last row of Vt is undetermined since d = (a a 0).
             if v_t.determinant() < 0.0 {
                 for n in v_t.row_mut(2).iter_mut() {
                     *n *= -1.0;
@@ -393,11 +396,12 @@ impl EssentialMatrix {
     pub fn solve_pose(
         &self,
         consensus_ratio: f32,
+        epsilon: f32,
         max_iterations: usize,
         correspondences: impl Iterator<Item = (f32, NormalizedKeyPoint, NormalizedKeyPoint)>,
     ) -> Option<RelativeCameraPose> {
         // Get the possible rotations and the translation
-        self.possible_poses(max_iterations)
+        self.possible_poses(epsilon, max_iterations)
             .and_then(|(rot_x, rot_y, t)| {
                 // Find the translation for both x and y.
                 let tx_dir = rot_x.transpose() * t;
