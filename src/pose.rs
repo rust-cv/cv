@@ -166,10 +166,38 @@ impl From<WorldPose> for CameraPose {
 pub struct RelativeCameraPose(pub Isometry3<f32>);
 
 impl RelativeCameraPose {
-    // The relative pose transforms the point in camera space from camera `A` to camera `B`.
+    /// The relative pose transforms the point in camera space from camera `A` to camera `B`.
     pub fn transform(&self, CameraPoint(point): CameraPoint) -> CameraPoint {
         let Self(iso) = *self;
         CameraPoint(iso * point)
+    }
+
+    /// Generates an essential matrix corresponding to this relative camera pose.
+    ///
+    /// If a point `a` is transformed using [`RelativeCameraPose::transform`] into
+    /// a point `b`, then the essential matrix returned by this method will
+    /// give a residual of approximately `0.0` when you call
+    /// `essential.residual(&KeyPointsMatch(a.into(), b.into()))`.
+    ///
+    /// See the documentation of [`EssentialMatrix`] for more information.
+    ///
+    /// ```
+    /// # use cv_core::{RelativeCameraPose, CameraPoint, KeyPointsMatch};
+    /// # use cv_core::sample_consensus::Model;
+    /// # use cv_core::nalgebra::{Vector3, Isometry3, UnitQuaternion};
+    /// let pose = RelativeCameraPose(Isometry3::from_parts(
+    ///     Vector3::new(0.3, 0.4, 0.5).into(),
+    ///     UnitQuaternion::from_euler_angles(0.2, 0.3, 0.4),
+    /// ));
+    /// let a = CameraPoint(Vector3::new(0.5, 0.5, 3.0));
+    /// let b = pose.transform(a);
+    /// assert!(pose.essential_matrix().residual(&KeyPointsMatch(a.into(), b.into())) < 1e-6);
+    /// ```
+    pub fn essential_matrix(&self) -> EssentialMatrix {
+        EssentialMatrix(
+            *self.0.rotation.to_rotation_matrix().matrix()
+                * self.0.translation.vector.cross_matrix(),
+        )
     }
 }
 
@@ -237,12 +265,29 @@ impl Model<KeyPointsMatch> for EssentialMatrix {
 
 impl EssentialMatrix {
     /// Returns two possible rotations for the essential matrix along with a translation
-    /// direction of unit length. The translation's length is unknown and must be
+    /// direction of arbitrary length. The translation's length is unknown and must be
     /// solved for by using a prior.
     ///
     /// `max_iterations` is the maximum number of iterations that singular value decomposition
     /// will run on this matrix. Use this in soft realtime systems to cap the execution time.
     /// A `max_iterations` of `0` may execute indefinitely and is not recommended.
+    ///
+    /// ```
+    /// # use cv_core::RelativeCameraPose;
+    /// # use cv_core::nalgebra::{Isometry3, UnitQuaternion, Vector3, Rotation3};
+    /// let pose = RelativeCameraPose(Isometry3::from_parts(
+    ///     Vector3::new(0.3, 0.4, 0.5).into(),
+    ///     UnitQuaternion::from_euler_angles(0.2, 0.3, 0.4),
+    /// ));
+    /// let (rot_a, rot_b, _) = pose.essential_matrix().possible_poses(100).unwrap();
+    /// let qcoord = |uquat: UnitQuaternion<f32>| uquat.quaternion().coords;
+    /// let quat_a = UnitQuaternion::from(rot_a);
+    /// let quat_b = UnitQuaternion::from(rot_b);
+    /// let a_close = 1.0 - qcoord(quat_a).dot(&qcoord(pose.rotation)) < 1e-6;
+    /// let b_close = 1.0 - qcoord(quat_b).dot(&qcoord(pose.rotation)) < 1e-6;
+    /// eprintln!("{:?}\n{:?}\n{:?}", pose.rotation, quat_a, quat_b);
+    /// assert!(a_close || b_close);
+    /// ```
     pub fn possible_poses(
         &self,
         max_iterations: usize,
@@ -263,14 +308,25 @@ impl EssentialMatrix {
             max_iterations,
         );
         // Extract only the U and V matrix from the SVD.
-        let u_v = svd.map(|svd| {
+        let u_v_t = svd.map(|svd| {
             if let SVD {
                 u: Some(u),
                 v_t: Some(v_t),
-                ..
+                singular_values,
             } = svd
             {
-                (u, v_t.transpose())
+                // Sort the singular vectors in U and V*.
+                let mut sources: [usize; 3] = [0, 1, 2];
+                sources.sort_unstable_by_key(|&ix| float_ord::FloatOrd(singular_values[ix]));
+                let mut sorted_v_t = Matrix3::zeros();
+                let mut sorted_u = Matrix3::zeros();
+                for (&ix, mut column) in sources.iter().zip(sorted_v_t.column_iter_mut()) {
+                    column.copy_from(&v_t.column(ix));
+                }
+                for (&ix, mut row) in sources.iter().zip(sorted_u.column_iter_mut()) {
+                    row.copy_from(&u.column(ix));
+                }
+                (sorted_u, sorted_v_t)
             } else {
                 panic!("Didn't get U and V matrix in SVD");
             }
@@ -278,25 +334,28 @@ impl EssentialMatrix {
         // Force the determinants to be positive. I do not know precisely
         // why this is done since it isn't apparent from the Wikipedia page
         // on this subject, but this is what TheiaSfM does in essential_matrix_utils.cc.
-        let u_v = u_v.map(|(mut u, mut v)| {
-            let fix_det = |m: &mut Matrix3<f32>| {
-                if m.determinant() < 0.0 {
-                    for n in m.column_mut(2).iter_mut() {
-                        *n *= -1.0;
-                    }
+        let u_v_t = u_v_t.map(|(mut u, mut v_t)| {
+            // Make determinant of U positive.
+            if u.determinant() < 0.0 {
+                for n in u.column_mut(2).iter_mut() {
+                    *n *= -1.0;
                 }
-            };
-            fix_det(&mut u);
-            fix_det(&mut v);
-            (u, v)
+            }
+            // Make determinant of V* positive.
+            if v_t.determinant() < 0.0 {
+                for n in v_t.row_mut(2).iter_mut() {
+                    *n *= -1.0;
+                }
+            }
+            // Return positive determinant U and V*.
+            (u, v_t)
         });
-        // Compute the possible rotations and the normalized bearing.
-        u_v.map(|(u, v)| {
-            let vt = v.transpose();
+        // Compute the possible rotations and the bearing with no normalization.
+        u_v_t.map(|(u, v_t)| {
             (
-                Rotation3::from_matrix_unchecked(u * wt * vt),
-                Rotation3::from_matrix_unchecked(u * w * vt),
-                u.column(2).into_owned().normalize(),
+                Rotation3::from_matrix_unchecked(u * w * v_t),
+                Rotation3::from_matrix_unchecked(u * wt * v_t),
+                u.column(2).into_owned(),
             )
         })
     }
