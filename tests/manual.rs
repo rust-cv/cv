@@ -58,7 +58,6 @@ fn five_points_relative_pose() {
         eprintln!("pose guess: {:?}", pose);
         eprintln!("pose  real: {:?}", real_pose);
     }
-    panic!();
 }
 
 /// Gets a random relative pose, input points A, and input points B.

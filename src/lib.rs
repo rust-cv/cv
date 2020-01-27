@@ -69,7 +69,7 @@ pub fn five_points_nullspace_basis(
         .map(|m| {
             // We need to sort the eigenvectors by their corresponding eigenvalue.
             let mut sources = [0, 1, 2, 3, 4, 5, 6, 7, 8];
-            sources.sort_by_key(|&ix| float_ord::FloatOrd(m.eigenvalues[ix]));
+            sources.sort_unstable_by_key(|&ix| float_ord::FloatOrd(m.eigenvalues[ix]));
             let mut sorted = NullspaceMat::zeros();
             for (&ix, mut column) in sources.iter().zip(sorted.column_iter_mut()) {
                 column.copy_from(&m.eigenvectors.column(ix));
