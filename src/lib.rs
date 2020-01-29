@@ -28,30 +28,30 @@ use cv_core::nalgebra::{
 };
 use cv_core::{EssentialMatrix, NormalizedKeyPoint};
 
-const EIGEN_CONVERGENCE: f32 = 1e-9;
-const EIGEN_ITERATIONS: usize = 100;
-const SVD_CONVERGENCE: f32 = 1e-9;
-const SVD_ITERATIONS: usize = 100;
+const EIGEN_CONVERGENCE: f64 = 1e-9;
+const EIGEN_ITERATIONS: usize = 50;
+const SVD_CONVERGENCE: f64 = 1e-9;
+const SVD_ITERATIONS: usize = 50;
 /// The threshold which the singular value must be below for it
 /// to be considered the null-space.
-const SVD_NULL_THRESHOLD: f32 = 0.1;
+const SVD_NULL_THRESHOLD: f64 = 1e-5;
 
-type PolyBasisVec = VectorN<f32, U20>;
-type NullspaceMat = MatrixMN<f32, U9, U4>;
-type ConstraintMat = MatrixMN<f32, U10, U20>;
-type Square10 = MatrixN<f32, U10>;
+type PolyBasisVec = VectorN<f64, U20>;
+type NullspaceMat = MatrixMN<f64, U9, U4>;
+type ConstraintMat = MatrixMN<f64, U10, U20>;
+type Square10 = MatrixN<f64, U10>;
 
 fn encode_epipolar_equation(
     a: &[NormalizedKeyPoint; 5],
     b: &[NormalizedKeyPoint; 5],
-) -> MatrixMN<f32, U5, U9> {
-    let mut out: MatrixMN<f32, U5, U9> = nalgebra::zero();
+) -> MatrixMN<f64, U5, U9> {
+    let mut out: MatrixMN<f64, U5, U9> = nalgebra::zero();
     for i in 0..U5::dim() {
-        let mut row = VectorN::<f32, U9>::zeros();
-        let ap = a[i].epipolar_point();
-        let bp = b[i].epipolar_point();
+        let mut row = VectorN::<f64, U9>::zeros();
+        let ap = a[i].epipolar_point().0;
+        let bp = b[i].epipolar_point().0;
         for j in 0..3 {
-            let v = bp[j] * ap.0;
+            let v = bp[j] * ap;
             row.fixed_rows_mut::<U3>(3 * j).copy_from(&v);
         }
         out.row_mut(i).copy_from(&row.transpose());
@@ -78,7 +78,7 @@ pub fn five_points_nullspace_basis(
         })
 }
 
-fn o1(a: Vector4<f32>, b: Vector4<f32>) -> PolyBasisVec {
+fn o1(a: Vector4<f64>, b: Vector4<f64>) -> PolyBasisVec {
     let mut res = PolyBasisVec::zeros();
     res[BASIS_XX] = a.x * b.x;
     res[BASIS_XY] = a.x * b.y + a.y * b.x;
@@ -93,7 +93,7 @@ fn o1(a: Vector4<f32>, b: Vector4<f32>) -> PolyBasisVec {
     res
 }
 
-fn o2(a: PolyBasisVec, b: Vector4<f32>) -> PolyBasisVec {
+fn o2(a: PolyBasisVec, b: Vector4<f64>) -> PolyBasisVec {
     let mut res = PolyBasisVec::zeros();
     res[BASIS_XXX] = a[BASIS_XX] * b.x;
     res[BASIS_XXY] = a[BASIS_XX] * b.y + a[BASIS_XY] * b.x;
@@ -174,7 +174,7 @@ fn five_points_polynomial_constraints(nullspace: &NullspaceMat) -> ConstraintMat
     m
 }
 
-fn compute_eigenvector(m: &Square10, lambda: f32) -> Option<VectorN<f32, U10>> {
+fn compute_eigenvector(m: &Square10, lambda: f64) -> Option<VectorN<f64, U10>> {
     (m - Square10::from_diagonal_element(lambda))
         .try_svd(false, true, SVD_CONVERGENCE, SVD_ITERATIONS)
         .and_then(|svd| {

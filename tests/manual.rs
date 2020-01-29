@@ -24,12 +24,12 @@ fn five_points_nullspace_basis() {
         }
 
         for i in 0..5 {
-            let a = kpa[i].epipolar_point().0;
-            let b = kpb[i].epipolar_point().0;
+            let a = kpa[i].epipolar_point().0.map(f64::from);
+            let b = kpb[i].epipolar_point().0.map(f64::from);
 
             let dot = b.dot(&(e * a)).abs();
 
-            assert!(dot < NEAR, "{} not small enough", dot);
+            assert!(dot < NEAR as f64, "{} not small enough", dot);
         }
     }
 }
@@ -41,23 +41,26 @@ fn five_points_relative_pose() {
     let essentials = nister_stewenius::five_points_relative_pose(&kpa, &kpb);
 
     for essential in essentials {
-        eprintln!("essential guess: {:?}", essential);
-        eprintln!("essential  real: {:?}", real_essential);
         for (&a, &b) in kpa.iter().zip(&kpb) {
             let residual = essential.residual(&KeyPointsMatch(a, b));
             eprintln!("residual: {:?}", residual);
-            assert!(residual.abs() < 1e-5);
+            assert!(residual.abs() < 1e-7);
         }
 
         // Compute pose from essential and kp depths.
-        let pose = essential.solve_pose(
-            0.5,
-            100,
-            izip!(depths.clone(), kpa.iter().copied(), kpb.iter().copied()),
-        );
-        eprintln!("pose guess: {:?}", pose);
-        eprintln!("pose  real: {:?}", real_pose);
+        let (rot_a, rot_b, _) = essential
+            .possible_poses(
+                1e-4, 50,
+                //izip!(depths.clone(), kpa.iter().copied(), kpb.iter().copied()),
+            )
+            .unwrap();
+        let quat_a = UnitQuaternion::from(rot_a);
+        let quat_b = UnitQuaternion::from(rot_b);
+        eprintln!("real: {:?}", real_pose.rotation);
+        eprintln!("gesa: {:?}", quat_a);
+        eprintln!("gesb: {:?}", quat_b);
     }
+    panic!();
 }
 
 /// Gets a random relative pose, input points A, and input points B.
@@ -66,12 +69,12 @@ fn some_test_data() -> (
     EssentialMatrix,
     [NormalizedKeyPoint; 5],
     [NormalizedKeyPoint; 5],
-    impl Iterator<Item = f32> + Clone,
+    impl Iterator<Item = f64> + Clone,
 ) {
     // The relative pose orientation is fixed and translation is random.
     let relative_pose = RelativeCameraPose(Isometry3::from_parts(
         Vector3::new_random().into(),
-        UnitQuaternion::from_euler_angles(0.1, 0.1, 0.1),
+        UnitQuaternion::from_euler_angles(0.2, 0.3, 0.4),
     ));
 
     // Generate A's camera points.
