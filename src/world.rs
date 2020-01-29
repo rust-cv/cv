@@ -31,4 +31,4 @@ use nalgebra::Point3;
 /// it appropriately. In the future we will add APIs to utilize references
 /// as optimization constraints when a known reference reconstruction is present.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
-pub struct WorldPoint(pub Point3<f32>);
+pub struct WorldPoint(pub Point3<f64>);

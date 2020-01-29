@@ -34,10 +34,10 @@ use nalgebra::{Vector2, Vector3};
 /// See the document `notes/derivation_of_reproject_along_translation.md` in the repository for how this
 /// was derived.
 pub fn reproject_along_translation(
-    from: Vector2<f32>,
+    from: Vector2<f64>,
     to: NormalizedKeyPoint,
-    translation: Vector3<f32>,
-) -> f32 {
+    translation: Vector3<f64>,
+) -> f64 {
     let NormalizedKeyPoint(a) = to;
     let b = from;
     let t = translation;

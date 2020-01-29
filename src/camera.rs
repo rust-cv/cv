@@ -5,7 +5,7 @@ use nalgebra::{Matrix3, Point2, Vector2, Vector3};
 /// the point location is on the image frame in pixel coordinates.
 /// This means the keypoint is neither undistorted nor normalized.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
-pub struct ImageKeyPoint(pub Point2<f32>);
+pub struct ImageKeyPoint(pub Point2<f64>);
 
 /// A 3d vector which is relative to the camera's optical center and orientation where
 /// the positive Y axis is up and positive Z axis is forwards from the center of the
@@ -17,7 +17,7 @@ pub struct ImageKeyPoint(pub Point2<f32>);
 /// at a depth `z = 1.0`. The operation cannot be done in reverse because the depth
 /// (`z` component) or distance from optical center (length) is unknown.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
-pub struct CameraPoint(pub Vector3<f32>);
+pub struct CameraPoint(pub Vector3<f64>);
 
 /// A point in normalized image coordinates. This keypoint has been corrected
 /// for distortion and normalized based on the camrea intrinsic matrix.
@@ -26,7 +26,7 @@ pub struct CameraPoint(pub Vector3<f32>);
 /// represented by their position on the camera sensor and normalized to the
 /// focal length of the camera.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
-pub struct NormalizedKeyPoint(pub Point2<f32>);
+pub struct NormalizedKeyPoint(pub Point2<f64>);
 
 impl NormalizedKeyPoint {
     /// Conceptually appends a `1.0` component to the normalized keypoint to create
@@ -38,7 +38,7 @@ impl NormalizedKeyPoint {
     /// The `depth` is computed as the dot product of the unit camera norm
     /// with the vector that represents the position delta of the point from
     /// the camera.
-    pub fn with_depth(self, depth: f32) -> CameraPoint {
+    pub fn with_depth(self, depth: f64) -> CameraPoint {
         CameraPoint((self.coords * depth).push(depth).into())
     }
 
@@ -46,7 +46,7 @@ impl NormalizedKeyPoint {
     /// `distance` away from the optical center of the camera. This
     /// `distance` is defined as the norm of the vector that represents
     /// the position delta of the point from the camera.
-    pub fn with_distance(self, distance: f32) -> CameraPoint {
+    pub fn with_distance(self, distance: f64) -> CameraPoint {
         CameraPoint((distance * self.bearing()).into())
     }
 
@@ -64,12 +64,12 @@ impl NormalizedKeyPoint {
     /// optical center of the camera. This is defined as the the
     /// normalized position delta of the epipolar point from the
     /// optical center of the camera.
-    pub fn bearing(self) -> Vector3<f32> {
+    pub fn bearing(self) -> Vector3<f64> {
         self.0.coords.push(1.0).normalize()
     }
 
     /// Same as [`bearing`], but it is returned unnormalized.
-    pub fn bearing_unnormalized(self) -> Vector3<f32> {
+    pub fn bearing_unnormalized(self) -> Vector3<f64> {
         self.0.coords.push(1.0).normalize()
     }
 }

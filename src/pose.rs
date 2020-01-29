@@ -14,7 +14,7 @@ use sample_consensus::Model;
 /// This maps [`WorldPoint`] into [`CameraPoint`], changing an absolute position into
 /// a vector relative to the camera.
 #[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, Deref, DerefMut, From, Into)]
-pub struct WorldPose(pub Isometry3<f32>);
+pub struct WorldPose(pub Isometry3<f64>);
 
 impl Model<KeyPointWorldMatch> for WorldPose {
     fn residual(&self, data: &KeyPointWorldMatch) -> f32 {
@@ -23,13 +23,13 @@ impl Model<KeyPointWorldMatch> for WorldPose {
 
         let new_bearing = (iso * world.coords).normalize();
         let bearing_vector = image.to_homogeneous().normalize();
-        1.0 - bearing_vector.dot(&new_bearing)
+        (1.0 - bearing_vector.dot(&new_bearing)) as f32
     }
 }
 
 impl WorldPose {
     /// Computes difference between the image keypoint and the projected keypoint.
-    pub fn projection_error(&self, correspondence: KeyPointWorldMatch) -> Vector2<f32> {
+    pub fn projection_error(&self, correspondence: KeyPointWorldMatch) -> Vector2<f64> {
         let KeyPointWorldMatch(NormalizedKeyPoint(image), world) = correspondence;
         let NormalizedKeyPoint(projection) = self.project(world);
         image - projection
@@ -60,7 +60,7 @@ impl WorldPose {
     ///
     /// Where `t` refers to the translation vector and `q` refers to the unit quaternion.
     #[rustfmt::skip]
-    pub fn projection_pose_jacobian(&self, point: WorldPoint) -> MatrixMN<f32, U7, U2> {
+    pub fn projection_pose_jacobian(&self, point: WorldPoint) -> MatrixMN<f64, U7, U2> {
         let q = self.0.rotation.quaternion().coords;
         // World point (input)
         let p = point.0.coords;
@@ -91,7 +91,7 @@ impl WorldPose {
         let dp_ds = 2.0 * q.xyz().cross(&p);
 
         // dP/dT,Q (Jacobian of 3d camera point in respect to translation and quaternion)
-        let dp_dtq = MatrixMN::<f32, U7, U3>::from_rows(&[
+        let dp_dtq = MatrixMN::<f64, U7, U3>::from_rows(&[
             dp_dt.row(0).into(),
             dp_dt.row(1).into(),
             dp_dt.row(2).into(),
@@ -116,14 +116,14 @@ impl WorldPose {
         dp_dtq * dk_dp
     }
 
-    pub fn to_vec(&self) -> VectorN<f32, U7> {
+    pub fn to_vec(&self) -> VectorN<f64, U7> {
         let Self(iso) = *self;
         let t = iso.translation.vector;
         let rc = iso.rotation.quaternion().coords;
         t.push(rc.x).push(rc.y).push(rc.z).push(rc.w)
     }
 
-    pub fn from_vec(v: VectorN<f32, U7>) -> Self {
+    pub fn from_vec(v: VectorN<f64, U7>) -> Self {
         Self(Isometry3::from_parts(
             Translation3::from(Vector3::new(v[0], v[1], v[2])),
             UnitQuaternion::from_quaternion(Quaternion::from(Vector4::new(v[3], v[4], v[5], v[6]))),
@@ -141,7 +141,7 @@ impl From<CameraPose> for WorldPose {
 /// This transforms camera points (with depth as `z`) into world coordinates.
 /// This also tells you where the camera is located and oriented in the world.
 #[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, Deref, DerefMut, From, Into)]
-pub struct CameraPose(pub Isometry3<f32>);
+pub struct CameraPose(pub Isometry3<f64>);
 
 impl From<WorldPose> for CameraPose {
     fn from(world: WorldPose) -> Self {
@@ -162,7 +162,7 @@ impl From<WorldPose> for CameraPose {
 ///
 /// Note that this is a left-handed coordinate space.
 #[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, Deref, DerefMut, From, Into)]
-pub struct RelativeCameraPose(pub Isometry3<f32>);
+pub struct RelativeCameraPose(pub Isometry3<f64>);
 
 impl RelativeCameraPose {
     /// The relative pose transforms the point in camera space from camera `A` to camera `B`.
@@ -250,7 +250,7 @@ impl RelativeCameraPose {
 /// of the point relative to the current reconstruction. This kind of point can be computed
 /// using [`WorldPose::project_camera`] to convert a [`WorldPoint`] to a [`CameraPoint`].
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
-pub struct EssentialMatrix(pub Matrix3<f32>);
+pub struct EssentialMatrix(pub Matrix3<f64>);
 
 impl Model<KeyPointsMatch> for EssentialMatrix {
     fn residual(&self, data: &KeyPointsMatch) -> f32 {
@@ -258,7 +258,7 @@ impl Model<KeyPointsMatch> for EssentialMatrix {
         let KeyPointsMatch(NormalizedKeyPoint(a), NormalizedKeyPoint(b)) = *data;
 
         // The result is a 1x1 matrix which we must get element 0 from.
-        (b.to_homogeneous().transpose() * mat * a.to_homogeneous())[0]
+        (b.to_homogeneous().transpose() * mat * a.to_homogeneous())[0] as f32
     }
 }
 
@@ -286,7 +286,7 @@ impl EssentialMatrix {
     /// // The translation of unknown scale is discarded here.
     /// let (rot_a, rot_b, _) = pose.essential_matrix().possible_poses(1e-6, 5).unwrap();
     /// // Extract vector from quaternion.
-    /// let qcoord = |uquat: UnitQuaternion<f32>| uquat.quaternion().coords;
+    /// let qcoord = |uquat: UnitQuaternion<f64>| uquat.quaternion().coords;
     /// // Convert rotations into quaternion form.
     /// let quat_a = UnitQuaternion::from(rot_a);
     /// let quat_b = UnitQuaternion::from(rot_b);
@@ -298,10 +298,11 @@ impl EssentialMatrix {
     /// ```
     pub fn possible_poses(
         &self,
-        epsilon: f32,
+        epsilon: f64,
         max_iterations: usize,
-    ) -> Option<(Rotation3<f32>, Rotation3<f32>, Vector3<f32>)> {
+    ) -> Option<(Rotation3<f64>, Rotation3<f64>, Vector3<f64>)> {
         let Self(essential) = *self;
+        let essential = essential;
 
         // `W` from https://en.wikipedia.org/wiki/Essential_matrix#Finding_one_solution.
         let w = Matrix3::new(0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0);
@@ -309,7 +310,7 @@ impl EssentialMatrix {
         let wt = w.transpose();
 
         // Perform SVD.
-        let svd = SVD::try_new(essential, true, true, epsilon, max_iterations);
+        let svd = SVD::try_new(essential, true, true, epsilon as f64, max_iterations);
         // Extract only the U and V matrix from the SVD.
         let u_v_t = svd.map(|svd| {
             if let SVD {
@@ -395,10 +396,10 @@ impl EssentialMatrix {
     /// get the [`CameraPoint`] for all points and place them in front of
     pub fn solve_pose(
         &self,
-        consensus_ratio: f32,
-        epsilon: f32,
+        consensus_ratio: f64,
+        epsilon: f64,
         max_iterations: usize,
-        correspondences: impl Iterator<Item = (f32, NormalizedKeyPoint, NormalizedKeyPoint)>,
+        correspondences: impl Iterator<Item = (f64, NormalizedKeyPoint, NormalizedKeyPoint)>,
     ) -> Option<RelativeCameraPose> {
         // Get the possible rotations and the translation
         self.possible_poses(epsilon, max_iterations)
@@ -426,7 +427,7 @@ impl EssentialMatrix {
                             // that minimizes the reprojection error of the untranslated point as much
                             // as possible. See the documentation for reproject_along_translation
                             // to get more details on the process.
-                            let untranslated: Vector3<f32> = rotation * a_point;
+                            let untranslated: Vector3<f64> = rotation * a_point;
                             let translation_scale =
                                 geom::reproject_along_translation(untranslated.xy(), b, t_dir);
                             // Now that we have the translation, we can just verify that the point
@@ -453,14 +454,14 @@ impl EssentialMatrix {
                     },
                 );
                 // Ensure that the best one exceeds the consensus ratio.
-                if (core::cmp::max(xn, yn) as f32 / total as f32) < consensus_ratio {
+                if (core::cmp::max(xn, yn) as f64 / total as f64) < consensus_ratio {
                     return None;
                 }
                 // TODO: Perhaps if its closer than this we should assume the frame itself is an outlier.
                 let (rot, trans) = match xn.cmp(&yn) {
                     Ordering::Equal => return None,
-                    Ordering::Greater => (rot_x, xt / xn as f32 * tx_dir),
-                    Ordering::Less => (rot_y, yt / yn as f32 * ty_dir),
+                    Ordering::Greater => (rot_x, xt / xn as f64 * tx_dir),
+                    Ordering::Less => (rot_y, yt / yn as f64 * ty_dir),
                 };
                 Some(RelativeCameraPose(Isometry3::from_parts(
                     trans.into(),
