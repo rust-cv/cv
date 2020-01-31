@@ -8,7 +8,7 @@ use cv_core::{
 };
 use itertools::izip;
 
-const NEAR: f32 = 1e-4;
+const NEAR: f32 = 0.1;
 
 #[test]
 fn five_points_nullspace_basis() {
@@ -47,20 +47,25 @@ fn five_points_relative_pose() {
             assert!(residual.abs() < 1e-7);
         }
 
+        eprintln!("essential: {:?}", essential);
+
         // Compute pose from essential and kp depths.
-        let (rot_a, rot_b, _) = essential
-            .possible_poses(
-                1e-4, 50,
-                //izip!(depths.clone(), kpa.iter().copied(), kpb.iter().copied()),
-            )
-            .unwrap();
+        let (rot_a, rot_b, _) = essential.possible_poses(1e-4, 50).unwrap();
+        // Convert rotations into quaternion form.
         let quat_a = UnitQuaternion::from(rot_a);
         let quat_b = UnitQuaternion::from(rot_b);
         eprintln!("real: {:?}", real_pose.rotation);
         eprintln!("gesa: {:?}", quat_a);
         eprintln!("gesb: {:?}", quat_b);
+
+        // Extract vector from quaternion.
+        let qcoord = |uquat: UnitQuaternion<f64>| uquat.quaternion().coords;
+        // Compute residual via cosine distance of quaternions (guaranteed positive w).
+        let a_close = 1.0 - qcoord(quat_a).dot(&qcoord(real_pose.rotation)) < 1e-6;
+        let b_close = 1.0 - qcoord(quat_b).dot(&qcoord(real_pose.rotation)) < 1e-6;
+        // At least one rotation is correct.
+        assert!(a_close || b_close);
     }
-    panic!();
 }
 
 /// Gets a random relative pose, input points A, and input points B.
@@ -74,7 +79,7 @@ fn some_test_data() -> (
     // The relative pose orientation is fixed and translation is random.
     let relative_pose = RelativeCameraPose(Isometry3::from_parts(
         Vector3::new_random().into(),
-        UnitQuaternion::from_euler_angles(0.2, 0.3, 0.4),
+        UnitQuaternion::new(Vector3::new_random() * std::f64::consts::PI * 2.0),
     ));
 
     // Generate A's camera points.
