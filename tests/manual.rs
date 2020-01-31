@@ -1,12 +1,8 @@
-use cv_core::nalgebra::{
-    dimension::{U3, U5},
-    Isometry3, Matrix3, MatrixMN, UnitQuaternion, Vector2, Vector3,
-};
+use cv_core::nalgebra::{Isometry3, Matrix3, UnitQuaternion, Vector2, Vector3};
 use cv_core::sample_consensus::Model;
 use cv_core::{
     CameraPoint, EssentialMatrix, KeyPointsMatch, NormalizedKeyPoint, RelativeCameraPose,
 };
-use itertools::izip;
 
 const NEAR: f32 = 0.1;
 
@@ -36,7 +32,7 @@ fn five_points_nullspace_basis() {
 
 #[test]
 fn five_points_relative_pose() {
-    let (real_pose, real_essential, kpa, kpb, depths) = some_test_data();
+    let (real_pose, _, kpa, kpb, _) = some_test_data();
 
     let essentials = nister_stewenius::five_points_relative_pose(&kpa, &kpb);
 
