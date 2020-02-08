@@ -284,7 +284,7 @@ impl EssentialMatrix {
     /// ));
     /// // Get the possible poses for the essential matrix created from `pose`.
     /// // The translation of unknown scale is discarded here.
-    /// let (rot_a, rot_b, t) = pose.essential_matrix().possible_poses(1e-6, 50).unwrap();
+    /// let (rot_a, rot_b, _) = pose.essential_matrix().possible_poses(1e-6, 50).unwrap();
     /// // Extract vector from quaternion.
     /// let qcoord = |uquat: UnitQuaternion<f64>| uquat.quaternion().coords;
     /// // Convert rotations into quaternion form.
@@ -297,9 +297,6 @@ impl EssentialMatrix {
     /// let b_close = b_res < 0.1;
     /// // At least one rotation is correct.
     /// assert!(a_close || b_close);
-    /// // The translation points in the same (or reverse) direction
-    /// let t_res = 1.0 - t.normalize().dot(&pose.translation.vector.normalize()).abs();
-    /// assert!(t_res < 0.1);
     /// ```
     pub fn possible_poses(
         &self,
