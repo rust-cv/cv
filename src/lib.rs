@@ -36,7 +36,7 @@ const SVD_ITERATIONS: usize = 5000;
 /// to be considered the null-space.
 const SVD_NULL_THRESHOLD: f64 = 1e-5;
 
-pub type PolyBasisVec = VectorN<f64, U20>;
+type PolyBasisVec = VectorN<f64, U20>;
 type NullspaceMat = MatrixMN<f64, U9, U4>;
 type ConstraintMat = MatrixMN<f64, U10, U20>;
 type Square10 = MatrixN<f64, U10>;
