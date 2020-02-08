@@ -39,7 +39,7 @@ impl NormalizedKeyPoint {
     /// with the vector that represents the position delta of the point from
     /// the camera.
     pub fn with_depth(self, depth: f64) -> CameraPoint {
-        CameraPoint((self.coords * depth).push(depth).into())
+        CameraPoint((self.coords * depth).push(depth))
     }
 
     /// Projects the keypoint out to the [`CameraPoint`] that is
@@ -47,7 +47,7 @@ impl NormalizedKeyPoint {
     /// `distance` is defined as the norm of the vector that represents
     /// the position delta of the point from the camera.
     pub fn with_distance(self, distance: f64) -> CameraPoint {
-        CameraPoint((distance * self.bearing()).into())
+        CameraPoint(distance * self.bearing())
     }
 
     /// Get the epipolar point as a [`CameraPoint`].
