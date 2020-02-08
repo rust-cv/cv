@@ -284,7 +284,7 @@ impl EssentialMatrix {
     /// ));
     /// // Get the possible poses for the essential matrix created from `pose`.
     /// // The translation of unknown scale is discarded here.
-    /// let (rot_a, rot_b, _) = pose.essential_matrix().possible_poses(1e-6, 5).unwrap();
+    /// let (rot_a, rot_b, t) = pose.essential_matrix().possible_poses(1e-6, 50).unwrap();
     /// // Extract vector from quaternion.
     /// let qcoord = |uquat: UnitQuaternion<f64>| uquat.quaternion().coords;
     /// // Convert rotations into quaternion form.
@@ -296,7 +296,10 @@ impl EssentialMatrix {
     /// let a_close = a_res < 0.1;
     /// let b_close = b_res < 0.1;
     /// // At least one rotation is correct.
-    /// assert!(a_close || b_close, "A residual: {}, B residual: {}", a_res, b_res);
+    /// assert!(a_close || b_close);
+    /// // The translation points in the same (or reverse) direction
+    /// let t_res = 1.0 - t.normalize().dot(&pose.translation.vector.normalize()).abs();
+    /// assert!(t_res < 0.1);
     /// ```
     pub fn possible_poses(
         &self,
@@ -329,8 +332,8 @@ impl EssentialMatrix {
                 for (&ix, mut column) in sources.iter().zip(sorted_u.column_iter_mut()) {
                     column.copy_from(&u.column(ix));
                 }
-                for (&ix, mut column) in sources.iter().zip(sorted_v_t.column_iter_mut()) {
-                    column.copy_from(&v_t.column(ix));
+                for (&ix, mut row) in sources.iter().zip(sorted_v_t.row_iter_mut()) {
+                    row.copy_from(&v_t.row(ix));
                 }
                 (sorted_u, sorted_v_t)
             } else {
@@ -349,7 +352,7 @@ impl EssentialMatrix {
             }
             // Last row of Vt is undetermined since d = (a a 0).
             if v_t.determinant() < 0.0 {
-                for n in v_t.column_mut(2).iter_mut() {
+                for n in v_t.row_mut(2).iter_mut() {
                     *n *= -1.0;
                 }
             }
@@ -359,8 +362,8 @@ impl EssentialMatrix {
         // Compute the possible rotations and the bearing with no normalization.
         u_v_t.map(|(u, v_t)| {
             (
-                Rotation3::from_matrix_unchecked(u * w * v_t.transpose()),
-                Rotation3::from_matrix_unchecked(u * wt * v_t.transpose()),
+                Rotation3::from_matrix_unchecked(u * w * v_t),
+                Rotation3::from_matrix_unchecked(u * wt * v_t),
                 u.column(2).into_owned(),
             )
         })
