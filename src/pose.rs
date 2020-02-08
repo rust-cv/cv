@@ -291,10 +291,12 @@ impl EssentialMatrix {
     /// let quat_a = UnitQuaternion::from(rot_a);
     /// let quat_b = UnitQuaternion::from(rot_b);
     /// // Compute residual via cosine distance of quaternions (guaranteed positive w).
-    /// let a_close = 1.0 - qcoord(quat_a).dot(&qcoord(pose.rotation)) < 1e-6;
-    /// let b_close = 1.0 - qcoord(quat_b).dot(&qcoord(pose.rotation)) < 1e-6;
+    /// let a_res = quat_a.rotation_to(&pose.rotation).angle();
+    /// let b_res = quat_b.rotation_to(&pose.rotation).angle();
+    /// let a_close = a_res < 0.1;
+    /// let b_close = b_res < 0.1;
     /// // At least one rotation is correct.
-    /// assert!(a_close || b_close);
+    /// assert!(a_close || b_close, "A residual: {}, B residual: {}", a_res, b_res);
     /// ```
     pub fn possible_poses(
         &self,
@@ -322,13 +324,13 @@ impl EssentialMatrix {
                 // Sort the singular vectors in U and V*.
                 let mut sources: [usize; 3] = [0, 1, 2];
                 sources.sort_unstable_by_key(|&ix| float_ord::FloatOrd(-singular_values[ix]));
-                let mut sorted_v_t = Matrix3::zeros();
                 let mut sorted_u = Matrix3::zeros();
-                for (&ix, mut row) in sources.iter().zip(sorted_v_t.row_iter_mut()) {
-                    row.copy_from(&v_t.row(ix));
-                }
+                let mut sorted_v_t = Matrix3::zeros();
                 for (&ix, mut column) in sources.iter().zip(sorted_u.column_iter_mut()) {
                     column.copy_from(&u.column(ix));
+                }
+                for (&ix, mut column) in sources.iter().zip(sorted_v_t.column_iter_mut()) {
+                    column.copy_from(&v_t.column(ix));
                 }
                 (sorted_u, sorted_v_t)
             } else {
@@ -347,7 +349,7 @@ impl EssentialMatrix {
             }
             // Last row of Vt is undetermined since d = (a a 0).
             if v_t.determinant() < 0.0 {
-                for n in v_t.row_mut(2).iter_mut() {
+                for n in v_t.column_mut(2).iter_mut() {
                     *n *= -1.0;
                 }
             }
@@ -357,8 +359,8 @@ impl EssentialMatrix {
         // Compute the possible rotations and the bearing with no normalization.
         u_v_t.map(|(u, v_t)| {
             (
-                Rotation3::from_matrix_unchecked(u * w * v_t),
-                Rotation3::from_matrix_unchecked(u * wt * v_t),
+                Rotation3::from_matrix_unchecked(u * w * v_t.transpose()),
+                Rotation3::from_matrix_unchecked(u * wt * v_t.transpose()),
                 u.column(2).into_owned(),
             )
         })
@@ -392,8 +394,7 @@ impl EssentialMatrix {
     /// will run on this matrix. Use this in soft realtime systems to cap the execution time.
     /// A `max_iterations` of `0` may execute indefinitely and is not recommended.
     ///
-    /// This does not communicate which points were outliers. To determine the outlier points,
-    /// get the [`CameraPoint`] for all points and place them in front of
+    /// This does not communicate which points were outliers.
     pub fn solve_pose(
         &self,
         consensus_ratio: f64,
