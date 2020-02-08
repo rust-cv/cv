@@ -23,20 +23,20 @@ const BASIS_1: usize = 19;
 
 use cv_core::nalgebra::{
     self,
-    dimension::{U1, U10, U20, U3, U4, U5, U9},
+    dimension::{U10, U20, U3, U4, U5, U9},
     DimName, Matrix3, MatrixMN, MatrixN, Vector4, VectorN,
 };
 use cv_core::{EssentialMatrix, NormalizedKeyPoint};
 
-const EIGEN_CONVERGENCE: f64 = 1e-9;
-const EIGEN_ITERATIONS: usize = 50;
-const SVD_CONVERGENCE: f64 = 1e-9;
-const SVD_ITERATIONS: usize = 50;
+const EIGEN_CONVERGENCE: f64 = 1e-12;
+const EIGEN_ITERATIONS: usize = 5000;
+const SVD_CONVERGENCE: f64 = 1e-12;
+const SVD_ITERATIONS: usize = 5000;
 /// The threshold which the singular value must be below for it
 /// to be considered the null-space.
 const SVD_NULL_THRESHOLD: f64 = 1e-5;
 
-type PolyBasisVec = VectorN<f64, U20>;
+pub type PolyBasisVec = VectorN<f64, U20>;
 type NullspaceMat = MatrixMN<f64, U9, U4>;
 type ConstraintMat = MatrixMN<f64, U10, U20>;
 type Square10 = MatrixN<f64, U10>;
@@ -48,8 +48,8 @@ fn encode_epipolar_equation(
     let mut out: MatrixMN<f64, U5, U9> = nalgebra::zero();
     for i in 0..U5::dim() {
         let mut row = VectorN::<f64, U9>::zeros();
-        let ap = a[i].epipolar_point().0;
-        let bp = b[i].epipolar_point().0;
+        let ap = a[i].epipolar_point().0.normalize();
+        let bp = b[i].epipolar_point().0.normalize();
         for j in 0..3 {
             let v = bp[j] * ap;
             row.fixed_rows_mut::<U3>(3 * j).copy_from(&v);
