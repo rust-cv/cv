@@ -14,8 +14,8 @@ const NEAR: f32 = 0.1;
 const EPS_ROTATION: f64 = 1e-13;
 const ITER_ROTATION: usize = 50000;
 
-const EIGHT_POINT_EIGEN_CONVERGENCE: f64 = 1e-12;
-const EIGHT_POINT_EIGEN_ITERATIONS: usize = 500000;
+const EIGHT_POINT_EIGEN_CONVERGENCE: f64 = 1e-4;
+const EIGHT_POINT_EIGEN_ITERATIONS: usize = 50;
 
 fn to_five(a: [NormalizedKeyPoint; SAMPLE_POINTS]) -> [NormalizedKeyPoint; 5] {
     [a[0], a[1], a[2], a[3], a[4]]

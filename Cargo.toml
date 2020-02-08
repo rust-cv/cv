@@ -1,9 +1,9 @@
 [package]
 name = "nister-stewenius"
 version = "0.1.0"
-authors = ["Geordon Worley <vadixidav@gmail.com>", "Chris Sweeney <cmsweeney@cs.ucsb.edu>"]
+authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
-license = "BSD"
+license = "MIT"
 
 [dependencies]
 cv-core = { path = "../cv-core" }
