@@ -391,6 +391,25 @@ impl EssentialMatrix {
     /// See [`EssentialMatrix::possible_poses_unfixed_bearing`].
     ///
     /// This returns the rotations and their corresponding post-rotation translation bearing.
+    ///
+    /// ```
+    /// # use cv_core::RelativeCameraPose;
+    /// # use cv_core::nalgebra::{Isometry3, UnitQuaternion, Vector3, Rotation3};
+    /// let pose = RelativeCameraPose(Isometry3::from_parts(
+    ///     Vector3::new(-0.8, 0.4, 0.5).into(),
+    ///     UnitQuaternion::from_euler_angles(0.2, 0.3, 0.4),
+    /// ));
+    /// // Get the possible poses for the essential matrix created from `pose`.
+    /// let rbs = pose.essential_matrix().possible_rotations_and_bearings(1e-6, 50).unwrap();
+    /// let one_correct = rbs.iter().any(|&(rot, bearing)| {
+    ///     let angle_residual =
+    ///         UnitQuaternion::from(rot).rotation_to(&pose.rotation).angle();
+    ///     let translation_residual =
+    ///         1.0 - bearing.normalize().dot(&pose.translation.vector.normalize()).abs();
+    ///     angle_residual < 1e-4 && translation_residual < 1e-4
+    /// });
+    /// assert!(one_correct);
+    /// ```
     pub fn possible_rotations_and_bearings(
         &self,
         epsilon: f64,
