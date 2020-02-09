@@ -279,12 +279,14 @@ impl EssentialMatrix {
     /// # use cv_core::RelativeCameraPose;
     /// # use cv_core::nalgebra::{Isometry3, UnitQuaternion, Vector3, Rotation3};
     /// let pose = RelativeCameraPose(Isometry3::from_parts(
-    ///     Vector3::new(0.3, 0.4, 0.5).into(),
+    ///     Vector3::new(-0.8, 0.4, 0.5).into(),
     ///     UnitQuaternion::from_euler_angles(0.2, 0.3, 0.4),
     /// ));
     /// // Get the possible poses for the essential matrix created from `pose`.
-    /// // The translation of unknown scale is discarded here.
-    /// let (rot_a, rot_b, _) = pose.essential_matrix().possible_poses(1e-6, 50).unwrap();
+    /// let (rot_a, rot_b, t) = pose.essential_matrix().possible_poses(1e-6, 50).unwrap();
+    /// // The translation must be processed through the reverse rotation.
+    /// let t_a = rot_a.transpose() * t;
+    /// let t_b = rot_b.transpose() * t;
     /// // Extract vector from quaternion.
     /// let qcoord = |uquat: UnitQuaternion<f64>| uquat.quaternion().coords;
     /// // Convert rotations into quaternion form.
@@ -293,9 +295,15 @@ impl EssentialMatrix {
     /// // Compute residual via cosine distance of quaternions (guaranteed positive w).
     /// let a_res = quat_a.rotation_to(&pose.rotation).angle();
     /// let b_res = quat_b.rotation_to(&pose.rotation).angle();
-    /// let a_close = a_res < 0.1;
-    /// let b_close = b_res < 0.1;
+    /// let a_close = a_res < 1e-4;
+    /// let b_close = b_res < 1e-4;
     /// // At least one rotation is correct.
+    /// assert!(a_close || b_close);
+    /// // The translation points in the same (or reverse) direction
+    /// let a_res = 1.0 - t_a.normalize().dot(&pose.translation.vector.normalize()).abs();
+    /// let b_res = 1.0 - t_b.normalize().dot(&pose.translation.vector.normalize()).abs();
+    /// let a_close = a_res < 1e-4;
+    /// let b_close = b_res < 1e-4;
     /// assert!(a_close || b_close);
     /// ```
     pub fn possible_poses(
@@ -312,7 +320,7 @@ impl EssentialMatrix {
         let wt = w.transpose();
 
         // Perform SVD.
-        let svd = SVD::try_new(essential, true, true, epsilon as f64, max_iterations);
+        let svd = SVD::try_new(essential, true, true, epsilon, max_iterations);
         // Extract only the U and V matrix from the SVD.
         let u_v_t = svd.map(|svd| {
             if let SVD {
