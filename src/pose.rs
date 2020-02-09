@@ -279,7 +279,7 @@ impl EssentialMatrix {
     ///
     /// ```
     /// # use cv_core::RelativeCameraPose;
-    /// # use cv_core::nalgebra::{Isometry3, UnitQuaternion, Vector3, Rotation3};
+    /// # use cv_core::nalgebra::{Isometry3, UnitQuaternion, Vector3};
     /// let pose = RelativeCameraPose(Isometry3::from_parts(
     ///     Vector3::new(-0.8, 0.4, 0.5).into(),
     ///     UnitQuaternion::from_euler_angles(0.2, 0.3, 0.4),
@@ -382,7 +382,7 @@ impl EssentialMatrix {
     ///
     /// ```
     /// # use cv_core::RelativeCameraPose;
-    /// # use cv_core::nalgebra::{Isometry3, UnitQuaternion, Vector3, Rotation3};
+    /// # use cv_core::nalgebra::{Isometry3, UnitQuaternion, Vector3};
     /// let pose = RelativeCameraPose(Isometry3::from_parts(
     ///     Vector3::new(-0.8, 0.4, 0.5).into(),
     ///     UnitQuaternion::from_euler_angles(0.2, 0.3, 0.4),
@@ -411,7 +411,7 @@ impl EssentialMatrix {
     ///
     /// ```
     /// # use cv_core::RelativeCameraPose;
-    /// # use cv_core::nalgebra::{Isometry3, UnitQuaternion, Vector3, Rotation3};
+    /// # use cv_core::nalgebra::{Isometry3, UnitQuaternion, Vector3};
     /// let pose = RelativeCameraPose(Isometry3::from_parts(
     ///     Vector3::new(-0.8, 0.4, 0.5).into(),
     ///     UnitQuaternion::from_euler_angles(0.2, 0.3, 0.4),
