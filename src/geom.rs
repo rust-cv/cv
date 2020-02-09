@@ -36,10 +36,10 @@ use nalgebra::{Vector2, Vector3};
 pub fn reproject_along_translation(
     from: Vector2<f64>,
     to: NormalizedKeyPoint,
-    translation: Vector3<f64>,
+    bearing: Vector3<f64>,
 ) -> f64 {
     let NormalizedKeyPoint(a) = to;
     let b = from;
-    let t = translation;
+    let t = bearing;
     (a.y * b.x - a.x * b.y) / (a.x * t.y - a.y * t.x)
 }

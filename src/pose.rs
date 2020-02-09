@@ -264,8 +264,10 @@ impl Model<KeyPointsMatch> for EssentialMatrix {
 
 impl EssentialMatrix {
     /// Returns two possible rotations for the essential matrix along with a translation
-    /// direction of arbitrary length. The translation's length is unknown and must be
-    /// solved for by using a prior.
+    /// bearing of arbitrary length. The translation bearing is not yet in the correct
+    /// space and the inverse rotation (transpose) must be multiplied by the translation
+    /// bearing to make the translation bearing be post-rotation. The translation's length
+    /// is unknown and of unknown sign and must be solved for by using a prior.
     ///
     /// `epsilon` is the threshold by which the singular value decomposition is considered
     /// complete. Making this smaller may improve the precision. It is recommended to
@@ -283,7 +285,7 @@ impl EssentialMatrix {
     ///     UnitQuaternion::from_euler_angles(0.2, 0.3, 0.4),
     /// ));
     /// // Get the possible poses for the essential matrix created from `pose`.
-    /// let (rot_a, rot_b, t) = pose.essential_matrix().possible_poses(1e-6, 50).unwrap();
+    /// let (rot_a, rot_b, t) = pose.essential_matrix().possible_poses_unfixed_bearing(1e-6, 50).unwrap();
     /// // The translation must be processed through the reverse rotation.
     /// let t_a = rot_a.transpose() * t;
     /// let t_b = rot_b.transpose() * t;
@@ -306,7 +308,7 @@ impl EssentialMatrix {
     /// let b_close = b_res < 1e-4;
     /// assert!(a_close || b_close);
     /// ```
-    pub fn possible_poses(
+    pub fn possible_poses_unfixed_bearing(
         &self,
         epsilon: f64,
         max_iterations: usize,
@@ -374,6 +376,35 @@ impl EssentialMatrix {
         })
     }
 
+    /// See [`EssentialMatrix::possible_poses_unfixed_bearing`].
+    ///
+    /// This returns only the two rotations that are possible.
+    pub fn possible_rotations(
+        &self,
+        epsilon: f64,
+        max_iterations: usize,
+    ) -> Option<[Rotation3<f64>; 2]> {
+        self.possible_poses_unfixed_bearing(epsilon, max_iterations)
+            .map(|(rot_a, rot_b, _)| [rot_a, rot_b])
+    }
+
+    /// See [`EssentialMatrix::possible_poses_unfixed_bearing`].
+    ///
+    /// This returns the rotations and their corresponding post-rotation translation bearing.
+    pub fn possible_rotations_and_bearings(
+        &self,
+        epsilon: f64,
+        max_iterations: usize,
+    ) -> Option<[(Rotation3<f64>, Vector3<f64>); 2]> {
+        self.possible_poses_unfixed_bearing(epsilon, max_iterations)
+            .map(|(rot_a, rot_b, t)| {
+                [
+                    (rot_a, rot_a.transpose() * t),
+                    (rot_b, rot_b.transpose() * t),
+                ]
+            })
+    }
+
     /// Return the [`RelativeCameraPose`] that transforms a [`CameraPoint`] of image
     /// `A` (source of `a`) to the corresponding [`CameraPoint`] of image B (source of `b`).
     /// This determines the average expected translation from the points themselves and
@@ -411,19 +442,16 @@ impl EssentialMatrix {
         correspondences: impl Iterator<Item = (f64, NormalizedKeyPoint, NormalizedKeyPoint)>,
     ) -> Option<RelativeCameraPose> {
         // Get the possible rotations and the translation
-        self.possible_poses(epsilon, max_iterations)
-            .and_then(|(rot_x, rot_y, t)| {
-                // Find the translation for both x and y.
-                let tx_dir = rot_x.transpose() * t;
-                let ty_dir = rot_y.transpose() * t;
+        self.possible_rotations_and_bearings(epsilon, max_iterations)
+            .and_then(|poses| {
                 // Get the net translation scale of points that agree with a and b
                 // in addition to the number of points that agree with a and b.
-                let (xt, yt, xn, yn, total) = correspondences.fold(
-                    (0.0, 0.0, 0usize, 0usize, 0usize),
-                    |(mut xt, mut yt, mut xn, mut yn, total), (depth, a, b)| {
+                let (ts, total) = correspondences.fold(
+                    ([(0.0, 0usize); 2], 0usize),
+                    |(mut ts, total), (depth, a, b)| {
                         // Compute the CameraPoint of a.
                         let a_point = a.with_depth(depth).0;
-                        let trans_and_agree = |rotation, t_dir| {
+                        let trans_and_agree = |(rot, bearing)| {
                             // Triangulate the position of the CameraPoint of b.
                             // We know the precise 3d position of the a point relative
                             // to camera A, but we do not know the
@@ -436,41 +464,39 @@ impl EssentialMatrix {
                             // that minimizes the reprojection error of the untranslated point as much
                             // as possible. See the documentation for reproject_along_translation
                             // to get more details on the process.
-                            let untranslated: Vector3<f64> = rotation * a_point;
+                            let untranslated: Vector3<f64> = rot * a_point;
                             let translation_scale =
-                                geom::reproject_along_translation(untranslated.xy(), b, t_dir);
+                                geom::reproject_along_translation(untranslated.xy(), b, bearing);
                             // Now that we have the translation, we can just verify that the point
                             // is in front (z > 1.0) of the camera to see if it agrees with the model.
                             (
                                 translation_scale,
-                                translation_scale * t_dir.z + untranslated.z > 1.0,
+                                translation_scale * bearing.z + untranslated.z > 1.0,
                             )
                         };
 
-                        // Do it for X.
-                        if let (scale, true) = trans_and_agree(rot_x, tx_dir) {
-                            xt += scale;
-                            xn += 1;
+                        // Do it for both poses.
+                        for (tn, &pose) in ts.iter_mut().zip(&poses) {
+                            if let (scale, true) = trans_and_agree(pose) {
+                                tn.0 += scale;
+                                tn.1 += 1;
+                            }
                         }
 
-                        // Do it for Y.
-                        if let (scale, true) = trans_and_agree(rot_y, ty_dir) {
-                            yt += scale;
-                            yn += 1;
-                        }
-
-                        (xt, yt, xn, yn, total + 1)
+                        (ts, total + 1)
                     },
                 );
+
                 // Ensure that the best one exceeds the consensus ratio.
-                if (core::cmp::max(xn, yn) as f64 / total as f64) < consensus_ratio {
+                if (core::cmp::max(ts[0].1, ts[1].1) as f64 / total as f64) < consensus_ratio {
                     return None;
                 }
+
                 // TODO: Perhaps if its closer than this we should assume the frame itself is an outlier.
-                let (rot, trans) = match xn.cmp(&yn) {
+                let (rot, trans) = match ts[0].1.cmp(&ts[1].1) {
                     Ordering::Equal => return None,
-                    Ordering::Greater => (rot_x, xt / xn as f64 * tx_dir),
-                    Ordering::Less => (rot_y, yt / yn as f64 * ty_dir),
+                    Ordering::Greater => (poses[0].0, poses[0].1 * ts[0].0 / ts[0].1 as f64),
+                    Ordering::Less => (poses[1].0, poses[1].1 * ts[1].0 / ts[1].1 as f64),
                 };
                 Some(RelativeCameraPose(Isometry3::from_parts(
                     trans.into(),
