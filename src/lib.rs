@@ -268,3 +268,60 @@ pub fn five_points_relative_pose(
 
     essentials_from_action_ebasis(at, e_basis)
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn vec_to_poly_basis(v: Vector4<f64>) -> PolyBasisVec {
+        let mut res = PolyBasisVec::zeros();
+        res[BASIS_X] = v.x;
+        res[BASIS_Y] = v.y;
+        res[BASIS_Z] = v.z;
+        res[BASIS_1] = v.w;
+        res
+    }
+
+    fn eval_polynomial(p: PolyBasisVec, x: f64, y: f64, z: f64) -> f64 {
+        p[BASIS_XXX] * x * x * x
+            + p[BASIS_XXY] * x * x * y
+            + p[BASIS_XXZ] * x * x * z
+            + p[BASIS_XYY] * x * y * y
+            + p[BASIS_XYZ] * x * y * z
+            + p[BASIS_XZZ] * x * z * z
+            + p[BASIS_YYY] * y * y * y
+            + p[BASIS_YYZ] * y * y * z
+            + p[BASIS_YZZ] * y * z * z
+            + p[BASIS_ZZZ] * z * z * z
+            + p[BASIS_XX] * x * x
+            + p[BASIS_XY] * x * y
+            + p[BASIS_XZ] * x * z
+            + p[BASIS_YY] * y * y
+            + p[BASIS_YZ] * y * z
+            + p[BASIS_ZZ] * z * z
+            + p[BASIS_X] * x
+            + p[BASIS_Y] * y
+            + p[BASIS_Z] * z
+            + p[BASIS_1]
+    }
+
+    #[test]
+    fn o1_manual() {
+        let p1 = Vector4::new(0.1, 0.8, 0.3, 0.2);
+        let p2 = Vector4::new(0.5, 0.45, 0.82, 0.15);
+        let p3 = o1(p1, p2);
+        for z in -5..5 {
+            for y in -5..5 {
+                for x in -5..5 {
+                    let x = x as f64;
+                    let y = y as f64;
+                    let z = z as f64;
+                    let o1_comp = eval_polynomial(p3, x, y, z);
+                    let man_comp = eval_polynomial(vec_to_poly_basis(p1), x, y, z)
+                        * eval_polynomial(vec_to_poly_basis(p2), x, y, z);
+                    assert!((o1_comp - man_comp).abs() < 1e-6);
+                }
+            }
+        }
+    }
+}
