@@ -48,8 +48,8 @@ fn encode_epipolar_equation(
     let mut out: MatrixMN<f64, U5, U9> = nalgebra::zero();
     for i in 0..U5::dim() {
         let mut row = VectorN::<f64, U9>::zeros();
-        let ap = a[i].epipolar_point().0.normalize();
-        let bp = b[i].epipolar_point().0.normalize();
+        let ap = a[i].epipolar_point().0.coords;
+        let bp = b[i].epipolar_point().0.coords;
         for j in 0..3 {
             let v = bp[j] * ap;
             row.fixed_rows_mut::<U3>(3 * j).copy_from(&v);

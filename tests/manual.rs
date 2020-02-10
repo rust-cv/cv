@@ -11,10 +11,10 @@ const SAMPLE_POINTS: usize = 16;
 
 const ROT_MAGNITUDE: f64 = 0.1;
 const NEAR: f32 = 0.1;
-const EPS_ROTATION: f64 = 1e-13;
-const ITER_ROTATION: usize = 50000;
+const EPS_ROTATION: f64 = 1e-6;
+const ITER_ROTATION: usize = 50;
 
-const EIGHT_POINT_EIGEN_CONVERGENCE: f64 = 1e-4;
+const EIGHT_POINT_EIGEN_CONVERGENCE: f64 = 1e-6;
 const EIGHT_POINT_EIGEN_ITERATIONS: usize = 50;
 
 fn to_five(a: [NormalizedKeyPoint; SAMPLE_POINTS]) -> [NormalizedKeyPoint; 5] {
@@ -39,8 +39,8 @@ fn five_points_nullspace_basis() {
         }
 
         for i in 0..5 {
-            let a = kpa[i].epipolar_point().0.map(f64::from);
-            let b = kpb[i].epipolar_point().0.map(f64::from);
+            let a = kpa[i].epipolar_point().0.coords;
+            let b = kpb[i].epipolar_point().0.coords;
 
             let dot = b.dot(&(e * a)).abs();
 
@@ -53,21 +53,18 @@ fn five_points_nullspace_basis() {
 fn five_points_relative_pose() {
     let (real_pose, _, kpa, kpb, _) = some_test_data();
 
-    let essentials = nister_stewenius::five_points_relative_pose(&to_five(kpb), &to_five(kpa));
-
+    eprintln!("\n8-pt:");
     let eight_essential = eight_point(&to_eight(kpa), &to_eight(kpb)).unwrap();
     eprintln!("{:?}", eight_essential);
-
     // Assert that the eight point essential works fine.
     for (&b, &a) in kpa.iter().zip(&kpb) {
         let residual = eight_essential.residual(&KeyPointsMatch(a, b));
         eprintln!("residual: {:?}", residual);
         assert!(residual.abs() < 0.1);
     }
-
     // Compute pose from essential and kp depths.
-    let (rot_a, rot_b, _) = eight_essential
-        .possible_poses(EPS_ROTATION, ITER_ROTATION)
+    let [rot_a, rot_b] = eight_essential
+        .possible_rotations(EPS_ROTATION, ITER_ROTATION)
         .unwrap();
     // Convert rotations into quaternion form.
     let rot_from_real = |uquat| real_pose.rotation.rotation_to(&uquat).angle();
@@ -76,7 +73,11 @@ fn five_points_relative_pose() {
     eprintln!("rota: {:?}", rot_from_real(quat_a));
     eprintln!("rotb: {:?}", rot_from_real(quat_b));
 
-    for essential in essentials {
+    // Do the 5 point test.
+    eprintln!("\n5-pt:");
+    let mut essentials = nister_stewenius::five_points_relative_pose(&to_five(kpb), &to_five(kpa));
+
+    let any_good = essentials.any(|essential| {
         for (&a, &b) in kpa.iter().zip(&kpb) {
             let residual = essential.residual(&KeyPointsMatch(b, a));
             eprintln!("residual: {:?}", residual);
@@ -86,8 +87,8 @@ fn five_points_relative_pose() {
         eprintln!("essential: {:?}", essential);
 
         // Compute pose from essential and kp depths.
-        let (rot_a, rot_b, _) = essential
-            .possible_poses(EPS_ROTATION, ITER_ROTATION)
+        let [rot_a, rot_b] = essential
+            .possible_rotations(EPS_ROTATION, ITER_ROTATION)
             .unwrap();
         // Convert rotations into quaternion form.
         let quat_a = UnitQuaternion::from(rot_a);
@@ -101,8 +102,10 @@ fn five_points_relative_pose() {
         let a_close = 1.0 - qcoord(quat_a).dot(&qcoord(real_pose.rotation)) < 1e-6;
         let b_close = 1.0 - qcoord(quat_b).dot(&qcoord(real_pose.rotation)) < 1e-6;
         // At least one rotation is correct.
-        assert!(a_close || b_close);
-    }
+        a_close || b_close
+    });
+
+    assert!(any_good);
 }
 
 /// Gets a random relative pose, input points A, and input points B.
@@ -159,8 +162,8 @@ fn encode_epipolar_equation_8(
     let mut out: MatrixMN<f64, U8, U9> = nalgebra::zero();
     for i in 0..8 {
         let mut row = VectorN::<f64, U9>::zeros();
-        let ap = a[i].epipolar_point().0;
-        let bp = b[i].epipolar_point().0;
+        let ap = a[i].epipolar_point().0.coords;
+        let bp = b[i].epipolar_point().0.coords;
         for j in 0..3 {
             let v = bp[j] * ap;
             row.fixed_rows_mut::<U3>(3 * j).copy_from(&v);
