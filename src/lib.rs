@@ -115,19 +115,19 @@ fn o2(a: PolyBasisVec, b: Vector4<f64>) -> PolyBasisVec {
     res[BASIS_Y] = a[BASIS_Y] * b.w + a[BASIS_1] * b.y;
     res[BASIS_Z] = a[BASIS_Z] * b.w + a[BASIS_1] * b.z;
     res[BASIS_1] = a[BASIS_1] * b.w;
-    return res;
+    res
 }
 
 fn five_points_polynomial_constraints(nullspace: &NullspaceMat) -> ConstraintMat {
     // Build the polynomial form of E (equation (8) in Stewenius et al. [1])
-    let mut e = [[Vector4::zeros(); 3]; 3];
+    let mut e_poly = [[Vector4::zeros(); 3]; 3];
     for i in 0..3 {
         for j in 0..3 {
             let x = nullspace[(3 * i + j, 0)];
             let y = nullspace[(3 * i + j, 1)];
             let z = nullspace[(3 * i + j, 2)];
             let w = nullspace[(3 * i + j, 3)];
-            e[i][j] = Vector4::new(x, y, z, w);
+            e_poly[i][j] = Vector4::new(x, y, z, w);
         }
     }
 
@@ -135,9 +135,16 @@ fn five_points_polynomial_constraints(nullspace: &NullspaceMat) -> ConstraintMat
     let mut m = ConstraintMat::zeros();
     // Determinant constraint det(E) = 0; equation (19) of Nister [2].
     m.row_mut(0).copy_from(
-        &(o2(o1(e[0][1], e[1][2]) - o1(e[0][2], e[1][1]), e[2][0])
-            + o2(o1(e[0][2], e[1][0]) - o1(e[0][0], e[1][2]), e[2][1])
-            + o2(o1(e[0][0], e[1][1]) - o1(e[0][1], e[1][0]), e[2][2]))
+        &(o2(
+            o1(e_poly[0][1], e_poly[1][2]) - o1(e_poly[0][2], e_poly[1][1]),
+            e_poly[2][0],
+        ) + o2(
+            o1(e_poly[0][2], e_poly[1][0]) - o1(e_poly[0][0], e_poly[1][2]),
+            e_poly[2][1],
+        ) + o2(
+            o1(e_poly[0][0], e_poly[1][1]) - o1(e_poly[0][1], e_poly[1][0]),
+            e_poly[2][2],
+        ))
         .transpose(),
     );
 
@@ -149,7 +156,9 @@ fn five_points_polynomial_constraints(nullspace: &NullspaceMat) -> ConstraintMat
         for j in 0..3 {
             // its upper triangular part.
             if i <= j {
-                eet[i][j] = o1(e[i][0], e[j][0]) + o1(e[i][1], e[j][1]) + o1(e[i][2], e[j][2]);
+                eet[i][j] = o1(e_poly[i][0], e_poly[j][0])
+                    + o1(e_poly[i][1], e_poly[j][1])
+                    + o1(e_poly[i][2], e_poly[j][2]);
             } else {
                 eet[i][j] = eet[j][i];
             }
@@ -159,14 +168,17 @@ fn five_points_polynomial_constraints(nullspace: &NullspaceMat) -> ConstraintMat
     // Equation (21).
     let mut l = eet;
     let trace = 0.5 * (eet[0][0] + eet[1][1] + eet[2][2]);
+    #[allow(clippy::needless_range_loop)]
     for i in 0..3 {
         l[i][i] -= trace;
     }
 
     // Equation (23).
+    #[allow(clippy::needless_range_loop)]
     for i in 0..3 {
         for j in 0..3 {
-            let leij = o2(l[i][0], e[0][j]) + o2(l[i][1], e[1][j]) + o2(l[i][2], e[2][j]);
+            let leij =
+                o2(l[i][0], e_poly[0][j]) + o2(l[i][1], e_poly[1][j]) + o2(l[i][2], e_poly[2][j]);
             m.row_mut(1 + i * 3 + j).copy_from(&leij.transpose());
         }
     }
