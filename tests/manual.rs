@@ -11,11 +11,11 @@ const SAMPLE_POINTS: usize = 16;
 
 const ROT_MAGNITUDE: f64 = 0.1;
 const NEAR: f32 = 0.1;
-const EPS_ROTATION: f64 = 1e-6;
-const ITER_ROTATION: usize = 50;
+const EPS_ROTATION: f64 = 1e-9;
+const ITER_ROTATION: usize = 500;
 
-const EIGHT_POINT_EIGEN_CONVERGENCE: f64 = 1e-6;
-const EIGHT_POINT_EIGEN_ITERATIONS: usize = 50;
+const EIGHT_POINT_EIGEN_CONVERGENCE: f64 = 1e-16;
+const EIGHT_POINT_EIGEN_ITERATIONS: usize = 500;
 
 fn to_five(a: [NormalizedKeyPoint; SAMPLE_POINTS]) -> [NormalizedKeyPoint; 5] {
     [a[0], a[1], a[2], a[3], a[4]]
@@ -56,6 +56,7 @@ fn five_points_relative_pose() {
     eprintln!("\n8-pt:");
     let eight_essential = eight_point(&to_eight(kpa), &to_eight(kpb)).unwrap();
     eprintln!("{:?}", eight_essential);
+    assert_essential(eight_essential);
     // Assert that the eight point essential works fine.
     for (&b, &a) in kpa.iter().zip(&kpb) {
         let residual = eight_essential.residual(&KeyPointsMatch(a, b));
@@ -75,9 +76,13 @@ fn five_points_relative_pose() {
 
     // Do the 5 point test.
     eprintln!("\n5-pt:");
-    let mut essentials = nister_stewenius::five_points_relative_pose(&to_five(kpb), &to_five(kpa));
+    let essentials = nister_stewenius::five_points_relative_pose(&to_five(kpb), &to_five(kpa))
+        .collect::<Vec<_>>();
+    for essential in essentials.iter().copied() {
+        assert_essential(essential);
+    }
 
-    let any_good = essentials.any(|essential| {
+    let any_good = essentials.iter().any(|essential| {
         for (&a, &b) in kpa.iter().zip(&kpb) {
             let residual = essential.residual(&KeyPointsMatch(b, a));
             eprintln!("residual: {:?}", residual);
@@ -181,13 +186,29 @@ pub fn eight_point(
     let eet = epipolar_constraint.transpose() * epipolar_constraint;
     let symmetric_eigens =
         eet.try_symmetric_eigen(EIGHT_POINT_EIGEN_CONVERGENCE, EIGHT_POINT_EIGEN_ITERATIONS)?;
+    eprintln!("{:?}", symmetric_eigens);
     let eigenvector = symmetric_eigens
         .eigenvalues
         .iter()
         .enumerate()
         .min_by_key(|&(_, &n)| float_ord::FloatOrd(n))
-        .map(|(ix, _)| symmetric_eigens.eigenvectors.column(ix).into_owned())?;
+        .map(|(ix, _)| {
+            eprintln!("chosen: {}", ix);
+            symmetric_eigens.eigenvectors.column(ix).into_owned()
+        })?;
     Some(EssentialMatrix(Matrix3::from_iterator(
         eigenvector.iter().copied(),
     )))
+}
+
+fn assert_essential(EssentialMatrix(e): EssentialMatrix) {
+    assert!(
+        e.determinant() < 1e-4,
+        "matrix determinant not near zero: {}",
+        e.determinant()
+    );
+    let o = 2.0 * e * e.transpose() * e - (e * e.transpose()).trace() * e;
+    for &n in o.iter() {
+        assert!(n < 1e-6, "matrix not near zero: {:?}", o);
+    }
 }
