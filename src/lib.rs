@@ -324,4 +324,35 @@ mod test {
             }
         }
     }
+
+    #[test]
+    fn o2_manual() {
+        let mut p1 = PolyBasisVec::zeros();
+        p1[BASIS_XX] = 0.2;
+        p1[BASIS_XY] = 0.81;
+        p1[BASIS_XZ] = 0.66;
+        p1[BASIS_YY] = 0.91;
+        p1[BASIS_YZ] = 0.88;
+        p1[BASIS_ZZ] = 0.14;
+        p1[BASIS_X] = 0.97;
+        p1[BASIS_Y] = 0.3;
+        p1[BASIS_Z] = 0.38;
+        p1[BASIS_1] = 0.72;
+
+        let p2 = Vector4::new(0.5, 0.45, 0.82, 0.15);
+        let p3 = o2(p1, p2);
+        for z in -5..5 {
+            for y in -5..5 {
+                for x in -5..5 {
+                    let x = x as f64;
+                    let y = y as f64;
+                    let z = z as f64;
+                    let o1_comp = eval_polynomial(p3, x, y, z);
+                    let man_comp = eval_polynomial(p1, x, y, z)
+                        * eval_polynomial(vec_to_poly_basis(p2), x, y, z);
+                    assert!((o1_comp - man_comp).abs() < 1e-8);
+                }
+            }
+        }
+    }
 }
