@@ -1,5 +1,5 @@
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
-use nalgebra::{Matrix3, Point2, Vector2, Vector3};
+use nalgebra::{Matrix3, Point2, Point3, Vector2, Vector3};
 
 /// A point on an image frame. This type should only be used when
 /// the point location is on the image frame in pixel coordinates.
@@ -7,7 +7,7 @@ use nalgebra::{Matrix3, Point2, Vector2, Vector3};
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
 pub struct ImageKeyPoint(pub Point2<f64>);
 
-/// A 3d vector which is relative to the camera's optical center and orientation where
+/// A 3d point which is relative to the camera's optical center and orientation where
 /// the positive Y axis is up and positive Z axis is forwards from the center of the
 /// camera. The unit of distance of a `CameraPoint` is unspecified and relative to
 /// the current reconstruction.
@@ -17,7 +17,7 @@ pub struct ImageKeyPoint(pub Point2<f64>);
 /// at a depth `z = 1.0`. The operation cannot be done in reverse because the depth
 /// (`z` component) or distance from optical center (length) is unknown.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
-pub struct CameraPoint(pub Vector3<f64>);
+pub struct CameraPoint(pub Point3<f64>);
 
 /// A point in normalized image coordinates. This keypoint has been corrected
 /// for distortion and normalized based on the camrea intrinsic matrix.
@@ -39,7 +39,7 @@ impl NormalizedKeyPoint {
     /// with the vector that represents the position delta of the point from
     /// the camera.
     pub fn with_depth(self, depth: f64) -> CameraPoint {
-        CameraPoint((self.coords * depth).push(depth))
+        CameraPoint((self.coords * depth).push(depth).into())
     }
 
     /// Projects the keypoint out to the [`CameraPoint`] that is
@@ -47,7 +47,7 @@ impl NormalizedKeyPoint {
     /// `distance` is defined as the norm of the vector that represents
     /// the position delta of the point from the camera.
     pub fn with_distance(self, distance: f64) -> CameraPoint {
-        CameraPoint(distance * self.bearing())
+        CameraPoint((distance * self.bearing()).into())
     }
 
     /// Get the epipolar point as a [`CameraPoint`].
@@ -75,8 +75,8 @@ impl NormalizedKeyPoint {
 }
 
 impl From<CameraPoint> for NormalizedKeyPoint {
-    fn from(camera: CameraPoint) -> Self {
-        NormalizedKeyPoint(Point2::from(camera.xy()) / camera.z)
+    fn from(CameraPoint(point): CameraPoint) -> Self {
+        NormalizedKeyPoint(point.xy() / point.z)
     }
 }
 

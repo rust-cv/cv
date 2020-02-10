@@ -1,6 +1,4 @@
-use crate::{
-    geom, CameraPoint, KeyPointWorldMatch, KeyPointsMatch, NormalizedKeyPoint, WorldPoint,
-};
+use crate::{CameraPoint, KeyPointWorldMatch, KeyPointsMatch, NormalizedKeyPoint, WorldPoint};
 use core::cmp::Ordering;
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use nalgebra::{
@@ -43,7 +41,7 @@ impl WorldPose {
     /// Projects the [`WorldPoint`] into camera space as a [`CameraPoint`].
     pub fn transform(&self, WorldPoint(point): WorldPoint) -> CameraPoint {
         let WorldPose(iso) = *self;
-        CameraPoint((iso * point).coords)
+        CameraPoint(iso * point)
     }
 
     /// Computes the Jacobian of the projection in respect to the `WorldPose`.
@@ -183,12 +181,12 @@ impl RelativeCameraPose {
     /// ```
     /// # use cv_core::{RelativeCameraPose, CameraPoint, KeyPointsMatch};
     /// # use cv_core::sample_consensus::Model;
-    /// # use cv_core::nalgebra::{Vector3, Isometry3, UnitQuaternion};
+    /// # use cv_core::nalgebra::{Vector3, Point3, Isometry3, UnitQuaternion};
     /// let pose = RelativeCameraPose(Isometry3::from_parts(
     ///     Vector3::new(0.3, 0.4, 0.5).into(),
     ///     UnitQuaternion::from_euler_angles(0.2, 0.3, 0.4),
     /// ));
-    /// let a = CameraPoint(Vector3::new(0.5, 0.5, 3.0));
+    /// let a = CameraPoint(Point3::new(0.5, 0.5, 3.0));
     /// let b = pose.transform(a);
     /// assert!(pose.essential_matrix().residual(&KeyPointsMatch(a.into(), b.into())) < 1e-6);
     /// ```
@@ -469,13 +467,44 @@ impl EssentialMatrix {
     /// will run on this matrix. Use this in soft realtime systems to cap the execution time.
     /// A `max_iterations` of `0` may execute indefinitely and is not recommended.
     ///
+    /// `bearing_scale` is a function that is passed a translation bearing vector,
+    /// an untranslated (but rotated) camera point, and a normalized key point
+    /// where the actual point exists. It must return the scalar which the
+    /// translation bearing vector must by multiplied by to get the actual translation.
+    ///
+    /// `correspondences` must provide an iterator of tuples containing the depth
+    /// (distance along the positive Z axis) of camera A's point `a`, a point `a`
+    /// from camera A, and a point `b` from camera B.
+    ///
     /// This does not communicate which points were outliers.
+    ///
+    /// ```
+    /// # use cv_core::{RelativeCameraPose, CameraPoint};
+    /// # use cv_core::nalgebra::{Isometry3, UnitQuaternion, Vector3, Point3};
+    /// let pose = RelativeCameraPose(Isometry3::from_parts(
+    ///     Vector3::new(-0.8, 0.4, 0.5).into(),
+    ///     UnitQuaternion::from_euler_angles(0.2, 0.3, 0.4),
+    /// ));
+    /// let a_point = CameraPoint(Point3::new(-1.0, 2.0, 3.0));
+    /// let b_point = pose.transform(a_point);
+    /// // Get the possible poses for the essential matrix created from `pose`.
+    /// let estimate_pose = pose.essential_matrix().solve_pose(0.5, 1e-6, 50,
+    ///     cv_core::geom::triangulate_bearing_reproject,
+    ///     std::iter::once((a_point, b_point.into())),
+    /// ).unwrap();
+    ///
+    /// let angle_residual =
+    ///     estimate_pose.rotation.rotation_to(&pose.rotation).angle();
+    /// let translation_residual = (pose.translation.vector - estimate_pose.translation.vector).norm();
+    /// assert!(angle_residual < 1e-4 && translation_residual < 1e-4, "{}, {}, {:?}, {:?}", angle_residual, translation_residual, pose.translation.vector, estimate_pose.translation.vector);
+    /// ```
     pub fn solve_pose(
         &self,
         consensus_ratio: f64,
         epsilon: f64,
         max_iterations: usize,
-        correspondences: impl Iterator<Item = (f64, NormalizedKeyPoint, NormalizedKeyPoint)>,
+        bearing_scale: impl Fn(Vector3<f64>, CameraPoint, NormalizedKeyPoint) -> f64,
+        correspondences: impl Iterator<Item = (CameraPoint, NormalizedKeyPoint)>,
     ) -> Option<RelativeCameraPose> {
         // Get the possible rotations and the translation
         self.possible_rotations_and_bearings(epsilon, max_iterations)
@@ -484,9 +513,7 @@ impl EssentialMatrix {
                 // in addition to the number of points that agree with a and b.
                 let (ts, total) = correspondences.fold(
                     ([(0.0, 0usize); 2], 0usize),
-                    |(mut ts, total), (depth, a, b)| {
-                        // Compute the CameraPoint of a.
-                        let a_point = a.with_depth(depth).0;
+                    |(mut ts, total), (a, b)| {
                         let trans_and_agree = |(rot, bearing)| {
                             // Triangulate the position of the CameraPoint of b.
                             // We know the precise 3d position of the a point relative
@@ -500,9 +527,8 @@ impl EssentialMatrix {
                             // that minimizes the reprojection error of the untranslated point as much
                             // as possible. See the documentation for reproject_along_translation
                             // to get more details on the process.
-                            let untranslated: Vector3<f64> = rot * a_point;
-                            let translation_scale =
-                                geom::reproject_along_translation(untranslated.xy(), b, bearing);
+                            let untranslated = CameraPoint(rot * a.0);
+                            let translation_scale = bearing_scale(bearing, untranslated, b);
                             // Now that we have the translation, we can just verify that the point
                             // is in front (z > 1.0) of the camera to see if it agrees with the model.
                             (
@@ -523,8 +549,14 @@ impl EssentialMatrix {
                     },
                 );
 
+                // Ensure that there is at least one point.
+                if total == 0 {
+                    return None;
+                }
+
                 // Ensure that the best one exceeds the consensus ratio.
-                if (core::cmp::max(ts[0].1, ts[1].1) as f64 / total as f64) < consensus_ratio {
+                let best = core::cmp::max(ts[0].1, ts[1].1);
+                if (best as f64 / total as f64) < consensus_ratio && best != 0 {
                     return None;
                 }
 
