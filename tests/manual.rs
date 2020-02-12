@@ -1,6 +1,6 @@
 use cv_core::nalgebra::{
     dimension::{U3, U8, U9},
-    Isometry3, Matrix3, MatrixMN, UnitQuaternion, Vector2, Vector3, VectorN,
+    Isometry3, Matrix3, MatrixMN, MatrixN, UnitQuaternion, Vector2, Vector3, VectorN,
 };
 use cv_core::sample_consensus::Model;
 use cv_core::{
@@ -9,12 +9,13 @@ use cv_core::{
 
 const SAMPLE_POINTS: usize = 16;
 
-const ROT_MAGNITUDE: f64 = 0.1;
+const ROT_MAGNITUDE: f64 = 0.3;
+const TRANS_MAGNITUDE: f64 = 2.0;
 const NEAR: f32 = 0.1;
 const EPS_ROTATION: f64 = 1e-9;
 const ITER_ROTATION: usize = 500;
 
-const EIGHT_POINT_EIGEN_CONVERGENCE: f64 = 1e-16;
+const EIGHT_POINT_EIGEN_CONVERGENCE: f64 = 1e-6;
 const EIGHT_POINT_EIGEN_ITERATIONS: usize = 500;
 
 fn to_five(a: [NormalizedKeyPoint; SAMPLE_POINTS]) -> [NormalizedKeyPoint; 5] {
@@ -57,12 +58,6 @@ fn five_points_relative_pose() {
     let eight_essential = eight_point(&to_eight(kpa), &to_eight(kpb)).unwrap();
     eprintln!("{:?}", eight_essential);
     assert_essential(eight_essential);
-    // Assert that the eight point essential works fine.
-    for (&b, &a) in kpa.iter().zip(&kpb) {
-        let residual = eight_essential.residual(&KeyPointsMatch(a, b));
-        eprintln!("residual: {:?}", residual);
-        assert!(residual.abs() < 0.1);
-    }
     // Compute pose from essential and kp depths.
     let [rot_a, rot_b] = eight_essential
         .possible_rotations(EPS_ROTATION, ITER_ROTATION)
@@ -73,6 +68,12 @@ fn five_points_relative_pose() {
     let quat_b = UnitQuaternion::from(rot_b);
     eprintln!("rota: {:?}", rot_from_real(quat_a));
     eprintln!("rotb: {:?}", rot_from_real(quat_b));
+    // Assert that the eight point essential works fine.
+    for (&b, &a) in kpa.iter().zip(&kpb) {
+        let residual = eight_essential.residual(&KeyPointsMatch(a, b));
+        eprintln!("residual: {:?}", residual);
+        assert!(residual.abs() < 0.1);
+    }
 
     // Do the 5 point test.
     eprintln!("\n5-pt:");
@@ -129,9 +130,9 @@ fn some_test_data() -> (
 
     // Generate A's camera points.
     let cams_a = (0..SAMPLE_POINTS).map(|_| {
-        let mut a = Vector3::new_random();
-        a.x -= 0.5;
-        a.y -= 0.5;
+        let mut a = Vector3::new_random() * TRANS_MAGNITUDE;
+        a.x -= 0.5 * TRANS_MAGNITUDE;
+        a.y -= 0.5 * TRANS_MAGNITUDE;
         a.z += 2.0;
         CameraPoint(a.into())
     });
@@ -186,24 +187,46 @@ pub fn eight_point(
     let eet = epipolar_constraint.transpose() * epipolar_constraint;
     let symmetric_eigens =
         eet.try_symmetric_eigen(EIGHT_POINT_EIGEN_CONVERGENCE, EIGHT_POINT_EIGEN_ITERATIONS)?;
-    eprintln!("{:?}", symmetric_eigens);
     let eigenvector = symmetric_eigens
         .eigenvalues
         .iter()
         .enumerate()
         .min_by_key(|&(_, &n)| float_ord::FloatOrd(n))
-        .map(|(ix, _)| {
-            eprintln!("chosen: {}", ix);
-            symmetric_eigens.eigenvectors.column(ix).into_owned()
-        })?;
-    Some(EssentialMatrix(Matrix3::from_iterator(
-        eigenvector.iter().copied(),
-    )))
+        .map(|(ix, _)| symmetric_eigens.eigenvectors.column(ix).into_owned())?;
+    let old_svd = Matrix3::from_iterator(eigenvector.iter().copied()).svd(true, true);
+    // We need to sort the singular values in the SVD.
+    let mut sources = [0, 1, 2];
+    sources.sort_unstable_by_key(|&ix| float_ord::FloatOrd(-old_svd.singular_values[ix]));
+    let mut svd = old_svd;
+    for (dest, &source) in sources.iter().enumerate() {
+        svd.singular_values[dest] = old_svd.singular_values[source];
+        svd.u
+            .as_mut()
+            .unwrap()
+            .column_mut(dest)
+            .copy_from(&old_svd.u.as_ref().unwrap().column(source));
+        svd.v_t
+            .as_mut()
+            .unwrap()
+            .row_mut(dest)
+            .copy_from(&old_svd.v_t.as_ref().unwrap().row(source));
+    }
+    // Now that the singular values are sorted, find the closest
+    // essential matrix to E in frobenius form.
+    // This consists of averaging the two non-zero singular values
+    // and zeroing out the near-zero singular value.
+    svd.singular_values[2] = 0.0;
+    let new_singular = (svd.singular_values[0] + svd.singular_values[1]) / 2.0;
+    svd.singular_values[0] = new_singular;
+    svd.singular_values[1] = new_singular;
+
+    let mat = svd.recompose().unwrap();
+    Some(EssentialMatrix(mat))
 }
 
 fn assert_essential(EssentialMatrix(e): EssentialMatrix) {
     assert!(
-        e.determinant() < 1e-4,
+        e.determinant() < 1e-6,
         "matrix determinant not near zero: {}",
         e.determinant()
     );
