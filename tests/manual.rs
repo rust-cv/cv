@@ -68,15 +68,13 @@ fn five_points_relative_pose() {
     let quat_b = UnitQuaternion::from(rot_b);
     eprintln!("rota: {:?}", rot_from_real(quat_a));
     eprintln!("rotb: {:?}", rot_from_real(quat_b));
-    eprintln!("rotainv: {:?}", rot_from_real(quat_a.inverse()));
-    eprintln!("rotbinv: {:?}", rot_from_real(quat_b.inverse()));
     // Assert that the eight point essential works fine.
     for ((&b, &a), &r) in kpa.iter().zip(&kpb).zip(&kpr) {
-        let residual_match = eight_essential.residual(&KeyPointsMatch(a, b));
+        let residual_match = eight_essential.residual(&KeyPointsMatch(b, a));
         eprintln!("residual match: {:?}", residual_match.abs());
         let residual_wrong = eight_essential.residual(&KeyPointsMatch(a, r));
         eprintln!("residual wrong: {:?}", residual_wrong.abs());
-        assert!(residual_match.abs() < 1.0);
+        assert!(residual_match.abs() < 0.1);
     }
 
     // Do the 5 point test.
@@ -89,9 +87,9 @@ fn five_points_relative_pose() {
 
     let any_good = essentials.iter().any(|essential| {
         for (&a, &b) in kpa.iter().zip(&kpb) {
-            let residual = essential.residual(&KeyPointsMatch(b, a));
+            let residual = essential.residual(&KeyPointsMatch(a, b));
             eprintln!("residual: {:?}", residual.abs());
-            assert!(residual.abs() < 1.0);
+            assert!(residual.abs() < 0.1);
         }
 
         eprintln!("essential: {:?}", essential);
@@ -105,8 +103,6 @@ fn five_points_relative_pose() {
         let quat_b = UnitQuaternion::from(rot_b);
         eprintln!("rota: {:?}", rot_from_real(quat_a));
         eprintln!("rotb: {:?}", rot_from_real(quat_b));
-        eprintln!("rotainv: {:?}", rot_from_real(quat_a.inverse()));
-        eprintln!("rotbinv: {:?}", rot_from_real(quat_b.inverse()));
 
         // Extract vector from quaternion.
         let qcoord = |uquat: UnitQuaternion<f64>| uquat.quaternion().coords;
@@ -136,13 +132,16 @@ fn some_test_data() -> (
     ));
 
     // Generate A's camera points.
-    let cams_a = (0..SAMPLE_POINTS).map(|_| {
-        let mut a = Vector3::new_random() * TRANS_MAGNITUDE;
-        a.x -= 0.5 * TRANS_MAGNITUDE;
-        a.y -= 0.5 * TRANS_MAGNITUDE;
-        a.z += 2.0;
-        CameraPoint(a.into())
-    });
+    let cams_a = (0..SAMPLE_POINTS)
+        .map(|_| {
+            let mut a = Vector3::new_random() * TRANS_MAGNITUDE;
+            a.x -= 0.5 * TRANS_MAGNITUDE;
+            a.y -= 0.5 * TRANS_MAGNITUDE;
+            a.z += 2.0;
+            CameraPoint(a.into())
+        })
+        .collect::<Vec<_>>()
+        .into_iter();
 
     let cams_rand = (0..SAMPLE_POINTS).map(|_| {
         let mut a = Vector3::new_random() * TRANS_MAGNITUDE;
@@ -191,7 +190,7 @@ fn encode_epipolar_equation_8(
         let ap = a[i].epipolar_point().0.coords;
         let bp = b[i].epipolar_point().0.coords;
         for j in 0..3 {
-            let v = bp[j] * ap;
+            let v = ap[j] * bp;
             row.fixed_rows_mut::<U3>(3 * j).copy_from(&v);
         }
         out.row_mut(i).copy_from(&row.transpose());
@@ -246,18 +245,18 @@ pub fn eight_point(
         .min_by_key(|&(_, &n)| float_ord::FloatOrd(n))
         .map(|(ix, _)| eigens.eigenvectors.column(ix).into_owned())?;
     let mat = Matrix3::from_iterator(eigenvector.iter().copied());
-    Some(EssentialMatrix(mat))
+    Some(recondition_matrix(mat))
 }
 
 fn assert_essential(EssentialMatrix(e): EssentialMatrix) {
     // TODO: Figure out how to fix this.
-    // assert!(
-    //     e.determinant() < 1e-4,
-    //     "matrix determinant not near zero: {}",
-    //     e.determinant()
-    // );
-    // let o = 2.0 * e * e.transpose() * e - (e * e.transpose()).trace() * e;
-    // for &n in o.iter() {
-    //     assert!(n < 1e-1, "matrix not near zero: {:?}", o);
-    // }
+    assert!(
+        e.determinant() < 1e-4,
+        "matrix determinant not near zero: {}",
+        e.determinant()
+    );
+    let o = 2.0 * e * e.transpose() * e - (e * e.transpose()).trace() * e;
+    for &n in o.iter() {
+        assert!(n < 1e-4, "matrix not near zero: {:?}", o);
+    }
 }
