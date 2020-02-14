@@ -28,11 +28,11 @@ use cv_core::nalgebra::{
 };
 use cv_core::{EssentialMatrix, NormalizedKeyPoint};
 
-const EIGEN_CONVERGENCE: f64 = 1e-12;
-const EIGEN_ITERATIONS: usize = 5000;
+const EIGEN_CONVERGENCE: f64 = 1e-6;
+const EIGEN_ITERATIONS: usize = 50;
 const EIGEN_THRESHOLD: f64 = 1e-6;
-const SVD_CONVERGENCE: f64 = 1e-12;
-const SVD_ITERATIONS: usize = 5000;
+const SVD_CONVERGENCE: f64 = 1e-6;
+const SVD_ITERATIONS: usize = 50;
 /// The threshold which the singular value must be below for it
 /// to be considered the null-space.
 const SVD_NULL_THRESHOLD: f64 = 1e-6;
@@ -238,7 +238,8 @@ fn essentials_from_action_ebasis(
         .map(EssentialMatrix)
 }
 
-/// Takes in two sets of 3d bearings from
+/// Takes in two sets of normalized key points.
+/// Returns all essential matrix solutions.
 pub fn five_points_relative_pose(
     a: &[NormalizedKeyPoint; 5],
     b: &[NormalizedKeyPoint; 5],
