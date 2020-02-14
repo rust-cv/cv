@@ -7,7 +7,7 @@ description = "Contains core primitives used in computer vision applications"
 documentation = "https://docs.rs/cv-core/"
 repository = "https://github.com/rust-photogrammetry/cv-core"
 keywords = ["computer", "vision", "core", "cv", "photogrammetry"]
-categories = ["algorithms", "no-std", "science", "science::robotics"]
+categories = ["algorithms", "computer-vision", "no-std", "science", "science::robotics"]
 license = "MIT"
 readme = "README.md"
 
