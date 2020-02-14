@@ -30,11 +30,12 @@ use cv_core::{EssentialMatrix, NormalizedKeyPoint};
 
 const EIGEN_CONVERGENCE: f64 = 1e-12;
 const EIGEN_ITERATIONS: usize = 5000;
+const EIGEN_THRESHOLD: f64 = 1e-6;
 const SVD_CONVERGENCE: f64 = 1e-12;
 const SVD_ITERATIONS: usize = 5000;
 /// The threshold which the singular value must be below for it
 /// to be considered the null-space.
-const SVD_NULL_THRESHOLD: f64 = 1e-5;
+const SVD_NULL_THRESHOLD: f64 = 1e-6;
 
 type PolyBasisVec = VectorN<f64, U20>;
 type NullspaceMat = MatrixMN<f64, U9, U4>;
@@ -51,7 +52,7 @@ fn encode_epipolar_equation(
         let ap = a[i].epipolar_point().0.coords;
         let bp = b[i].epipolar_point().0.coords;
         for j in 0..3 {
-            let v = bp[j] * ap;
+            let v = ap[j] * bp;
             row.fixed_rows_mut::<U3>(3 * j).copy_from(&v);
         }
         out.row_mut(i).copy_from(&row.transpose());
@@ -66,15 +67,26 @@ pub fn five_points_nullspace_basis(
     let epipolar_constraint = encode_epipolar_equation(a, b);
     let ee = epipolar_constraint.transpose() * epipolar_constraint;
     ee.try_symmetric_eigen(EIGEN_CONVERGENCE, EIGEN_ITERATIONS)
-        .map(|m| {
+        .and_then(|m| {
             // We need to sort the eigenvectors by their corresponding eigenvalue.
             let mut sources = [0, 1, 2, 3, 4, 5, 6, 7, 8];
             sources.sort_unstable_by_key(|&ix| float_ord::FloatOrd(m.eigenvalues[ix]));
-            let mut sorted = NullspaceMat::zeros();
-            for (&ix, mut column) in sources.iter().zip(sorted.column_iter_mut()) {
+            let mut nullspace = NullspaceMat::zeros();
+            // We must have a nullity of 4.
+            let nullity = sources
+                .iter()
+                .map(|&i| m.eigenvalues[i])
+                .enumerate()
+                .find(|&(_, e)| e > EIGEN_THRESHOLD)
+                .map(|(ix, _)| ix)?;
+            if nullity != 4 {
+                return None;
+            }
+            // Place the null space vectors into the null matrix.
+            for (&ix, mut column) in sources.iter().zip(nullspace.column_iter_mut()) {
                 column.copy_from(&m.eigenvectors.column(ix));
             }
-            sorted
+            Some(nullspace)
         })
 }
 
@@ -199,7 +211,7 @@ fn compute_eigenvector(m: &Square10, lambda: f64) -> Option<VectorN<f64, U10>> {
                 .unwrap();
             // Ensure that the singular value is below a threshold.
             if v < SVD_NULL_THRESHOLD {
-                Some(svd.v_t.unwrap().column(ix).into_owned())
+                Some(svd.v_t.unwrap().row(ix).transpose().into_owned())
             } else {
                 None
             }
@@ -222,7 +234,7 @@ fn essentials_from_action_ebasis(
                 None
             }
         })
-        .map(move |vector| Matrix3::from_iterator((eb * vector).iter().copied()).transpose())
+        .map(move |vector| Matrix3::from_iterator((eb * vector).iter().copied()))
         .map(EssentialMatrix)
 }
 
