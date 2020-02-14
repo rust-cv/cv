@@ -192,8 +192,8 @@ impl RelativeCameraPose {
     /// ```
     pub fn essential_matrix(&self) -> EssentialMatrix {
         EssentialMatrix(
-            *self.0.rotation.to_rotation_matrix().matrix()
-                * self.0.translation.vector.cross_matrix(),
+            self.0.translation.vector.cross_matrix()
+                * *self.0.rotation.to_rotation_matrix().matrix(),
         )
     }
 }
@@ -285,8 +285,8 @@ impl EssentialMatrix {
     /// // Get the possible poses for the essential matrix created from `pose`.
     /// let (rot_a, rot_b, t) = pose.essential_matrix().possible_poses_unfixed_bearing(1e-6, 50).unwrap();
     /// // The translation must be processed through the reverse rotation.
-    /// let t_a = rot_a.transpose() * t;
-    /// let t_b = rot_b.transpose() * t;
+    /// let t_a = t;
+    /// let t_b = t;
     /// // Extract vector from quaternion.
     /// let qcoord = |uquat: UnitQuaternion<f64>| uquat.quaternion().coords;
     /// // Convert rotations into quaternion form.
@@ -431,12 +431,7 @@ impl EssentialMatrix {
         max_iterations: usize,
     ) -> Option<[(Rotation3<f64>, Vector3<f64>); 2]> {
         self.possible_poses_unfixed_bearing(epsilon, max_iterations)
-            .map(|(rot_a, rot_b, t)| {
-                [
-                    (rot_a, rot_a.transpose() * t),
-                    (rot_b, rot_b.transpose() * t),
-                ]
-            })
+            .map(|(rot_a, rot_b, t)| [(rot_a, t), (rot_b, t)])
     }
 
     /// Return the [`RelativeCameraPose`] that transforms a [`CameraPoint`] of image
