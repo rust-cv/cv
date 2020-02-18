@@ -3,9 +3,16 @@ name = "eight-point"
 version = "0.1.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
+description = "Eight-point algorithm for essential matrix estimation"
+documentation = "https://docs.rs/eight-point/"
+repository = "https://github.com/rust-cv/eight-point"
+keywords = ["hartly", "zisserman", "photogrammetry", "eight", "point"]
+categories = ["algorithms", "computer-vision", "no-std", "science", "science::robotics"]
+license = "MIT"
+readme = "README.md"
 
 [dependencies]
-cv-core = "0.6.0"
+cv-core = "0.6.1"
 float-ord = "0.2.0"
 
 [dev-dependencies]
