@@ -22,7 +22,7 @@ fn encode_epipolar_equation(
 }
 
 /// Performs the
-/// [Eight Point algorithm](https://en.wikipedia.org/wiki/Eight-point_algorithm)
+/// [eight-point algorithm](https://en.wikipedia.org/wiki/Eight-point_algorithm)
 /// by Richard Hartley and Andrew Zisserman.
 ///
 /// To recondition the matrix produced by estimation, see
