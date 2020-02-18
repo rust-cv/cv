@@ -271,6 +271,43 @@ impl Model<KeyPointsMatch> for EssentialMatrix {
 }
 
 impl EssentialMatrix {
+    /// Can be used to enforce the constraints of an essential matrix to fix it.
+    ///
+    /// This finds the closest essential matrix in frobenius form. This just means
+    /// that the two singular values are averaged and the null singular value is
+    /// forced to zero.
+    pub fn recondition(self, epsilon: f64, max_iterations: usize) -> Option<Self> {
+        let old_svd = self.try_svd(true, true, epsilon, max_iterations)?;
+        // We need to sort the singular values in the SVD.
+        let mut sources = [0, 1, 2];
+        sources.sort_unstable_by_key(|&ix| float_ord::FloatOrd(-old_svd.singular_values[ix]));
+        let mut svd = old_svd;
+        for (dest, &source) in sources.iter().enumerate() {
+            svd.singular_values[dest] = old_svd.singular_values[source];
+            svd.u
+                .as_mut()
+                .unwrap()
+                .column_mut(dest)
+                .copy_from(&old_svd.u.as_ref().unwrap().column(source));
+            svd.v_t
+                .as_mut()
+                .unwrap()
+                .row_mut(dest)
+                .copy_from(&old_svd.v_t.as_ref().unwrap().row(source));
+        }
+        // Now that the singular values are sorted, find the closest
+        // essential matrix to E in frobenius form.
+        // This consists of averaging the two non-zero singular values
+        // and zeroing out the near-zero singular value.
+        svd.singular_values[2] = 0.0;
+        let new_singular = (svd.singular_values[0] + svd.singular_values[1]) / 2.0;
+        svd.singular_values[0] = new_singular;
+        svd.singular_values[1] = new_singular;
+        // Cannot fail because we asked for both U and V* on decomp.
+        let mat = svd.recompose().unwrap();
+        Some(Self(mat))
+    }
+
     /// Returns two possible rotations for the essential matrix along with a translation
     /// bearing of arbitrary length. The translation bearing is not yet in the correct
     /// space and the inverse rotation (transpose) must be multiplied by the translation
