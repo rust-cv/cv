@@ -21,6 +21,12 @@ fn encode_epipolar_equation(
     out
 }
 
+/// Performs the
+/// [Eight Point algorithm](https://en.wikipedia.org/wiki/Eight-point_algorithm)
+/// by Richard Hartley and Andrew Zisserman.
+///
+/// To recondition the matrix produced by estimation, see
+/// [`cv_core::EssentialMatrix::recondition`].
 pub struct EightPoint {
     pub epsilon: f64,
     pub iterations: usize,
