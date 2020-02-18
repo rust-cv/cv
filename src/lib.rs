@@ -21,38 +21,6 @@ fn encode_epipolar_equation(
     out
 }
 
-pub fn recondition_matrix(mat: Matrix3<f64>) -> EssentialMatrix {
-    let old_svd = mat.svd(true, true);
-    // We need to sort the singular values in the SVD.
-    let mut sources = [0, 1, 2];
-    sources.sort_unstable_by_key(|&ix| float_ord::FloatOrd(-old_svd.singular_values[ix]));
-    let mut svd = old_svd;
-    for (dest, &source) in sources.iter().enumerate() {
-        svd.singular_values[dest] = old_svd.singular_values[source];
-        svd.u
-            .as_mut()
-            .unwrap()
-            .column_mut(dest)
-            .copy_from(&old_svd.u.as_ref().unwrap().column(source));
-        svd.v_t
-            .as_mut()
-            .unwrap()
-            .row_mut(dest)
-            .copy_from(&old_svd.v_t.as_ref().unwrap().row(source));
-    }
-    // Now that the singular values are sorted, find the closest
-    // essential matrix to E in frobenius form.
-    // This consists of averaging the two non-zero singular values
-    // and zeroing out the near-zero singular value.
-    svd.singular_values[2] = 0.0;
-    let new_singular = (svd.singular_values[0] + svd.singular_values[1]) / 2.0;
-    svd.singular_values[0] = new_singular;
-    svd.singular_values[1] = new_singular;
-
-    let mat = svd.recompose().unwrap();
-    EssentialMatrix(mat)
-}
-
 pub struct EightPoint {
     pub epsilon: f64,
     pub iterations: usize,
