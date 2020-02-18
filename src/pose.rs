@@ -1,10 +1,9 @@
 use crate::{CameraPoint, KeyPointWorldMatch, KeyPointsMatch, NormalizedKeyPoint, WorldPoint};
-use core::cmp::Ordering;
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use nalgebra::{
     dimension::{U2, U3, U7},
-    Isometry3, Matrix3, Matrix3x2, MatrixMN, Quaternion, Rotation3, Translation3, UnitQuaternion,
-    Vector2, Vector3, Vector4, VectorN, SVD,
+    Isometry3, IsometryMatrix3, Matrix3, Matrix3x2, MatrixMN, Point3, Quaternion, Rotation3,
+    Translation3, UnitQuaternion, Vector2, Vector3, Vector4, VectorN, SVD,
 };
 use sample_consensus::Model;
 
@@ -160,9 +159,14 @@ impl From<WorldPose> for CameraPose {
 ///
 /// Note that this is a left-handed coordinate space.
 #[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, Deref, DerefMut, From, Into)]
-pub struct RelativeCameraPose(pub Isometry3<f64>);
+pub struct RelativeCameraPose(pub IsometryMatrix3<f64>);
 
 impl RelativeCameraPose {
+    /// Create the pose from rotation and translation.
+    pub fn from_parts(rotation: Rotation3<f64>, translation: Vector3<f64>) -> Self {
+        Self(IsometryMatrix3::from_parts(translation.into(), rotation))
+    }
+
     /// The relative pose transforms the point in camera space from camera `A` to camera `B`.
     pub fn transform(&self, CameraPoint(point): CameraPoint) -> CameraPoint {
         let Self(iso) = *self;
@@ -181,22 +185,28 @@ impl RelativeCameraPose {
     /// ```
     /// # use cv_core::{RelativeCameraPose, CameraPoint, KeyPointsMatch};
     /// # use cv_core::sample_consensus::Model;
-    /// # use cv_core::nalgebra::{Vector3, Point3, Isometry3, UnitQuaternion};
-    /// let pose = RelativeCameraPose(Isometry3::from_parts(
+    /// # use cv_core::nalgebra::{Vector3, Point3, IsometryMatrix3, Rotation3};
+    /// let pose = RelativeCameraPose(IsometryMatrix3::from_parts(
     ///     Vector3::new(0.3, 0.4, 0.5).into(),
-    ///     UnitQuaternion::from_euler_angles(0.2, 0.3, 0.4),
+    ///     Rotation3::from_euler_angles(0.2, 0.3, 0.4),
     /// ));
     /// let a = CameraPoint(Point3::new(0.5, 0.5, 3.0));
     /// let b = pose.transform(a);
     /// assert!(pose.essential_matrix().residual(&KeyPointsMatch(a.into(), b.into())) < 1e-6);
     /// ```
     pub fn essential_matrix(&self) -> EssentialMatrix {
-        EssentialMatrix(
-            self.0.translation.vector.cross_matrix()
-                * *self.0.rotation.to_rotation_matrix().matrix(),
-        )
+        EssentialMatrix(self.0.translation.vector.cross_matrix() * *self.0.rotation.matrix())
     }
 }
+
+/// This stores a [`RelativeCameraPose`] that has not had its translation scaled.
+///
+/// The translation for an unscaled relative camera pose should allow the
+/// triangulation of correspondences to lie in front of both cameras.
+/// Aside from that case, the relative pose contained inside should only
+/// be used to initialize a reconstruction with unknown scale.
+#[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, Deref, DerefMut, From, Into)]
+pub struct UnscaledRelativeCameraPose(pub RelativeCameraPose);
 
 /// This stores an essential matrix, which is satisfied by the following constraint:
 ///
@@ -277,36 +287,25 @@ impl EssentialMatrix {
     ///
     /// ```
     /// # use cv_core::RelativeCameraPose;
-    /// # use cv_core::nalgebra::{Isometry3, UnitQuaternion, Vector3};
-    /// let pose = RelativeCameraPose(Isometry3::from_parts(
+    /// # use cv_core::nalgebra::{IsometryMatrix3, Rotation3, Vector3};
+    /// let pose = RelativeCameraPose(IsometryMatrix3::from_parts(
     ///     Vector3::new(-0.8, 0.4, 0.5).into(),
-    ///     UnitQuaternion::from_euler_angles(0.2, 0.3, 0.4),
+    ///     Rotation3::from_euler_angles(0.2, 0.3, 0.4),
     /// ));
     /// // Get the possible poses for the essential matrix created from `pose`.
-    /// let (rot_a, rot_b, t) = pose.essential_matrix().possible_poses_unfixed_bearing(1e-6, 50).unwrap();
-    /// // The translation must be processed through the reverse rotation.
-    /// let t_a = t;
-    /// let t_b = t;
-    /// // Extract vector from quaternion.
-    /// let qcoord = |uquat: UnitQuaternion<f64>| uquat.quaternion().coords;
-    /// // Convert rotations into quaternion form.
-    /// let quat_a = UnitQuaternion::from(rot_a);
-    /// let quat_b = UnitQuaternion::from(rot_b);
-    /// // Compute residual via cosine distance of quaternions (guaranteed positive w).
-    /// let a_res = quat_a.rotation_to(&pose.rotation).angle();
-    /// let b_res = quat_b.rotation_to(&pose.rotation).angle();
+    /// let (rot_a, rot_b, t) = pose.essential_matrix().possible_rotations_unscaled_translation(1e-6, 50).unwrap();
+    /// // Compute residual rotations.
+    /// let a_res = rot_a.rotation_to(&pose.rotation).angle();
+    /// let b_res = rot_b.rotation_to(&pose.rotation).angle();
     /// let a_close = a_res < 1e-4;
     /// let b_close = b_res < 1e-4;
     /// // At least one rotation is correct.
     /// assert!(a_close || b_close);
     /// // The translation points in the same (or reverse) direction
-    /// let a_res = 1.0 - t_a.normalize().dot(&pose.translation.vector.normalize()).abs();
-    /// let b_res = 1.0 - t_b.normalize().dot(&pose.translation.vector.normalize()).abs();
-    /// let a_close = a_res < 1e-4;
-    /// let b_close = b_res < 1e-4;
-    /// assert!(a_close || b_close);
+    /// let t_res = 1.0 - t.normalize().dot(&pose.translation.vector.normalize()).abs();
+    /// assert!(t_res < 1e-4);
     /// ```
-    pub fn possible_poses_unfixed_bearing(
+    pub fn possible_rotations_unscaled_translation(
         &self,
         epsilon: f64,
         max_iterations: usize,
@@ -345,9 +344,8 @@ impl EssentialMatrix {
                 panic!("Didn't get U and V matrix in SVD");
             }
         });
-        // Force the determinants to be positive. I do not know precisely
-        // why this is done since it isn't apparent from the Wikipedia page
-        // on this subject, but this is what TheiaSfM does in essential_matrix_utils.cc.
+        // Force the determinants to be positive. This is done to ensure the
+        // handedness of the rotation matrix is correct.
         let u_v_t = u_v_t.map(|(mut u, mut v_t)| {
             // Last column of U is undetermined since d = (a a 0).
             if u.determinant() < 0.0 {
@@ -374,22 +372,21 @@ impl EssentialMatrix {
         })
     }
 
-    /// See [`EssentialMatrix::possible_poses_unfixed_bearing`].
+    /// See [`EssentialMatrix::possible_rotations_unscaled_translation`].
     ///
     /// This returns only the two rotations that are possible.
     ///
     /// ```
     /// # use cv_core::RelativeCameraPose;
-    /// # use cv_core::nalgebra::{Isometry3, UnitQuaternion, Vector3};
-    /// let pose = RelativeCameraPose(Isometry3::from_parts(
+    /// # use cv_core::nalgebra::{IsometryMatrix3, Rotation3, Vector3};
+    /// let pose = RelativeCameraPose(IsometryMatrix3::from_parts(
     ///     Vector3::new(-0.8, 0.4, 0.5).into(),
-    ///     UnitQuaternion::from_euler_angles(0.2, 0.3, 0.4),
+    ///     Rotation3::from_euler_angles(0.2, 0.3, 0.4),
     /// ));
     /// // Get the possible rotations for the essential matrix created from `pose`.
     /// let rbs = pose.essential_matrix().possible_rotations(1e-6, 50).unwrap();
     /// let one_correct = rbs.iter().any(|&rot| {
-    ///     let angle_residual =
-    ///         UnitQuaternion::from(rot).rotation_to(&pose.rotation).angle();
+    ///     let angle_residual = rot.rotation_to(&pose.rotation).angle();
     ///     angle_residual < 1e-4
     /// });
     /// assert!(one_correct);
@@ -399,39 +396,128 @@ impl EssentialMatrix {
         epsilon: f64,
         max_iterations: usize,
     ) -> Option<[Rotation3<f64>; 2]> {
-        self.possible_poses_unfixed_bearing(epsilon, max_iterations)
+        self.possible_rotations_unscaled_translation(epsilon, max_iterations)
             .map(|(rot_a, rot_b, _)| [rot_a, rot_b])
     }
 
-    /// See [`EssentialMatrix::possible_poses_unfixed_bearing`].
+    /// See [`EssentialMatrix::possible_rotations_unscaled_translation`].
     ///
     /// This returns the rotations and their corresponding post-rotation translation bearing.
     ///
     /// ```
     /// # use cv_core::RelativeCameraPose;
-    /// # use cv_core::nalgebra::{Isometry3, UnitQuaternion, Vector3};
-    /// let pose = RelativeCameraPose(Isometry3::from_parts(
+    /// # use cv_core::nalgebra::{IsometryMatrix3, Rotation3, Vector3};
+    /// let pose = RelativeCameraPose(IsometryMatrix3::from_parts(
     ///     Vector3::new(-0.8, 0.4, 0.5).into(),
-    ///     UnitQuaternion::from_euler_angles(0.2, 0.3, 0.4),
+    ///     Rotation3::from_euler_angles(0.2, 0.3, 0.4),
     /// ));
     /// // Get the possible poses for the essential matrix created from `pose`.
-    /// let rbs = pose.essential_matrix().possible_rotations_and_bearings(1e-6, 50).unwrap();
-    /// let one_correct = rbs.iter().any(|&(rot, bearing)| {
+    /// let rbs = pose.essential_matrix().possible_unscaled_poses(1e-6, 50).unwrap();
+    /// let one_correct = rbs.iter().any(|&upose| {
     ///     let angle_residual =
-    ///         UnitQuaternion::from(rot).rotation_to(&pose.rotation).angle();
+    ///         upose.rotation.rotation_to(&pose.rotation).angle();
     ///     let translation_residual =
-    ///         1.0 - bearing.normalize().dot(&pose.translation.vector.normalize()).abs();
+    ///         1.0 - upose.translation.vector.normalize()
+    ///                    .dot(&pose.translation.vector.normalize());
     ///     angle_residual < 1e-4 && translation_residual < 1e-4
     /// });
     /// assert!(one_correct);
     /// ```
-    pub fn possible_rotations_and_bearings(
+    pub fn possible_unscaled_poses(
         &self,
         epsilon: f64,
         max_iterations: usize,
-    ) -> Option<[(Rotation3<f64>, Vector3<f64>); 2]> {
-        self.possible_poses_unfixed_bearing(epsilon, max_iterations)
-            .map(|(rot_a, rot_b, t)| [(rot_a, t), (rot_b, t)])
+    ) -> Option<[UnscaledRelativeCameraPose; 4]> {
+        self.possible_rotations_unscaled_translation(epsilon, max_iterations)
+            .map(|(rot_a, rot_b, t)| {
+                [
+                    UnscaledRelativeCameraPose(RelativeCameraPose::from_parts(rot_a, t)),
+                    UnscaledRelativeCameraPose(RelativeCameraPose::from_parts(rot_b, t)),
+                    UnscaledRelativeCameraPose(RelativeCameraPose::from_parts(rot_a, -t)),
+                    UnscaledRelativeCameraPose(RelativeCameraPose::from_parts(rot_b, -t)),
+                ]
+            })
+    }
+
+    /// Same as [`EssentialMatrix::possible_unscaled_poses`], but it doesn't return
+    /// 4 unscaled poses since it doesn't bother to give back the different translation
+    /// directions and instead only gives one. This is useful if your algorithm doesn't
+    /// care about the direction of translation.
+    /// ```
+    pub fn possible_unscaled_poses_bearing(
+        &self,
+        epsilon: f64,
+        max_iterations: usize,
+    ) -> Option<[UnscaledRelativeCameraPose; 2]> {
+        self.possible_rotations_unscaled_translation(epsilon, max_iterations)
+            .map(|(rot_a, rot_b, t)| {
+                [
+                    UnscaledRelativeCameraPose(RelativeCameraPose::from_parts(rot_a, t)),
+                    UnscaledRelativeCameraPose(RelativeCameraPose::from_parts(rot_b, t)),
+                ]
+            })
+    }
+
+    /// Finds the unscaled pose that agrees with the most matches.
+    pub fn solve_unscaled_pose(
+        &self,
+        epsilon: f64,
+        max_iterations: usize,
+        consensus_ratio: f64,
+        triangulation_method: impl Fn(
+            UnscaledRelativeCameraPose,
+            NormalizedKeyPoint,
+            NormalizedKeyPoint,
+        ) -> Option<Point3<f64>>,
+        correspondences: impl Iterator<Item = KeyPointsMatch>,
+    ) -> Option<UnscaledRelativeCameraPose> {
+        // Get the possible rotations and the translation
+        self.possible_unscaled_poses(epsilon, max_iterations)
+            .and_then(|poses| {
+                // Get the net translation scale of points that agree with a and b
+                // in addition to the number of points that agree with a and b.
+                let (ts, total) = correspondences.fold(
+                    ([0usize; 4], 0usize),
+                    |(mut ts, total), KeyPointsMatch(a, b)| {
+                        let trans_and_agree = |pose| {
+                            triangulation_method(pose, a, b)
+                                .map(|p| {
+                                    let tp = pose.transform(CameraPoint(p));
+                                    p.coords.normalize().dot(&a.bearing()) > 0.0
+                                        && tp.coords.normalize().dot(&b.bearing()) > 0.0
+                                })
+                                .unwrap_or(false)
+                        };
+
+                        // Do it for all poses.
+                        for (tn, &pose) in ts.iter_mut().zip(&poses) {
+                            if trans_and_agree(pose) {
+                                *tn += 1;
+                            }
+                        }
+
+                        (ts, total + 1)
+                    },
+                );
+
+                // Ensure that there is at least one point.
+                if total == 0 {
+                    return None;
+                }
+
+                // Ensure that the best one exceeds the consensus ratio.
+                let (ix, best) = ts
+                    .iter()
+                    .copied()
+                    .enumerate()
+                    .max_by_key(|&(_, t)| t)
+                    .unwrap();
+                if (best as f64) < consensus_ratio * total as f64 && best != 0 {
+                    return None;
+                }
+
+                Some(poses[ix])
+            })
     }
 
     /// Return the [`RelativeCameraPose`] that transforms a [`CameraPoint`] of image
@@ -455,37 +541,42 @@ impl EssentialMatrix {
     /// This will take the average translation over the entire iterator. This is done
     /// to smooth out noise and outliers (if present).
     ///
-    /// `consensus_ratio` is the ratio of points which must be in front of the camera for the model
-    /// to be accepted and return Some. Otherwise, None is returned.
+    /// `epsilon` is a small value to which SVD must converge to before terminating.
     ///
-    /// `max_iterations` is the maximum number of iterations that singular value decomposition
-    /// will run on this matrix. Use this in soft realtime systems to cap the execution time.
-    /// A `max_iterations` of `0` may execute indefinitely and is not recommended.
+    /// `max_iterations` is the maximum number of iterations that SVD will run on this
+    /// matrix. Use this to cap the execution time.
+    /// A `max_iterations` of `0` may execute indefinitely and is not recommended except
+    /// for non-production code.
+    ///
+    /// `consensus_ratio` is the ratio of points which must be in front of the camera for the model
+    /// to be accepted and return Some. Otherwise, None is returned. Set this to about
+    /// `0.45` to have approximate majority consensus.
     ///
     /// `bearing_scale` is a function that is passed a translation bearing vector,
     /// an untranslated (but rotated) camera point, and a normalized key point
     /// where the actual point exists. It must return the scalar which the
     /// translation bearing vector must by multiplied by to get the actual translation.
+    /// It may return `None` if it fails.
     ///
-    /// `correspondences` must provide an iterator of tuples containing the depth
-    /// (distance along the positive Z axis) of camera A's point `a`, a point `a`
-    /// from camera A, and a point `b` from camera B.
+    /// `correspondences` must provide an iterator of tuples containing the matches
+    /// of a 3d `CameraPoint` `a` from camera A and the matching `NormalizedKeyPoint`
+    /// `b` from camera B.
     ///
-    /// This does not communicate which points were outliers.
+    /// This does not communicate which points were outliers to each model.
     ///
     /// ```
     /// # use cv_core::{RelativeCameraPose, CameraPoint};
-    /// # use cv_core::nalgebra::{Isometry3, UnitQuaternion, Vector3, Point3};
-    /// let pose = RelativeCameraPose(Isometry3::from_parts(
+    /// # use cv_core::nalgebra::{IsometryMatrix3, Rotation3, Vector3, Point3};
+    /// let pose = RelativeCameraPose(IsometryMatrix3::from_parts(
     ///     Vector3::new(-0.8, 0.4, 0.5).into(),
-    ///     UnitQuaternion::from_euler_angles(0.2, 0.3, 0.4),
+    ///     Rotation3::from_euler_angles(0.2, 0.3, 0.4),
     /// ));
     /// let a_point = CameraPoint(Point3::new(-1.0, 2.0, 3.0));
     /// let b_point = pose.transform(a_point);
     /// // Get the possible poses for the essential matrix created from `pose`.
-    /// let estimate_pose = pose.essential_matrix().solve_pose(0.5, 1e-6, 50,
+    /// let estimate_pose = pose.essential_matrix().solve_pose(1e-6, 50, 0.5,
     ///     cv_core::geom::triangulate_bearing_reproject,
-    ///     std::iter::once((a_point, b_point.into())),
+    ///     std::iter::once((a_point, b_point.into()))
     /// ).unwrap();
     ///
     /// let angle_residual =
@@ -495,48 +586,43 @@ impl EssentialMatrix {
     /// ```
     pub fn solve_pose(
         &self,
-        consensus_ratio: f64,
         epsilon: f64,
         max_iterations: usize,
-        bearing_scale: impl Fn(Vector3<f64>, CameraPoint, NormalizedKeyPoint) -> f64,
-        correspondences: impl Iterator<Item = (CameraPoint, NormalizedKeyPoint)>,
+        consensus_ratio: f64,
+        triangulation_method: impl Fn(Vector3<f64>, CameraPoint, NormalizedKeyPoint) -> Option<f64>,
+        correspondences: impl Iterator<Item = (CameraPoint, NormalizedKeyPoint)> + Clone,
     ) -> Option<RelativeCameraPose> {
         // Get the possible rotations and the translation
-        self.possible_rotations_and_bearings(epsilon, max_iterations)
+        self.possible_unscaled_poses_bearing(epsilon, max_iterations)
             .and_then(|poses| {
                 // Get the net translation scale of points that agree with a and b
                 // in addition to the number of points that agree with a and b.
                 let (ts, total) = correspondences.fold(
-                    ([(0.0, 0usize); 2], 0usize),
+                    ([(0usize, 0.0); 2], 0usize),
                     |(mut ts, total), (a, b)| {
-                        let trans_and_agree = |(rot, bearing)| {
-                            // Triangulate the position of the CameraPoint of b.
-                            // We know the precise 3d position of the a point relative
-                            // to camera A, but we do not know the
-                            // 3d point in relation to camera B since the translation of
-                            // the point is unknown. We do know the direction of translation
-                            // of the point. We know only the rotation of the camera B
-                            // relative to camera A and the epipolar point on camera B.
-                            // What we will need to do is start by rotating the point in space.
-                            // After rotating the point, we then need to solve for the translation
-                            // that minimizes the reprojection error of the untranslated point as much
-                            // as possible. See the documentation for reproject_along_translation
-                            // to get more details on the process.
-                            let untranslated = CameraPoint(rot * a.0);
-                            let translation_scale = bearing_scale(bearing, untranslated, b);
-                            // Now that we have the translation, we can just verify that the point
-                            // is in front (z > 1.0) of the camera to see if it agrees with the model.
-                            (
-                                translation_scale,
-                                translation_scale * bearing.z + untranslated.z > 1.0,
-                            )
+                        let trans_and_agree = |pose: UnscaledRelativeCameraPose| {
+                            let untranslated = pose.rotation * a.0;
+                            let t_scale = triangulation_method(
+                                pose.translation.vector,
+                                CameraPoint(untranslated),
+                                b,
+                            )?;
+
+                            if (untranslated.coords + t_scale * pose.translation.vector)
+                                .dot(&b.bearing())
+                                > 0.0
+                            {
+                                Some(t_scale)
+                            } else {
+                                None
+                            }
                         };
 
-                        // Do it for both poses.
+                        // Do it for all poses.
                         for (tn, &pose) in ts.iter_mut().zip(&poses) {
-                            if let (scale, true) = trans_and_agree(pose) {
-                                tn.0 += scale;
-                                tn.1 += 1;
+                            if let Some(scale) = trans_and_agree(pose) {
+                                tn.0 += 1;
+                                tn.1 += scale;
                             }
                         }
 
@@ -550,21 +636,21 @@ impl EssentialMatrix {
                 }
 
                 // Ensure that the best one exceeds the consensus ratio.
-                let best = core::cmp::max(ts[0].1, ts[1].1);
-                if (best as f64 / total as f64) < consensus_ratio && best != 0 {
+                let (ix, (best_num, scale_acc)) = ts
+                    .iter()
+                    .copied()
+                    .enumerate()
+                    .max_by_key(|&(_, (t, _))| t)
+                    .unwrap();
+                if (best_num as f64) < consensus_ratio * total as f64 && best_num != 0 {
                     return None;
                 }
+                let scale = scale_acc / best_num as f64;
 
-                // TODO: Perhaps if its closer than this we should assume the frame itself is an outlier.
-                let (rot, trans) = match ts[0].1.cmp(&ts[1].1) {
-                    Ordering::Equal => return None,
-                    Ordering::Greater => (poses[0].0, poses[0].1 * ts[0].0 / ts[0].1 as f64),
-                    Ordering::Less => (poses[1].0, poses[1].1 * ts[1].0 / ts[1].1 as f64),
-                };
-                Some(RelativeCameraPose(Isometry3::from_parts(
-                    trans.into(),
-                    UnitQuaternion::from_rotation_matrix(&rot),
-                )))
+                Some(RelativeCameraPose::from_parts(
+                    poses[ix].rotation,
+                    scale * poses[ix].translation.vector,
+                ))
             })
     }
 }
