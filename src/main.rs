@@ -1,7 +1,8 @@
 use akaze::types::evolution::Config as AkazeConfig;
 use akaze::types::keypoint::Descriptor as AkazeDescriptor;
+use arrsac::{Arrsac, Config as ArrsacConfig};
 use cv_core::nalgebra::{Point2, Vector2};
-use cv_core::sample_consensus::Estimator;
+use cv_core::sample_consensus::Consensus;
 use cv_core::{CameraIntrinsics, ImageKeyPoint, KeyPointsMatch};
 use eight_point::EightPoint;
 use std::path::PathBuf;
@@ -76,7 +77,8 @@ fn main() {
         })
         .collect::<Vec<_>>();
     let eight_point = EightPoint::new();
-    let essential = eight_point.estimate(matches.iter().copied()).unwrap();
+    let mut arrsac = Arrsac::new(ArrsacConfig::new(0.01), rand::thread_rng());
+    let essential = arrsac.model(&eight_point, matches.iter().copied()).unwrap();
     let pose = essential
         .solve_unscaled_pose(
             1e-6,
