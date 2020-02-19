@@ -5,6 +5,8 @@ use cv_core::nalgebra::{Point2, Vector2};
 use cv_core::sample_consensus::{Consensus, Model};
 use cv_core::{CameraIntrinsics, ImageKeyPoint, KeyPointsMatch};
 use eight_point::EightPoint;
+use rand::SeedableRng;
+use rand_pcg::Pcg64;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -83,7 +85,10 @@ fn main() {
         .collect::<Vec<_>>();
     eprintln!("matches: {}", matches.len());
     let eight_point = EightPoint::new();
-    let mut arrsac = Arrsac::new(ArrsacConfig::new(opt.arrsac_threshold), rand::thread_rng());
+    let mut arrsac = Arrsac::new(
+        ArrsacConfig::new(opt.arrsac_threshold),
+        Pcg64::from_seed([1; 32]),
+    );
     let (essential, inliers) = arrsac
         .model_inliers(&eight_point, matches.iter().copied())
         .unwrap();

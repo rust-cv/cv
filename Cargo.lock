@@ -807,6 +807,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rand_pcg"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "16abd0c1b639e9eb4d7c50c0b8100b0d0f849be2349829c740fe8e6eb4816429"
+dependencies = [
+ "rand_core 0.5.1",
+]
+
+[[package]]
 name = "random"
 version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1073,6 +1082,7 @@ dependencies = [
  "eight-point",
  "image 0.23.0",
  "rand 0.7.3",
+ "rand_pcg",
  "serde",
  "structopt",
 ]
