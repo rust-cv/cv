@@ -138,6 +138,21 @@ impl CameraIntrinsics {
 
     /// Takes in an [`ImageKeyPoint`] from an image in pixel coordinates and
     /// converts it to a [`NormalizedKeyPoint`].
+    ///
+    /// ```
+    /// # use cv_core::{ImageKeyPoint, NormalizedKeyPoint, CameraIntrinsics};
+    /// # use cv_core::nalgebra::{Vector2, Vector3, Point2};
+    /// let intrinsics = CameraIntrinsics {
+    ///     focals: Vector2::new(800.0, 900.0),
+    ///     principal_point: Point2::new(500.0, 600.0),
+    ///     skew: 1.7,
+    /// };
+    /// let kp = ImageKeyPoint(Point2::new(471.0, 322.0));
+    /// let nkp = intrinsics.normalize(kp);
+    /// let calibration_matrix = intrinsics.matrix();
+    /// let distance = (kp.to_homogeneous() - calibration_matrix * nkp.to_homogeneous()).norm();
+    /// assert!(distance < 0.1);
+    /// ```
     pub fn normalize(&self, image: ImageKeyPoint) -> NormalizedKeyPoint {
         let ImageKeyPoint(image) = image;
         let centered = image - self.principal_point;
