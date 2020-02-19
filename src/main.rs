@@ -2,7 +2,7 @@ use akaze::types::evolution::Config as AkazeConfig;
 use akaze::types::keypoint::Descriptor as AkazeDescriptor;
 use arrsac::{Arrsac, Config as ArrsacConfig};
 use cv_core::nalgebra::{Point2, Vector2};
-use cv_core::sample_consensus::Consensus;
+use cv_core::sample_consensus::{Consensus, Model};
 use cv_core::{CameraIntrinsics, ImageKeyPoint, KeyPointsMatch};
 use eight_point::EightPoint;
 use std::path::PathBuf;
@@ -18,8 +18,11 @@ struct Opt {
     /// The threshold in bits for matching.
     ///
     /// Setting this to a high number disables it.
-    #[structopt(short, long, default_value = "500")]
+    #[structopt(short, long, default_value = "64")]
     match_threshold: u32,
+    /// The threshold for ARRSAC.
+    #[structopt(short, long, default_value = "0.001")]
+    arrsac_threshold: f32,
     /// Input folder with image files
     ///
     /// Kitti 2011_09_26
@@ -58,7 +61,9 @@ fn main() {
         skew: 0.0,
     };
     let (a_kps, a_descriptors) = image_points.next().unwrap();
+    eprintln!("a_kps: {}", a_kps.len());
     let (b_kps, b_descriptors) = image_points.next().unwrap();
+    eprintln!("b_kps: {}", b_kps.len());
     let forward_matches = matching(&a_descriptors, &b_descriptors);
     let reverse_matches = matching(&b_descriptors, &a_descriptors);
     let matches = forward_matches
@@ -76,9 +81,19 @@ fn main() {
             }
         })
         .collect::<Vec<_>>();
+    eprintln!("matches: {}", matches.len());
     let eight_point = EightPoint::new();
-    let mut arrsac = Arrsac::new(ArrsacConfig::new(0.01), rand::thread_rng());
-    let essential = arrsac.model(&eight_point, matches.iter().copied()).unwrap();
+    let mut arrsac = Arrsac::new(ArrsacConfig::new(opt.arrsac_threshold), rand::thread_rng());
+    let (essential, inliers) = arrsac
+        .model_inliers(&eight_point, matches.iter().copied())
+        .unwrap();
+    eprintln!("inliers: {}", inliers.len());
+    let residual_average = inliers
+        .iter()
+        .map(|&ix| essential.residual(&matches[ix]).abs())
+        .sum::<f32>()
+        / inliers.len() as f32;
+    eprintln!("inlier residual average: {}", residual_average);
     let pose = essential
         .solve_unscaled_pose(
             1e-6,
@@ -88,7 +103,6 @@ fn main() {
             matches.iter().copied(),
         )
         .unwrap();
-    eprintln!("pose: {:?}", pose);
     eprintln!("rotation: {:?}", pose.rotation.angle());
 }
 

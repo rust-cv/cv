@@ -5,7 +5,7 @@ authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-cv-core = "0.7.1"
+cv-core = "0.7.2"
 eight-point = "0.2.0"
 structopt = "0.2.15"
 serde = { version = "1.0.91", features = ["derive"] }

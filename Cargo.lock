@@ -220,12 +220,13 @@ dependencies = [
 
 [[package]]
 name = "cv-core"
-version = "0.7.1"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a42ddf775638101900ad2204ce72e970028e4868a1914c4f45d8735b726321e"
+checksum = "05897bb8a13218ce8b32caeb7c036f3f15aab8b71a9c3d5cb616d25f5aaa455c"
 dependencies = [
  "derive_more",
  "float-ord",
+ "libm 0.2.1",
  "nalgebra 0.19.0",
  "sample-consensus",
 ]
