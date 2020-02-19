@@ -1,4 +1,4 @@
-# This builds for armv7a-none-eabi to ensure we can build with no-std.
+# This ensures we can build with no-std.
 
 on: [push, pull_request]
 
@@ -6,17 +6,8 @@ name: no-std
 
 jobs:
   build:
-    name: Build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-          target: armv7a-none-eabi
-          override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          use-cross: true
-          command: build
-          args: --release --target=armv7a-none-eabi
+    - name: Ensure that crate is no_std
+      uses: actions-rs/cargo@v1
+      with:
+        command: rustc
+        args: --manifest-path=ensure_no_std/Cargo.toml -- -C link-arg=-nostartfiles
