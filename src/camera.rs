@@ -87,9 +87,9 @@ impl From<CameraPoint> for NormalizedKeyPoint {
 /// Undistortion may also be necessary to normalize image coordinates.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct CameraIntrinsics {
-    pub focals: Vector2<f32>,
-    pub principal_point: Point2<f32>,
-    pub skew: f32,
+    pub focals: Vector2<f64>,
+    pub principal_point: Point2<f64>,
+    pub skew: f64,
 }
 
 impl CameraIntrinsics {
@@ -105,35 +105,45 @@ impl CameraIntrinsics {
         }
     }
 
-    pub fn focals(self, focals: Vector2<f32>) -> Self {
+    pub fn focals(self, focals: Vector2<f64>) -> Self {
         Self { focals, ..self }
     }
 
-    pub fn focal(self, focal: f32) -> Self {
+    pub fn focal(self, focal: f64) -> Self {
         Self {
             focals: Vector2::new(focal, focal),
             ..self
         }
     }
 
-    pub fn principal_point(self, principal_point: Point2<f32>) -> Self {
+    pub fn principal_point(self, principal_point: Point2<f64>) -> Self {
         Self {
             principal_point,
             ..self
         }
     }
 
-    pub fn skew(self, skew: f32) -> Self {
+    pub fn skew(self, skew: f64) -> Self {
         Self { skew, ..self }
     }
 
     #[rustfmt::skip]
-    pub fn matrix(&self) -> Matrix3<f32> {
+    pub fn matrix(&self) -> Matrix3<f64> {
         Matrix3::new(
             self.focals.x,  self.skew,      self.principal_point.x,
             0.0,            self.focals.y,  self.principal_point.y,
             0.0,            0.0,            1.0,
         )
+    }
+
+    /// Takes in an [`ImageKeyPoint`] from an image in pixel coordinates and
+    /// converts it to a [`NormalizedKeyPoint`].
+    pub fn normalize(&self, image: ImageKeyPoint) -> NormalizedKeyPoint {
+        let ImageKeyPoint(image) = image;
+        let centered = image - self.principal_point;
+        let y = centered.y / self.focals.y;
+        let x = (centered.x - self.skew * y) / self.focals.x;
+        NormalizedKeyPoint(Point2::new(x, y))
     }
 }
 
@@ -146,24 +156,24 @@ impl CameraIntrinsics {
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct CameraSpecification {
     pub pixels: Vector2<usize>,
-    pub pixel_dimensions: Vector2<f32>,
+    pub pixel_dimensions: Vector2<f64>,
 }
 
 impl CameraSpecification {
     /// Creates a [`CameraSpecification`] using the sensor dimensions.
-    pub fn from_sensor(pixels: Vector2<usize>, sensor_dimensions: Vector2<f32>) -> Self {
+    pub fn from_sensor(pixels: Vector2<usize>, sensor_dimensions: Vector2<f64>) -> Self {
         Self {
             pixels,
             pixel_dimensions: Vector2::new(
-                sensor_dimensions.x / pixels.x as f32,
-                sensor_dimensions.y / pixels.y as f32,
+                sensor_dimensions.x / pixels.x as f64,
+                sensor_dimensions.y / pixels.y as f64,
             ),
         }
     }
 
     /// Creates a [`CameraSpecification`] using the sensor width assuming a square pixel.
-    pub fn from_sensor_square(pixels: Vector2<usize>, sensor_width: f32) -> Self {
-        let pixel_width = sensor_width / pixels.x as f32;
+    pub fn from_sensor_square(pixels: Vector2<usize>, sensor_width: f64) -> Self {
+        let pixel_width = sensor_width / pixels.x as f64;
         Self {
             pixels,
             pixel_dimensions: Vector2::new(pixel_width, pixel_width),
@@ -173,9 +183,9 @@ impl CameraSpecification {
     /// Combines the [`CameraSpecification`] with a focal length to create a [`CameraIntrinsics`].
     ///
     /// This assumes square pixels and a perfectly centered principal point.
-    pub fn intrinsics_centered(&self, focal: f32) -> CameraIntrinsics {
+    pub fn intrinsics_centered(&self, focal: f64) -> CameraIntrinsics {
         CameraIntrinsics::identity()
             .focal(focal)
-            .principal_point(self.pixel_dimensions.map(|p| p as f32 / 2.0 - 0.5).into())
+            .principal_point(self.pixel_dimensions.map(|p| p as f64 / 2.0 - 0.5).into())
     }
 }
