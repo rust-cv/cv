@@ -1,4 +1,4 @@
-# This builds for thumbv6m-none-eabi to ensure we build with no-std.
+# This builds for armv7a-none-eabi to ensure we can build with no-std.
 
 on: [push, pull_request]
 
@@ -13,10 +13,10 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
-          target: thumbv6m-none-eabi
+          target: armv7a-none-eabi
           override: true
       - uses: actions-rs/cargo@v1
         with:
           use-cross: true
           command: build
-          args: --release --target=thumbv6m-none-eabi
+          args: --release --target=armv7a-none-eabi
