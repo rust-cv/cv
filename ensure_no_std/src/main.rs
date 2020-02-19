@@ -3,7 +3,6 @@
 #![no_main]
 
 use core::panic::PanicInfo;
-use eight_point;
 
 /// This function is called on panic.
 #[panic_handler]
