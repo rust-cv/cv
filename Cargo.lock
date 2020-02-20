@@ -421,9 +421,9 @@ dependencies = [
 
 [[package]]
 name = "hnsw"
-version = "0.4.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6914d867d250389362f3b84afb1e393f77530438f52775026a9f66a8bc76e4dc"
+checksum = "bc3af2e353b906c97db55d69260d702d3e203126d06a49bc64d87d69d391f643"
 dependencies = [
  "float-ord",
  "generic-array 0.13.2",

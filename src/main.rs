@@ -5,12 +5,15 @@ use cv_core::nalgebra::{Point2, Vector2};
 use cv_core::sample_consensus::{Consensus, Model};
 use cv_core::{CameraIntrinsics, ImageKeyPoint, KeyPointsMatch};
 use eight_point::EightPoint;
+use hnsw::{u8x64, Distance, Hamming};
 use log::info;
 use rand::SeedableRng;
 use rand_pcg::Pcg64;
 use std::path::PathBuf;
 use std::sync::mpsc::{sync_channel, Receiver};
 use structopt::StructOpt;
+
+type Descriptor = Hamming<u8x64>;
 
 #[derive(StructOpt)]
 #[structopt(
@@ -79,9 +82,10 @@ fn main() {
             .model_inliers(&eight_point, matches.iter().copied())
             .unwrap();
         info!("inliers: {}", inliers.len());
-        let residual_average = inliers
-            .iter()
-            .map(|&ix| essential.residual(&matches[ix]).abs())
+        let inlier_matches = inliers.iter().map(|&ix| matches[ix]);
+        let residual_average = inlier_matches
+            .clone()
+            .map(|m| essential.residual(&m).abs())
             .sum::<f32>()
             / inliers.len() as f32;
         info!("inlier residual average: {}", residual_average);
@@ -91,7 +95,7 @@ fn main() {
                 100,
                 0.5,
                 cv_core::geom::make_one_pose_dlt_triangulator(1e-6, 100),
-                matches.iter().copied(),
+                inlier_matches.clone().take(8),
             )
             .unwrap();
         info!("rotation: {:?}", pose.rotation.angle());
@@ -99,7 +103,7 @@ fn main() {
     }
 }
 
-fn features_stream(paths: Vec<PathBuf>) -> Receiver<(Vec<ImageKeyPoint>, Vec<Vec<u8>>)> {
+fn features_stream(paths: Vec<PathBuf>) -> Receiver<(Vec<ImageKeyPoint>, Vec<Descriptor>)> {
     let (tx, rx) = sync_channel(5);
 
     std::thread::spawn(move || {
@@ -111,7 +115,7 @@ fn features_stream(paths: Vec<PathBuf>) -> Receiver<(Vec<ImageKeyPoint>, Vec<Vec
     rx
 }
 
-fn kps_descriptors(path: PathBuf) -> (Vec<ImageKeyPoint>, Vec<Vec<u8>>) {
+fn kps_descriptors(path: PathBuf) -> (Vec<ImageKeyPoint>, Vec<Descriptor>) {
     let akaze_config = AkazeConfig::default();
     let (_, kps, descriptors) = akaze::extract_features(path, akaze_config);
     (
@@ -120,22 +124,21 @@ fn kps_descriptors(path: PathBuf) -> (Vec<ImageKeyPoint>, Vec<Vec<u8>>) {
             .collect::<Vec<_>>(),
         descriptors
             .into_iter()
-            .map(|AkazeDescriptor { vector }| vector)
+            .map(|AkazeDescriptor { mut vector }| {
+                vector.resize_with(64, Default::default);
+                vector.as_slice().into()
+            })
             .collect::<Vec<_>>(),
     )
 }
 
-fn distance(a: &[u8], b: &[u8]) -> u32 {
-    a.iter().zip(b).map(|(&a, &b)| (a ^ b).count_ones()).sum()
-}
-
-fn matching(a_descriptors: &[Vec<u8>], b_descriptors: &[Vec<u8>]) -> Vec<(usize, u32)> {
+fn matching(a_descriptors: &[Descriptor], b_descriptors: &[Descriptor]) -> Vec<(usize, u32)> {
     a_descriptors
         .iter()
         .map(|a| {
             b_descriptors
                 .iter()
-                .map(|b| distance(a, b))
+                .map(|b| Descriptor::distance(&a, &b))
                 .enumerate()
                 .min_by_key(|&(_, d)| d)
                 .unwrap()
