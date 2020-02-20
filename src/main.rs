@@ -5,6 +5,7 @@ use cv_core::nalgebra::{Point2, Vector2};
 use cv_core::sample_consensus::{Consensus, Model};
 use cv_core::{CameraIntrinsics, ImageKeyPoint, KeyPointsMatch};
 use eight_point::EightPoint;
+use log::info;
 use rand::SeedableRng;
 use rand_pcg::Pcg64;
 use std::path::PathBuf;
@@ -34,6 +35,7 @@ struct Opt {
 }
 
 fn main() {
+    env_logger::init();
     let opt = Opt::from_args();
     // Intrinsics retrieved from calib_cam_to_cam.txt K_00.
     let intrinsics = CameraIntrinsics {
@@ -46,8 +48,8 @@ fn main() {
     let features = features_stream(opt.images.clone());
     let mut prev = features.recv().unwrap();
     for next in features {
-        eprintln!("prev kps: {}", prev.0.len());
-        eprintln!("next kps: {}", next.0.len());
+        info!("prev kps: {}", prev.0.len());
+        info!("next kps: {}", next.0.len());
         let forward_matches = matching(&prev.1, &next.1);
         let reverse_matches = matching(&next.1, &prev.1);
         let matches = forward_matches
@@ -65,7 +67,7 @@ fn main() {
                 }
             })
             .collect::<Vec<_>>();
-        eprintln!("matches: {}", matches.len());
+        info!("matches: {}", matches.len());
         let eight_point = EightPoint::new();
         let mut arrsac = Arrsac::new(
             ArrsacConfig::new(opt.arrsac_threshold),
@@ -74,13 +76,13 @@ fn main() {
         let (essential, inliers) = arrsac
             .model_inliers(&eight_point, matches.iter().copied())
             .unwrap();
-        eprintln!("inliers: {}", inliers.len());
+        info!("inliers: {}", inliers.len());
         let residual_average = inliers
             .iter()
             .map(|&ix| essential.residual(&matches[ix]).abs())
             .sum::<f32>()
             / inliers.len() as f32;
-        eprintln!("inlier residual average: {}", residual_average);
+        info!("inlier residual average: {}", residual_average);
         let pose = essential
             .solve_unscaled_pose(
                 1e-6,
@@ -90,7 +92,7 @@ fn main() {
                 matches.iter().copied(),
             )
             .unwrap();
-        eprintln!("rotation: {:?}", pose.rotation.angle());
+        info!("rotation: {:?}", pose.rotation.angle());
         prev = next;
     }
 }
