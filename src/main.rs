@@ -35,7 +35,9 @@ struct Opt {
 }
 
 fn main() {
-    env_logger::init();
+    env_logger::builder()
+        .format_timestamp(Some(env_logger::TimestampPrecision::Millis))
+        .init();
     let opt = Opt::from_args();
     // Intrinsics retrieved from calib_cam_to_cam.txt K_00.
     let intrinsics = CameraIntrinsics {
