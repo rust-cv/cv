@@ -5,7 +5,6 @@ use cv_core::nalgebra::{Point2, Vector2};
 use cv_core::sample_consensus::{Consensus, Model};
 use cv_core::{CameraIntrinsics, ImageKeyPoint, KeyPointsMatch};
 use eight_point::EightPoint;
-use hnsw::HNSW;
 use hnsw::{u8x64, Distance, Hamming};
 use log::info;
 use rand::SeedableRng;
@@ -31,9 +30,6 @@ struct Opt {
     /// The threshold for ARRSAC.
     #[structopt(short, long, default_value = "0.001")]
     arrsac_threshold: f32,
-    /// Lowes ratio.
-    #[structopt(short, long, default_value = "0.5")]
-    lowes_ratio: f32,
     /// List of image files
     ///
     /// Must be Kitti 2011_09_26 camera 0
@@ -57,19 +53,11 @@ fn main() {
     let features = features_stream(opt.images.clone());
     let mut prev = features.recv().unwrap();
     for next in features {
+        info!("start frame");
         info!("prev kps: {}", prev.0.len());
         info!("next kps: {}", next.0.len());
-        let mut searcher = hnsw::Searcher::new();
-        let mut prev_hnsw = HNSW::<Descriptor>::new();
-        for &descriptor in &prev.1 {
-            prev_hnsw.insert(descriptor, &mut searcher);
-        }
-        let mut next_hnsw = HNSW::<Descriptor>::new();
-        for &descriptor in &next.1 {
-            next_hnsw.insert(descriptor, &mut searcher);
-        }
-        let forward_matches = matching(&opt, &prev.1, &next_hnsw, &mut searcher);
-        let reverse_matches = matching(&opt, &next.1, &prev_hnsw, &mut searcher);
+        let forward_matches = matching(&prev.1, &next.1);
+        let reverse_matches = matching(&next.1, &prev.1);
         let matches = forward_matches
             .iter()
             .enumerate()
@@ -94,9 +82,9 @@ fn main() {
         let (essential, inliers) = arrsac
             .model_inliers(&eight_point, matches.iter().copied())
             .unwrap();
-        info!("inliers: {}", inliers.len());
-        let inlier_matches = inliers.iter().map(|&ix| matches[ix]);
-        let residual_average = inlier_matches
+        let inliers = inliers.iter().map(|&ix| matches[ix]);
+        info!("inliers: {}", inliers.clone().len());
+        let residual_average = inliers
             .clone()
             .map(|m| essential.residual(&m).abs())
             .sum::<f32>()
@@ -108,11 +96,12 @@ fn main() {
                 100,
                 0.5,
                 cv_core::geom::make_one_pose_dlt_triangulator(1e-6, 100),
-                inlier_matches.clone().take(8),
+                inliers.clone().take(8),
             )
             .unwrap();
         info!("rotation: {:?}", pose.rotation.angle());
         prev = next;
+        info!("end frame");
     }
 }
 
@@ -129,7 +118,8 @@ fn features_stream(paths: Vec<PathBuf>) -> Receiver<(Vec<ImageKeyPoint>, Vec<Des
 }
 
 fn kps_descriptors(path: PathBuf) -> (Vec<ImageKeyPoint>, Vec<Descriptor>) {
-    let akaze_config = AkazeConfig::default();
+    let mut akaze_config = AkazeConfig::default();
+    akaze_config.detector_threshold = 0.01;
     let (_, kps, descriptors) = akaze::extract_features(path, akaze_config);
     (
         kps.into_iter()
@@ -145,25 +135,16 @@ fn kps_descriptors(path: PathBuf) -> (Vec<ImageKeyPoint>, Vec<Descriptor>) {
     )
 }
 
-fn matching(
-    opt: &Opt,
-    a_descriptors: &[Descriptor],
-    b_hnsw: &HNSW<Descriptor>,
-    searcher: &mut hnsw::Searcher,
-) -> Vec<(usize, u32)> {
+fn matching(a_descriptors: &[Descriptor], b_descriptors: &[Descriptor]) -> Vec<(usize, u32)> {
     a_descriptors
         .iter()
         .map(|a| {
-            let mut knn = [!0; 2];
-            b_hnsw.nearest(a, 16, searcher, &mut knn);
-            let first = Distance::distance(a, b_hnsw.feature(knn[0]));
-            let second = Distance::distance(a, b_hnsw.feature(knn[1]));
-            if (first as f32) < opt.lowes_ratio * second as f32 {
-                (knn[0] as usize, first)
-            } else {
-                // If lowes ratio test fails, make distance very high.
-                (knn[0] as usize, !0)
-            }
+            b_descriptors
+                .iter()
+                .map(|b| Descriptor::distance(&a, &b))
+                .enumerate()
+                .min_by_key(|&(_, d)| d)
+                .unwrap()
         })
         .collect::<Vec<_>>()
 }
