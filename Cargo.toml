@@ -16,3 +16,8 @@ rand = "0.7.3"
 rand_pcg = "0.2.1"
 log = "0.4.8"
 env_logger = "0.7.1"
+hnsw = "0.4.0"
+
+[profile.release]
+lto = true
+codegen-units = 1

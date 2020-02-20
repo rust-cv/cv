@@ -370,6 +370,7 @@ version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ed1e761351b56f54eb9dcd0cfaca9fd0daecf93918e1cfc01c8a3d26ee7adcd"
 dependencies = [
+ "serde",
  "typenum",
 ]
 
@@ -416,6 +417,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2c55f143919fbc0bc77e427fe2d74cf23786d7c1875666f2fde3ac3c659bb67"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "hnsw"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6914d867d250389362f3b84afb1e393f77530438f52775026a9f66a8bc76e4dc"
+dependencies = [
+ "float-ord",
+ "generic-array 0.13.2",
+ "packed_simd",
+ "rand_core 0.5.1",
+ "rand_distr",
+ "rand_pcg",
+ "rustc-hash",
+ "serde",
+ "typenum",
 ]
 
 [[package]]
@@ -662,6 +680,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8f8bdf33df195859076e54ab11ee78a1b208382d3a26ec40d142ffc1ecc49ef"
 
 [[package]]
+name = "packed_simd"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a85ea9fc0d4ac0deb6fe7911d38786b32fc11119afd9e9d38b84ff691ce64220"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "png"
 version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -841,6 +868,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rand_distr"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96977acbdd3a6576fb1d27391900035bf3863d4a16422973a409b488cf29ffb2"
+dependencies = [
+ "rand 0.7.3",
+]
+
+[[package]]
 name = "rand_hc"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -856,6 +892,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "16abd0c1b639e9eb4d7c50c0b8100b0d0f849be2349829c740fe8e6eb4816429"
 dependencies = [
  "rand_core 0.5.1",
+ "serde",
 ]
 
 [[package]]
@@ -926,6 +963,12 @@ name = "regex-syntax"
 version = "0.6.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b28dfe3fe9badec5dbf0a79a9cccad2cfc2ab5484bdb3e44cbd1ae8b3ba2be06"
+
+[[package]]
+name = "rustc-hash"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
 name = "rustc_version"
@@ -1160,6 +1203,7 @@ dependencies = [
  "cv-core",
  "eight-point",
  "env_logger",
+ "hnsw",
  "image 0.23.0",
  "log",
  "rand 0.7.3",
