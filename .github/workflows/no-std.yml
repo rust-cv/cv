@@ -17,6 +17,5 @@ jobs:
           override: true
       - uses: actions-rs/cargo@v1
         with:
-          use-cross: true
-          command: build
-          args: --release --target=armv7a-none-eabi
+          command: rustc
+          args: --target=armv7a-none-eabi --manifest-path=ensure_no_std/Cargo.toml -- -C link-arg=-nostartfiles
