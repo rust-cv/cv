@@ -14,3 +14,14 @@ nalgebra = "0.20.0"
 
 [dev-dependencies]
 approx = "0.3.2"
+eight-point = "0.2.0"
+arrsac = "0.3.0"
+cv-core = "0.7.2"
+space = { version = "0.10.3", features = ["simd"] }
+rand = "0.7.3"
+rand_pcg = "0.2.1"
+env_logger = "0.7.1"
+
+[profile.dev]
+# The tests take a very long time without optimization.
+opt-level = 3

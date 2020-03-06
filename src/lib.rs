@@ -2,17 +2,19 @@ mod contrast_factor;
 mod derivatives;
 mod descriptors;
 mod detector_response;
-pub mod evolution;
+mod evolution;
 mod fed_tau;
 mod image;
 mod keypoint;
 mod nonlinear_diffusion;
 mod scale_space_extrema;
 
+pub use evolution::Config;
+pub use keypoint::{Descriptor, Keypoint};
+
 use crate::image::{gaussian_blur, GrayFloatImage, ImageFunctions};
 use ::image::GenericImageView;
 use evolution::*;
-use keypoint::*;
 use log::*;
 use std::path::Path;
 
@@ -140,7 +142,7 @@ fn find_image_keypoints(evolutions: &mut Vec<EvolutionStep>, options: Config) ->
 /// ```no_run
 /// extern crate akaze;
 /// use std::path::Path;
-/// let options = akaze::evolution::Config::default();
+/// let options = akaze::Config::default();
 /// let (_evolutions, keypoints, descriptors) =
 ///     akaze::extract_features(
 ///       "test-data/1.jpg",
