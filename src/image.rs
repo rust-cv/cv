@@ -1,7 +1,5 @@
-use image::{DynamicImage, GenericImageView, GrayImage, Pixel, RgbImage};
-use rand::Rng;
+use image::{DynamicImage, GenericImageView, GrayImage, Pixel};
 use std::f32;
-use std::path::PathBuf;
 
 /// The image type we use in this library.
 ///
@@ -136,76 +134,6 @@ pub fn create_unit_float_image(input_image: &DynamicImage) -> GrayFloatImage {
         }
     }
     output_image
-}
-
-/// Generate a dynamic image from a GrayFloatImage
-///
-/// # Arguments
-/// * `input_image` - the input image.
-/// # Return value
-/// A dynamic image (can be written to file, etc..)
-pub fn create_dynamic_image(input_image: &GrayFloatImage) -> DynamicImage {
-    let mut output_image =
-        DynamicImage::new_luma8(input_image.width() as u32, input_image.height() as u32);
-    {
-        let luma8 = output_image.as_mut_luma8().unwrap();
-        let mut itr_input = input_image.buffer.iter();
-        for pixel in luma8.pixels_mut() {
-            let val = itr_input.next().unwrap();
-            pixel.channels_mut()[0] = (*val * 255f32) as u8;
-        }
-    }
-    output_image
-}
-
-/// Normalize an image between 0 and 1
-///
-/// # Arguments
-/// * `input_image` - the input image.
-/// # Return value
-/// the normalized image.
-pub fn normalize(input_image: &GrayFloatImage) -> GrayFloatImage {
-    let mut min_pixel = f32::MAX;
-    let mut max_pixel = f32::MIN;
-    let mut output_image =
-        GrayFloatImage::new(input_image.width() as usize, input_image.height() as usize);
-
-    for pixel in input_image.buffer.iter() {
-        if *pixel > max_pixel {
-            max_pixel = *pixel;
-        }
-        if *pixel < min_pixel {
-            min_pixel = *pixel;
-        }
-    }
-    let length = input_image.width() * input_image.height();
-    {
-        let mut itr1 = output_image.buffer.iter_mut();
-        let mut itr2 = input_image.buffer.iter();
-        let new_max_pixel = max_pixel - min_pixel;
-        for _ in 0..(length) {
-            let p1 = itr1.next().unwrap();
-            let p2 = itr2.next().unwrap();
-            let mut pixel = *p2;
-            pixel -= min_pixel;
-            pixel /= new_max_pixel;
-            *p1 = pixel;
-        }
-    }
-    output_image
-}
-
-/// Helper function to write an image to a file.
-///
-/// # Arguments
-/// * `input_image` - the image to write.
-/// * `path` - the path to which to write the image.
-pub fn save(input_image: &GrayFloatImage, path: PathBuf) {
-    if input_image.width() > 0 && input_image.height() > 0 {
-        let normalized_image = normalize(&input_image);
-        let dynamic_image = create_dynamic_image(&normalized_image);
-        dynamic_image.save(path).unwrap();
-    }
 }
 
 /// Return sqrt(image_1_i + image_2_i) for all pixels in the input images.
@@ -376,102 +304,6 @@ pub fn gaussian_blur(image: &GrayFloatImage, r: f32) -> GrayFloatImage {
     let kernel = gaussian_kernel(r, kernel_size);
     let img_horizontal = horizontal_filter(&image, &kernel);
     vertical_filter(&img_horizontal, &kernel)
-}
-
-/// Generate a random RGB value
-/// # Return value
-/// A random RGB value
-pub fn random_color() -> (u8, u8, u8) {
-    let mut rng = rand::thread_rng();
-    (rng.gen(), rng.gen(), rng.gen())
-}
-
-/// Take the average between two pixels
-///
-/// # Arguments
-/// * `p1` - The first color value.
-/// * `p2` - The second color value.
-/// # Return value
-/// The averaged pixel.
-fn blend(p1: (u8, u8, u8), p2: (u8, u8, u8)) -> (u8, u8, u8) {
-    (
-        ((f32::from(p1.0) + f32::from(p2.0)) / 2f32) as u8,
-        ((f32::from(p1.1) + f32::from(p2.1)) / 2f32) as u8,
-        ((f32::from(p1.2) + f32::from(p2.2)) / 2f32) as u8,
-    )
-}
-
-/// Draw a circle to an image.
-/// Values inside of the circle will be blended between their current color
-/// value and the input.
-///
-/// # Arguments
-/// `input_image` - The image to draw on, directly mutated.
-/// `point` - The point at which to draw.
-/// `rgb` The RGB value.
-/// `radius` The maximum radius from the point to shade.
-pub fn draw_circle(input_image: &mut RgbImage, point: (f32, f32), rgb: (u8, u8, u8), radius: f32) {
-    for x in (point.0 as u32).saturating_sub(radius as u32)
-        ..(point.0 as u32).saturating_add(radius as u32)
-    {
-        for y in (point.1 as u32).saturating_sub(radius as u32)
-            ..(point.1 as u32).saturating_add(radius as u32)
-        {
-            let xy = (x as f32, y as f32);
-            let delta_x = xy.0 - point.0;
-            let delta_y = xy.1 - point.1;
-            let radius_check = f32::sqrt(delta_x * delta_x + delta_y * delta_y);
-            if radius_check <= radius {
-                let pixel = input_image.get_pixel_mut(x, y);
-                let rgb_point = (
-                    pixel.channels()[0],
-                    pixel.channels()[1],
-                    pixel.channels()[2],
-                );
-                let color_to_set = blend(rgb, rgb_point);
-                pixel.channels_mut()[0] = color_to_set.0;
-                pixel.channels_mut()[1] = color_to_set.1;
-                pixel.channels_mut()[2] = color_to_set.2;
-            }
-        }
-    }
-}
-
-/// Draw a line to an image.
-///
-/// # Arguments
-/// * `input_image` - The image to draw on, directly mutated.
-/// * `point_0` - The point from which to draw.
-/// * `point_1` - The point to which to draw.
-/// * `rgb` - The RGB value.
-/// * `radius` - The radius from the center of the line to shade.
-pub fn draw_line(
-    mut input_image: &mut RgbImage,
-    point_0: (f32, f32),
-    point_1: (f32, f32),
-    rgb: (u8, u8, u8),
-    radius: f32,
-) {
-    // Equation of line
-    let delta_x = point_1.0 - point_0.0;
-    let delta_y = point_1.1 - point_0.1;
-    if f32::abs(delta_x) <= 1f32 && f32::abs(delta_y) <= 1f32 {
-        draw_circle(&mut input_image, point_0, rgb, radius);
-    } else {
-        let m = delta_y / delta_x;
-        let b = point_0.1 - m * point_0.0;
-        let x_0 = f32::min(point_0.0, point_1.0);
-        let x_n = f32::max(point_0.0, point_1.0);
-        let num_pixels_between = f32::max(f32::abs(delta_x), f32::abs(delta_y));
-        let num_points = f32::max(num_pixels_between, 2f32);
-        let x_step = f32::abs(delta_x) / num_points;
-        let mut x = x_0;
-        while x <= x_n {
-            let y = m * (x as f32) + b;
-            draw_circle(&mut input_image, (x as f32, y), rgb, radius);
-            x += x_step;
-        }
-    }
 }
 
 #[cfg(test)]

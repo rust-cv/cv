@@ -1,7 +1,6 @@
 use crate::fed_tau;
 use crate::image::{GrayFloatImage, ImageFunctions};
 use log::*;
-use std::path::PathBuf;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Config {
@@ -157,11 +156,4 @@ pub fn allocate_evolutions(width: u32, height: u32, options: Config) -> Vec<Evol
         );
     }
     out_vec
-}
-
-fn build_path(mut destination_dir: PathBuf, path_label: String, idx: usize) -> PathBuf {
-    let to_write = format!("{}{:05}.png", path_label, idx);
-    destination_dir.push(to_write);
-    destination_dir.set_extension(".png");
-    destination_dir
 }
