@@ -1,6 +1,6 @@
 use arrsac::{Arrsac, Config as ArrsacConfig};
 use cv_core::nalgebra::{Point2, Vector2};
-use cv_core::sample_consensus::{Consensus, Model};
+use cv_core::sample_consensus::Consensus;
 use cv_core::{CameraIntrinsics, ImageKeyPoint, KeyPointsMatch};
 use log::*;
 use rand::SeedableRng;
