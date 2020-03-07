@@ -1,0 +1,20 @@
+use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
+use nalgebra::Point2;
+
+/// Allows the retrieval of the point on the image the feature came from.
+pub trait ImagePoint {
+    /// Retrieves the point on the image
+    fn image_point(&self) -> Point2<f64>;
+}
+
+/// A point on an image frame. This type should only be used when
+/// the point location is on the image frame in pixel coordinates.
+/// This means the keypoint is neither undistorted nor normalized.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
+pub struct ImageKeyPoint(pub Point2<f64>);
+
+impl ImagePoint for ImageKeyPoint {
+    fn image_point(&self) -> Point2<f64> {
+        self.0
+    }
+}

@@ -67,17 +67,19 @@
 //!
 //! It is recommended to use [`triangulate_bearing_reproject`], as it is incredibly cheap to compute.
 
-use crate::{CameraPoint, NormalizedKeyPoint, UnscaledRelativeCameraPose};
+use crate::{Bearing, CameraPoint, UnscaledRelativeCameraPose};
 use nalgebra::{Matrix4, Point3, RowVector4, Vector3};
 
 /// This solves the point triangulation problem using
 /// Algorithm 12 from "Multiple View Geometry in Computer Vision".
 ///
 /// It is considered the "optimal" triangulation and is best when dealing with noise.
-pub fn make_one_pose_dlt_triangulator(
+pub fn make_one_pose_dlt_triangulator<B>(
     epsilon: f64,
     max_iterations: usize,
-) -> impl Fn(UnscaledRelativeCameraPose, NormalizedKeyPoint, NormalizedKeyPoint) -> Option<Point3<f64>>
+) -> impl Fn(UnscaledRelativeCameraPose, B, B) -> Option<Point3<f64>>
+where
+    B: Bearing,
 {
     move |pose, a, b| {
         let pose = pose.to_homogeneous();
@@ -112,11 +114,14 @@ pub fn make_one_pose_dlt_triangulator(
 
 /// This solves the translation along a bearing triangulation assuming that there is
 /// a perfect intersection.
-pub fn triangulate_bearing_intersection(
+pub fn triangulate_bearing_intersection<B>(
     bearing: Vector3<f64>,
     from: CameraPoint,
-    to: NormalizedKeyPoint,
-) -> Option<f64> {
+    to: B,
+) -> Option<f64>
+where
+    B: Bearing,
+{
     let from = from.0.coords;
     let to = to.bearing_unnormalized();
 
@@ -131,12 +136,15 @@ pub fn triangulate_bearing_intersection(
 }
 
 /// This solves the translation along a bearing triangulation by minimizing the reprojection error.
-pub fn triangulate_bearing_reproject(
+pub fn triangulate_bearing_reproject<B>(
     bearing: Vector3<f64>,
     from: CameraPoint,
-    to: NormalizedKeyPoint,
-) -> Option<f64> {
-    let a = to;
+    to: B,
+) -> Option<f64>
+where
+    B: Bearing,
+{
+    let a = to.bearing_unnormalized();
     let b = from;
     let t = bearing;
     Some((a.y * b.x - a.x * b.y) / (a.x * t.y - a.y * t.x))

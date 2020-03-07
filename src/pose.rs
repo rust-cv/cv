@@ -1,6 +1,6 @@
-use crate::{CameraPoint, KeyPointWorldMatch, KeyPointsMatch, NormalizedKeyPoint, WorldPoint};
+use crate::{pinhole, Bearing, CameraPoint, FeatureMatch, FeatureWorldMatch, WorldPoint};
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
-use nalgebra::{IsometryMatrix3, Matrix3, Point3, Rotation3, Vector2, Vector3, SVD};
+use nalgebra::{IsometryMatrix3, Matrix3, Point3, Rotation3, Vector3, SVD};
 use sample_consensus::Model;
 
 /// This contains a world pose, which is a pose of the world relative to the camera.
@@ -9,30 +9,21 @@ use sample_consensus::Model;
 #[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, Deref, DerefMut, From, Into)]
 pub struct WorldPose(pub IsometryMatrix3<f64>);
 
-impl Model<KeyPointWorldMatch> for WorldPose {
-    fn residual(&self, data: &KeyPointWorldMatch) -> f32 {
+impl<P> Model<FeatureWorldMatch<P>> for WorldPose
+where
+    P: Bearing,
+{
+    fn residual(&self, data: &FeatureWorldMatch<P>) -> f32 {
         let WorldPose(iso) = *self;
-        let KeyPointWorldMatch(image, world) = *data;
+        let FeatureWorldMatch(feature, world) = data;
 
         let new_bearing = (iso * world.coords).normalize();
-        let bearing_vector = image.to_homogeneous().normalize();
+        let bearing_vector = feature.bearing();
         (1.0 - bearing_vector.dot(&new_bearing)) as f32
     }
 }
 
 impl WorldPose {
-    /// Computes difference between the image keypoint and the projected keypoint.
-    pub fn projection_error(&self, correspondence: KeyPointWorldMatch) -> Vector2<f64> {
-        let KeyPointWorldMatch(NormalizedKeyPoint(image), world) = correspondence;
-        let NormalizedKeyPoint(projection) = self.project(world);
-        image - projection
-    }
-
-    /// Projects the `WorldPoint` onto the camera as a `NormalizedKeyPoint`.
-    pub fn project(&self, point: WorldPoint) -> NormalizedKeyPoint {
-        self.transform(point).into()
-    }
-
     /// Projects the [`WorldPoint`] into camera space as a [`CameraPoint`].
     pub fn transform(&self, WorldPoint(point): WorldPoint) -> CameraPoint {
         let WorldPose(iso) = *self;
@@ -90,12 +81,12 @@ impl RelativeCameraPose {
     /// If a point `a` is transformed using [`RelativeCameraPose::transform`] into
     /// a point `b`, then the essential matrix returned by this method will
     /// give a residual of approximately `0.0` when you call
-    /// `essential.residual(&KeyPointsMatch(a.into(), b.into()))`.
+    /// `essential.residual(&FeatureMatch(a, b))`.
     ///
     /// See the documentation of [`EssentialMatrix`] for more information.
     ///
     /// ```
-    /// # use cv_core::{RelativeCameraPose, CameraPoint, KeyPointsMatch};
+    /// # use cv_core::{RelativeCameraPose, CameraPoint, FeatureMatch};
     /// # use cv_core::sample_consensus::Model;
     /// # use cv_core::nalgebra::{Vector3, Point3, IsometryMatrix3, Rotation3};
     /// let pose = RelativeCameraPose(IsometryMatrix3::from_parts(
@@ -104,7 +95,7 @@ impl RelativeCameraPose {
     /// ));
     /// let a = CameraPoint(Point3::new(0.5, 0.5, 3.0));
     /// let b = pose.transform(a);
-    /// assert!(pose.essential_matrix().residual(&KeyPointsMatch(a.into(), b.into())) < 1e-6);
+    /// assert!(pose.essential_matrix().residual(&FeatureMatch(a.into(), b.into())) < 1e-6);
     /// ```
     pub fn essential_matrix(&self) -> EssentialMatrix {
         EssentialMatrix(self.0.translation.vector.cross_matrix() * *self.0.rotation.matrix())
@@ -135,15 +126,17 @@ pub struct UnscaledRelativeCameraPose(pub RelativeCameraPose);
 /// That is because normalized image coordinates exist on a virtual plane (the sensor)
 /// a distance `z = 1.0` from the optical center (the location of the focal point) where
 /// the unit of distance is the focal length. In epipolar geometry, the point on the virtual
-/// plane is called an epipole. The line through 3d space created by the bearing that travels
-/// from the optical center through the epipole is called an epipolar line.
+/// plane pointing towards the second camera is called an epipole. The line through the image
+/// created by the projected points is called an epipolar line, and it extends from the epipole.
 ///
-/// If you look at every point along an epipolar line, each one of those points would show
-/// up as a different point on the camera sensor of another image (if they are in view).
-/// If you traced every point along this epipolar line to where it would appear on the sensor
+/// If you look at every point along a projection out of the camera, each one of those points would
+/// project onto the epipolar line on the camera sensor of another image.
+/// If you traced every point along the projection to where it would appear on the sensor
 /// of the camera (projection of the 3d points into normalized image coordinates), then
-/// the points would form a straight line. This means that you can draw epipolar lines
-/// that do not pass through the optical center of an image on that image.
+/// the points would form the epipolar line. This means that you can draw epipolar lines
+/// so long as the projection does not pass through the optical center of both cameras.
+/// However, that situation is usually impossible, as one camera would be obscuring the feature
+/// for the other camera.
 ///
 /// The essential matrix makes it possible to create a vector that is perpendicular to all
 /// bearings that are formed from the epipolar line on the second image's sensor. This is
@@ -172,10 +165,10 @@ pub struct UnscaledRelativeCameraPose(pub RelativeCameraPose);
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
 pub struct EssentialMatrix(pub Matrix3<f64>);
 
-impl Model<KeyPointsMatch> for EssentialMatrix {
-    fn residual(&self, data: &KeyPointsMatch) -> f32 {
+impl Model<FeatureMatch<pinhole::NormalizedKeyPoint>> for EssentialMatrix {
+    fn residual(&self, data: &FeatureMatch<pinhole::NormalizedKeyPoint>) -> f32 {
         let Self(mat) = *self;
-        let KeyPointsMatch(NormalizedKeyPoint(a), NormalizedKeyPoint(b)) = *data;
+        let FeatureMatch(pinhole::NormalizedKeyPoint(a), pinhole::NormalizedKeyPoint(b)) = *data;
 
         // The result is a 1x1 matrix which we must get element 0 from.
         libm::fabsf((b.to_homogeneous().transpose() * mat * a.to_homogeneous())[0] as f32)
@@ -408,18 +401,17 @@ impl EssentialMatrix {
     }
 
     /// Finds the unscaled pose that agrees with the most matches.
-    pub fn solve_unscaled_pose(
+    pub fn solve_unscaled_pose<P>(
         &self,
         epsilon: f64,
         max_iterations: usize,
         consensus_ratio: f64,
-        triangulation_method: impl Fn(
-            UnscaledRelativeCameraPose,
-            NormalizedKeyPoint,
-            NormalizedKeyPoint,
-        ) -> Option<Point3<f64>>,
-        correspondences: impl Iterator<Item = KeyPointsMatch>,
-    ) -> Option<UnscaledRelativeCameraPose> {
+        triangulation_method: impl Fn(UnscaledRelativeCameraPose, P, P) -> Option<Point3<f64>>,
+        correspondences: impl Iterator<Item = FeatureMatch<P>>,
+    ) -> Option<UnscaledRelativeCameraPose>
+    where
+        P: Bearing + Copy,
+    {
         // Get the possible rotations and the translation
         self.possible_unscaled_poses(epsilon, max_iterations)
             .and_then(|poses| {
@@ -427,7 +419,7 @@ impl EssentialMatrix {
                 // in addition to the number of points that agree with a and b.
                 let (ts, total) = correspondences.fold(
                     ([0usize; 4], 0usize),
-                    |(mut ts, total), KeyPointsMatch(a, b)| {
+                    |(mut ts, total), FeatureMatch(a, b)| {
                         let trans_and_agree = |pose| {
                             triangulation_method(pose, a, b)
                                 .map(|p| {
@@ -516,6 +508,7 @@ impl EssentialMatrix {
     /// ```
     /// # use cv_core::{RelativeCameraPose, CameraPoint};
     /// # use cv_core::nalgebra::{IsometryMatrix3, Rotation3, Vector3, Point3};
+    /// # use cv_core::pinhole::NormalizedKeyPoint;
     /// let pose = RelativeCameraPose(IsometryMatrix3::from_parts(
     ///     Vector3::new(-0.8, 0.4, 0.5).into(),
     ///     Rotation3::from_euler_angles(0.2, 0.3, 0.4),
@@ -523,9 +516,10 @@ impl EssentialMatrix {
     /// let a_point = CameraPoint(Point3::new(-1.0, 2.0, 3.0));
     /// let b_point = pose.transform(a_point);
     /// // Get the possible poses for the essential matrix created from `pose`.
-    /// let estimate_pose = pose.essential_matrix().solve_pose(1e-6, 50, 0.5,
-    ///     cv_core::geom::triangulate_bearing_reproject,
-    ///     std::iter::once((a_point, b_point.into()))
+    /// let estimate_pose = pose.essential_matrix()
+    ///     .solve_pose(1e-6, 50, 0.5,
+    ///         cv_core::geom::triangulate_bearing_reproject::<NormalizedKeyPoint>,
+    ///         std::iter::once((a_point, b_point.into()))
     /// ).unwrap();
     ///
     /// let angle_residual =
@@ -533,14 +527,17 @@ impl EssentialMatrix {
     /// let translation_residual = (pose.translation.vector - estimate_pose.translation.vector).norm();
     /// assert!(angle_residual < 1e-4 && translation_residual < 1e-4, "{}, {}, {:?}, {:?}", angle_residual, translation_residual, pose.translation.vector, estimate_pose.translation.vector);
     /// ```
-    pub fn solve_pose(
+    pub fn solve_pose<P>(
         &self,
         epsilon: f64,
         max_iterations: usize,
         consensus_ratio: f64,
-        triangulation_method: impl Fn(Vector3<f64>, CameraPoint, NormalizedKeyPoint) -> Option<f64>,
-        correspondences: impl Iterator<Item = (CameraPoint, NormalizedKeyPoint)> + Clone,
-    ) -> Option<RelativeCameraPose> {
+        triangulation_method: impl Fn(Vector3<f64>, CameraPoint, P) -> Option<f64>,
+        correspondences: impl Iterator<Item = (CameraPoint, P)> + Clone,
+    ) -> Option<RelativeCameraPose>
+    where
+        P: Bearing + Copy,
+    {
         // Get the possible rotations and the translation
         self.possible_unscaled_poses_bearing(epsilon, max_iterations)
             .and_then(|poses| {
