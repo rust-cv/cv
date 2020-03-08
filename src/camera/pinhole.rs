@@ -119,7 +119,7 @@ impl CameraModel for CameraIntrinsics {
     /// converts it to a [`NormalizedKeyPoint`].
     ///
     /// ```
-    /// # use cv_core::{ImageKeyPoint, CameraModel};
+    /// # use cv_core::{KeyPoint, CameraModel};
     /// # use cv_core::pinhole::{NormalizedKeyPoint, CameraIntrinsics};
     /// # use cv_core::nalgebra::{Vector2, Vector3, Point2};
     /// let intrinsics = CameraIntrinsics {
@@ -127,7 +127,7 @@ impl CameraModel for CameraIntrinsics {
     ///     principal_point: Point2::new(500.0, 600.0),
     ///     skew: 1.7,
     /// };
-    /// let kp = ImageKeyPoint(Point2::new(471.0, 322.0));
+    /// let kp = KeyPoint(Point2::new(471.0, 322.0));
     /// let nkp = intrinsics.calibrate(kp);
     /// let calibration_matrix = intrinsics.matrix();
     /// let distance = (kp.to_homogeneous() - calibration_matrix * nkp.to_homogeneous()).norm();
@@ -146,7 +146,7 @@ impl CameraModel for CameraIntrinsics {
     /// Converts a [`NormalizedKeyPoint`] back into pixel coordinates.
     ///
     /// ```
-    /// # use cv_core::{ImageKeyPoint, CameraModel};
+    /// # use cv_core::{KeyPoint, CameraModel};
     /// # use cv_core::pinhole::{NormalizedKeyPoint, CameraIntrinsics};
     /// # use cv_core::nalgebra::{Vector2, Vector3, Point2};
     /// let intrinsics = CameraIntrinsics {
@@ -154,7 +154,7 @@ impl CameraModel for CameraIntrinsics {
     ///     principal_point: Point2::new(500.0, 600.0),
     ///     skew: 1.7,
     /// };
-    /// let kp = ImageKeyPoint(Point2::new(471.0, 322.0));
+    /// let kp = KeyPoint(Point2::new(471.0, 322.0));
     /// let nkp = intrinsics.calibrate(kp);
     /// let ukp = intrinsics.uncalibrate(nkp);
     /// assert!((kp.0 - ukp.0).norm() < 1e-6);
