@@ -1,6 +1,6 @@
 use cv_core::nalgebra::{IsometryMatrix3, Rotation3, Vector2, Vector3};
 use cv_core::sample_consensus::{Estimator, Model};
-use cv_core::{geom, CameraPoint, KeyPointsMatch, NormalizedKeyPoint, RelativeCameraPose};
+use cv_core::{geom, pinhole::NormalizedKeyPoint, CameraPoint, FeatureMatch, RelativeCameraPose};
 
 const SAMPLE_POINTS: usize = 16;
 const RESIDUAL_THRESHOLD: f64 = 1e-4;
@@ -19,7 +19,7 @@ fn randomized() {
 fn run_round() -> bool {
     let mut success = true;
     let (real_pose, aps, bps, depths) = some_test_data();
-    let matches = aps.iter().zip(&bps).map(|(&a, &b)| KeyPointsMatch(a, b));
+    let matches = aps.iter().zip(&bps).map(|(&a, &b)| FeatureMatch(a, b));
     let eight_point = eight_point::EightPoint::new();
     let essential = eight_point
         .estimate(matches.clone())
@@ -39,7 +39,7 @@ fn run_round() -> bool {
         geom::triangulate_bearing_reproject,
         matches
             .zip(depths)
-            .map(|(KeyPointsMatch(a, b), depth)| (a.with_depth(depth), b)),
+            .map(|(FeatureMatch(a, b), depth)| (a.with_depth(depth), b)),
     ) {
         Some(pose) => pose,
         None => {

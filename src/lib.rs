@@ -2,13 +2,13 @@
 
 use cv_core::nalgebra::{self, Matrix3, MatrixMN, VectorN, U3, U8, U9};
 use cv_core::sample_consensus::Estimator;
-use cv_core::{EssentialMatrix, KeyPointsMatch};
+use cv_core::{pinhole::NormalizedKeyPoint, EssentialMatrix, FeatureMatch};
 
 fn encode_epipolar_equation(
-    matches: impl Iterator<Item = KeyPointsMatch>,
+    matches: impl Iterator<Item = FeatureMatch<NormalizedKeyPoint>>,
 ) -> MatrixMN<f64, U8, U9> {
     let mut out: MatrixMN<f64, U8, U9> = nalgebra::zero();
-    for (i, KeyPointsMatch(a, b)) in (0..8).zip(matches) {
+    for (i, FeatureMatch(a, b)) in (0..8).zip(matches) {
         let mut row = VectorN::<f64, U9>::zeros();
         let ap = a.epipolar_point().0.coords;
         let bp = b.epipolar_point().0.coords;
@@ -47,14 +47,14 @@ impl Default for EightPoint {
     }
 }
 
-impl Estimator<KeyPointsMatch> for EightPoint {
+impl Estimator<FeatureMatch<NormalizedKeyPoint>> for EightPoint {
     type Model = EssentialMatrix;
     type ModelIter = Option<EssentialMatrix>;
     const MIN_SAMPLES: usize = 8;
 
     fn estimate<I>(&self, data: I) -> Self::ModelIter
     where
-        I: Iterator<Item = KeyPointsMatch> + Clone,
+        I: Iterator<Item = FeatureMatch<NormalizedKeyPoint>> + Clone,
     {
         let epipolar_constraint = encode_epipolar_equation(data);
         let eet = epipolar_constraint.transpose() * epipolar_constraint;
