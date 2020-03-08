@@ -11,9 +11,9 @@ pub trait ImagePoint {
 /// the point location is on the image frame in pixel coordinates.
 /// This means the keypoint is neither undistorted nor normalized.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
-pub struct ImageKeyPoint(pub Point2<f64>);
+pub struct KeyPoint(pub Point2<f64>);
 
-impl ImagePoint for ImageKeyPoint {
+impl ImagePoint for KeyPoint {
     fn image_point(&self) -> Point2<f64> {
         self.0
     }

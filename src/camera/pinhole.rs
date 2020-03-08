@@ -1,4 +1,4 @@
-use crate::{Bearing, CameraModel, CameraPoint, ImageKeyPoint, ImagePoint};
+use crate::{Bearing, CameraModel, CameraPoint, ImagePoint, KeyPoint};
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use nalgebra::{Matrix3, Point2, Vector2, Vector3};
 
@@ -159,11 +159,11 @@ impl CameraModel for CameraIntrinsics {
     /// let ukp = intrinsics.uncalibrate(nkp);
     /// assert!((kp.0 - ukp.0).norm() < 1e-6);
     /// ```
-    fn uncalibrate(&self, projection: NormalizedKeyPoint) -> ImageKeyPoint {
+    fn uncalibrate(&self, projection: NormalizedKeyPoint) -> KeyPoint {
         let y = projection.y * self.focals.y;
         let x = projection.x * self.focals.x + self.skew * projection.y;
         let centered = Point2::new(x, y);
-        ImageKeyPoint(centered + self.principal_point.coords)
+        KeyPoint(centered + self.principal_point.coords)
     }
 }
 

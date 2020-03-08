@@ -1,7 +1,7 @@
 #[cfg(feature = "pinhole")]
 pub mod pinhole;
 
-use crate::{ImageKeyPoint, ImagePoint};
+use crate::{ImagePoint, KeyPoint};
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use nalgebra::{Point3, Unit, Vector3};
 
@@ -41,5 +41,5 @@ pub trait CameraModel {
         P: ImagePoint;
 
     /// Extracts the pixel location in the image from the projection.
-    fn uncalibrate(&self, projection: Self::Projection) -> ImageKeyPoint;
+    fn uncalibrate(&self, projection: Self::Projection) -> KeyPoint;
 }
