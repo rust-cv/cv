@@ -1,3 +1,4 @@
+#[cfg(feature = "pinhole")]
 pub mod pinhole;
 
 use crate::{ImageKeyPoint, ImagePoint};

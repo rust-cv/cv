@@ -2,7 +2,7 @@
 //!
 //! ## Triangulation of a point with a given camera transformation
 //!
-//! In this problem we have a [`RelativeCameraPose`] and two [`NormalizedKeyPoint`].
+//! In this problem we have a [`RelativeCameraPose`](crate::RelativeCameraPose) and two [`Bearing`].
 //! We want to find the point of intersection from the two cameras in camera A's space.
 //!
 //! - `p` the point we are trying to triangulate
@@ -11,7 +11,7 @@
 //! - `O` the optical center of a camera
 //! - `@` the virtual image plane
 //!
-//! ```no_build,no_run
+//! ```text
 //!                        @
 //!                        @
 //!               p--------b--------O
@@ -28,12 +28,12 @@
 //!
 //! //! Solutions to this problem:
 //!
-//! * [`triangulate_dlt`]
+//! * [`make_one_pose_dlt_triangulator`]
 //!
 //! ## Translation along a bearing given one prior depth
 //!
 //! This problem consumes a direction to translate along, a `from` [`CameraPoint`],
-//! and a `to` [`NormalizedKeyPoint`] coordinate.
+//! and a `to` [`Bearing`] coordinate.
 //!
 //! - `t` the `translation` bearing vector
 //! - `a` the `from` point
@@ -41,7 +41,7 @@
 //! - `O` the optical center
 //! - `@` the virtual image plane
 //!
-//! ```no_build,no_run
+//! ```text
 //!      t<---a
 //!          /
 //!         /

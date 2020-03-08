@@ -1,4 +1,6 @@
-use crate::{pinhole, Bearing, CameraPoint, FeatureMatch, FeatureWorldMatch, WorldPoint};
+#[cfg(feature = "pinhole")]
+use crate::pinhole;
+use crate::{Bearing, CameraPoint, FeatureMatch, FeatureWorldMatch, WorldPoint};
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use nalgebra::{IsometryMatrix3, Matrix3, Point3, Rotation3, Vector3, SVD};
 use sample_consensus::Model;
@@ -84,19 +86,23 @@ impl RelativeCameraPose {
     /// `essential.residual(&FeatureMatch(a, b))`.
     ///
     /// See the documentation of [`EssentialMatrix`] for more information.
-    ///
-    /// ```
-    /// # use cv_core::{RelativeCameraPose, CameraPoint, FeatureMatch};
-    /// # use cv_core::sample_consensus::Model;
-    /// # use cv_core::nalgebra::{Vector3, Point3, IsometryMatrix3, Rotation3};
-    /// let pose = RelativeCameraPose(IsometryMatrix3::from_parts(
-    ///     Vector3::new(0.3, 0.4, 0.5).into(),
-    ///     Rotation3::from_euler_angles(0.2, 0.3, 0.4),
-    /// ));
-    /// let a = CameraPoint(Point3::new(0.5, 0.5, 3.0));
-    /// let b = pose.transform(a);
-    /// assert!(pose.essential_matrix().residual(&FeatureMatch(a.into(), b.into())) < 1e-6);
-    /// ```
+    #[cfg_attr(
+        feature = "pinhole",
+        doc = r##"
+        ```
+        # use cv_core::{RelativeCameraPose, CameraPoint, FeatureMatch};
+        # use cv_core::sample_consensus::Model;
+        # use cv_core::nalgebra::{Vector3, Point3, IsometryMatrix3, Rotation3};
+        let pose = RelativeCameraPose(IsometryMatrix3::from_parts(
+            Vector3::new(0.3, 0.4, 0.5).into(),
+            Rotation3::from_euler_angles(0.2, 0.3, 0.4),
+        ));
+        let a = CameraPoint(Point3::new(0.5, 0.5, 3.0));
+        let b = pose.transform(a);
+        assert!(pose.essential_matrix().residual(&FeatureMatch(a.into(), b.into())) < 1e-6);
+        ```
+"##
+    )]
     pub fn essential_matrix(&self) -> EssentialMatrix {
         EssentialMatrix(self.0.translation.vector.cross_matrix() * *self.0.rotation.matrix())
     }
@@ -145,13 +151,13 @@ pub struct UnscaledRelativeCameraPose(pub RelativeCameraPose);
 /// with the transpose of the second image coordinate `x'` which is equal to `0.0`.
 /// This can be written as:
 ///
-/// ```no_build,no_run
+/// ```text
 /// dot(transpose(E * x), x') = 0
 /// ```
 ///
 /// This can be re-written into the form given above:
 ///
-/// ```no_build,no_run
+/// ```text
 /// transpose(x') * E * x = 0
 /// ```
 ///
@@ -161,10 +167,11 @@ pub struct UnscaledRelativeCameraPose(pub RelativeCameraPose);
 /// With a `EssentialMatrix`, you can retrieve the rotation and translation given
 /// one normalized image coordinate and one bearing that is scaled to the depth
 /// of the point relative to the current reconstruction. This kind of point can be computed
-/// using [`WorldPose::project_camera`] to convert a [`WorldPoint`] to a [`CameraPoint`].
+/// using [`WorldPose::transform`] to convert a [`WorldPoint`] to a [`CameraPoint`].
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
 pub struct EssentialMatrix(pub Matrix3<f64>);
 
+#[cfg(feature = "pinhole")]
 impl Model<FeatureMatch<pinhole::NormalizedKeyPoint>> for EssentialMatrix {
     fn residual(&self, data: &FeatureMatch<pinhole::NormalizedKeyPoint>) -> f32 {
         let Self(mat) = *self;
@@ -385,7 +392,6 @@ impl EssentialMatrix {
     /// 4 unscaled poses since it doesn't bother to give back the different translation
     /// directions and instead only gives one. This is useful if your algorithm doesn't
     /// care about the direction of translation.
-    /// ```
     pub fn possible_unscaled_poses_bearing(
         &self,
         epsilon: f64,
@@ -473,7 +479,7 @@ impl EssentialMatrix {
     ///
     /// `self` must satisfy the constraint:
     ///
-    /// ```no_build,no_run
+    /// ```text
     /// transpose(homogeneous(a)) * E * homogeneous(b) = 0
     /// ```
     ///
@@ -504,29 +510,33 @@ impl EssentialMatrix {
     /// `b` from camera B.
     ///
     /// This does not communicate which points were outliers to each model.
-    ///
-    /// ```
-    /// # use cv_core::{RelativeCameraPose, CameraPoint};
-    /// # use cv_core::nalgebra::{IsometryMatrix3, Rotation3, Vector3, Point3};
-    /// # use cv_core::pinhole::NormalizedKeyPoint;
-    /// let pose = RelativeCameraPose(IsometryMatrix3::from_parts(
-    ///     Vector3::new(-0.8, 0.4, 0.5).into(),
-    ///     Rotation3::from_euler_angles(0.2, 0.3, 0.4),
-    /// ));
-    /// let a_point = CameraPoint(Point3::new(-1.0, 2.0, 3.0));
-    /// let b_point = pose.transform(a_point);
-    /// // Get the possible poses for the essential matrix created from `pose`.
-    /// let estimate_pose = pose.essential_matrix()
-    ///     .solve_pose(1e-6, 50, 0.5,
-    ///         cv_core::geom::triangulate_bearing_reproject::<NormalizedKeyPoint>,
-    ///         std::iter::once((a_point, b_point.into()))
-    /// ).unwrap();
-    ///
-    /// let angle_residual =
-    ///     estimate_pose.rotation.rotation_to(&pose.rotation).angle();
-    /// let translation_residual = (pose.translation.vector - estimate_pose.translation.vector).norm();
-    /// assert!(angle_residual < 1e-4 && translation_residual < 1e-4, "{}, {}, {:?}, {:?}", angle_residual, translation_residual, pose.translation.vector, estimate_pose.translation.vector);
-    /// ```
+    #[cfg_attr(
+        feature = "pinhole",
+        doc = r##"
+        ```
+        # use cv_core::{RelativeCameraPose, CameraPoint};
+        # use cv_core::nalgebra::{IsometryMatrix3, Rotation3, Vector3, Point3};
+        # use cv_core::pinhole::NormalizedKeyPoint;
+        let pose = RelativeCameraPose(IsometryMatrix3::from_parts(
+            Vector3::new(-0.8, 0.4, 0.5).into(),
+            Rotation3::from_euler_angles(0.2, 0.3, 0.4),
+        ));
+        let a_point = CameraPoint(Point3::new(-1.0, 2.0, 3.0));
+        let b_point = pose.transform(a_point);
+        // Get the possible poses for the essential matrix created from `pose`.
+        let estimate_pose = pose.essential_matrix()
+            .solve_pose(1e-6, 50, 0.5,
+                cv_core::geom::triangulate_bearing_reproject::<NormalizedKeyPoint>,
+                std::iter::once((a_point, b_point.into()))
+        ).unwrap();
+
+        let angle_residual =
+            estimate_pose.rotation.rotation_to(&pose.rotation).angle();
+        let translation_residual = (pose.translation.vector - estimate_pose.translation.vector).norm();
+        assert!(angle_residual < 1e-4 && translation_residual < 1e-4, "{}, {}, {:?}, {:?}", angle_residual, translation_residual, pose.translation.vector, estimate_pose.translation.vector);
+        ```
+"##
+    )]
     pub fn solve_pose<P>(
         &self,
         epsilon: f64,

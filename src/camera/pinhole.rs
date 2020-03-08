@@ -44,7 +44,6 @@ impl NormalizedKeyPoint {
 }
 
 impl Bearing for NormalizedKeyPoint {
-    /// Same as [`bearing`], but it is returned unnormalized.
     fn bearing_unnormalized(&self) -> Vector3<f64> {
         self.0.coords.push(1.0).normalize()
     }
