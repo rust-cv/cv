@@ -1,3 +1,6 @@
+use cv_core::nalgebra::Point2;
+use cv_core::ImagePoint;
+
 /// A point of interest in an image.
 /// This pretty much follows from OpenCV conventions.
 #[derive(Debug, Clone, Copy)]
@@ -23,6 +26,12 @@ pub struct Keypoint {
 
     /// The orientation angle
     pub angle: f32,
+}
+
+impl ImagePoint for Keypoint {
+    fn image_point(&self) -> Point2<f64> {
+        Point2::new(self.point.0 as f64, self.point.1 as f64)
+    }
 }
 
 /// A feature descriptor.

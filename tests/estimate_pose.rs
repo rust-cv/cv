@@ -1,7 +1,7 @@
 use arrsac::{Arrsac, Config as ArrsacConfig};
 use cv_core::nalgebra::{Point2, Vector2};
 use cv_core::sample_consensus::Consensus;
-use cv_core::{CameraIntrinsics, ImageKeyPoint, KeyPointsMatch};
+use cv_core::{pinhole, CameraModel, FeatureMatch};
 use log::*;
 use rand::SeedableRng;
 use rand_pcg::Pcg64;
@@ -11,6 +11,7 @@ use std::path::Path;
 const LOWES_RATIO: f32 = 0.5;
 
 type Descriptor = Hamming<Bits512>;
+type Match = FeatureMatch<pinhole::NormalizedKeyPoint>;
 
 #[test]
 fn estimate_pose() {
@@ -18,7 +19,7 @@ fn estimate_pose() {
         .format_timestamp(Some(env_logger::TimestampPrecision::Millis))
         .init();
     // Intrinsics retrieved from calib_cam_to_cam.txt K_00.
-    let intrinsics = CameraIntrinsics {
+    let intrinsics = pinhole::CameraIntrinsics {
         focals: Vector2::new(9.842_439e2, 9.808_141e2),
         principal_point: Point2::new(6.9e2, 2.331_966e2),
         skew: 0.0,
@@ -38,12 +39,12 @@ fn estimate_pose() {
         ds1.len(),
         ds2.len()
     );
-    let matches: Vec<KeyPointsMatch> = match_descriptors(&ds1, &ds2)
+    let matches: Vec<Match> = match_descriptors(&ds1, &ds2)
         .into_iter()
         .map(|(ix1, ix2)| {
-            let a = intrinsics.normalize(kps1[ix1]);
-            let b = intrinsics.normalize(kps2[ix2]);
-            KeyPointsMatch(a, b)
+            let a = intrinsics.calibrate(kps1[ix1]);
+            let b = intrinsics.calibrate(kps2[ix2]);
+            FeatureMatch(a, b)
         })
         .collect();
     info!("Finished matching with {} matches", matches.len());
@@ -61,14 +62,10 @@ fn estimate_pose() {
     assert_eq!(inliers.len(), 35);
 }
 
-fn image_to_kps(path: impl AsRef<Path>) -> (Vec<ImageKeyPoint>, Vec<Descriptor>) {
+fn image_to_kps(path: impl AsRef<Path>) -> (Vec<akaze::Keypoint>, Vec<Descriptor>) {
     let mut akaze_config = akaze::Config::default();
     akaze_config.detector_threshold = 0.01;
-    let (_, akaze_kps, akaze_ds) = akaze::extract_features(path, akaze_config);
-    let kps = akaze_kps
-        .into_iter()
-        .map(|akp| ImageKeyPoint(Point2::new(akp.point.0 as f64, akp.point.1 as f64)))
-        .collect();
+    let (_, kps, akaze_ds) = akaze::extract_features(path, akaze_config);
     let ds = akaze_ds
         .into_iter()
         .map(|akaze::Descriptor { vector }| {

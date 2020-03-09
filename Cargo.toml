@@ -11,12 +11,13 @@ primal = "0.2.3"
 scoped_threadpool = "0.1.9"
 num_cpus = "1.12.0"
 nalgebra = "0.20.0"
+cv-core = "0.9.1"
 
 [dev-dependencies]
 approx = "0.3.2"
-eight-point = "0.2.0"
+eight-point = "0.3.0"
 arrsac = "0.3.0"
-cv-core = "0.7.2"
+cv-core = { version = "0.9.1", features = ["pinhole"] }
 space = { version = "0.10.3", features = ["simd"] }
 rand = "0.7.3"
 rand_pcg = "0.2.1"
