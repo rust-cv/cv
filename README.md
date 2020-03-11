@@ -14,7 +14,3 @@ error: aborting due to previous error
 ```
 
 This error does not cause the unit tests to fail, nor does cargo return an error code. It can be annoying, but simply scroll up to see the unit test results. This happens due to https://github.com/rust-lang/rust/issues/54010.
-
-## Credit
-
-The credit for implementation of this algorithm mostly goes to Chris Sweeney (cmsweeney@cs.ucsb.edu). Although he did not write this crate, he is added as an author because his code from TheiaSfM was translated to Rust. The original copywrite headers are retained and this project is specially put under the BSD license.
