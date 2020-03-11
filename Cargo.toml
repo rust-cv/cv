@@ -22,7 +22,15 @@ space = { version = "0.10.3", features = ["simd"] }
 rand = "0.7.3"
 rand_pcg = "0.2.1"
 env_logger = "0.7.1"
+criterion = "0.3.1"
+
+[[bench]]
+name = "criterion"
+harness = false
 
 [profile.dev]
 # The tests take a very long time without optimization.
 opt-level = 3
+
+[profile.bench]
+codegen-units = 1

@@ -133,7 +133,7 @@ impl EvolutionStep {
 pub fn allocate_evolutions(width: u32, height: u32, options: Config) -> Vec<EvolutionStep> {
     let mut out_vec: Vec<EvolutionStep> = vec![];
     for i in 0..options.max_octave_evolution {
-        let rfactor = 1.0f64 / f64::powf(2.0f64, f64::from(i));
+        let rfactor = f64::powf(2.0f64, -f64::from(i));
         let level_height = (f64::from(height) * rfactor) as u32;
         let level_width = (f64::from(width) * rfactor) as u32;
         // Smallest possible octave and allow one scale if the image is small
