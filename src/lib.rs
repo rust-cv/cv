@@ -101,7 +101,7 @@ fn create_nonlinear_scale_space(
             GrayFloatImage::new(evolutions[i].Lt.width(), evolutions[i].Lt.height());
         for j in 0..evolutions[i].fed_tau_steps.len() {
             trace!("Starting diffusion step.");
-            let step_size: f64 = evolutions[i].fed_tau_steps[j];
+            let step_size = evolutions[i].fed_tau_steps[j];
             nonlinear_diffusion::calculate_step(&mut evolutions[i], step_size);
             trace!("Diffusion step finished with step size {}", step_size);
         }
