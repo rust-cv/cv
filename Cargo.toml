@@ -33,4 +33,6 @@ harness = false
 opt-level = 3
 
 [profile.bench]
+# Necessary to generate flamegraphs
+debug = true
 codegen-units = 1
