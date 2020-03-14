@@ -1,7 +1,6 @@
 use crate::derivatives;
 use crate::evolution::{Config, EvolutionStep};
 use crate::image::{GrayFloatImage, ImageFunctions};
-use scoped_threadpool::Pool;
 
 fn compute_multiscale_derivatives_for_evolution(evolution: &mut EvolutionStep, sigma_size: u32) {
     evolution.Lx = derivatives::scharr(&evolution.Lsmooth, true, false, sigma_size);
@@ -12,17 +11,13 @@ fn compute_multiscale_derivatives_for_evolution(evolution: &mut EvolutionStep, s
 }
 
 fn compute_multiscale_derivatives(evolutions: &mut Vec<EvolutionStep>, options: Config) {
-    // let cpu_count = num_cpus::get();
-    // let mut pool = Pool::new(cpu_count as u32);
-    // pool.scoped(|scoped| {
     for evolution in evolutions.iter_mut() {
-        // scoped.execute(move || {
-        let ratio = f64::powf(2.0f64, f64::from(evolution.octave));
+        // The image decreases in size by a factor which is 2^octave.
+        let ratio = 2.0f64.powi(evolution.octave as i32);
+        // The scale of the edge filter.
         let sigma_size = f64::round(evolution.esigma * options.derivative_factor / ratio) as u32;
         compute_multiscale_derivatives_for_evolution(evolution, sigma_size);
-        // });
     }
-    // });
 }
 
 /// Compute the detector response - the determinant of the Hessian - and save the result
