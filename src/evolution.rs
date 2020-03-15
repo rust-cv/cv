@@ -131,29 +131,49 @@ impl EvolutionStep {
 /// `height` - The height of the input image.
 /// `options` - The configuration to use.
 pub fn allocate_evolutions(width: u32, height: u32, options: Config) -> Vec<EvolutionStep> {
-    let mut out_vec: Vec<EvolutionStep> = vec![];
-    for i in 0..options.max_octave_evolution {
-        let rfactor = f64::powf(2.0f64, -f64::from(i));
-        let level_height = (f64::from(height) * rfactor) as u32;
-        let level_width = (f64::from(width) * rfactor) as u32;
-        // Smallest possible octave and allow one scale if the image is small
-        if (level_width >= 80 && level_height >= 40) || i == 0 {
-            for j in 0..options.num_sublevels {
-                let evolution_step = EvolutionStep::new(i, j, options);
-                out_vec.push(evolution_step);
+    let mut evolutions: Vec<EvolutionStep> = (0..options.max_octave_evolution)
+        .filter_map(|octave| {
+            let rfactor = 2.0f64.powi(-(octave as i32));
+            let level_height = (f64::from(height) * rfactor) as u32;
+            let level_width = (f64::from(width) * rfactor) as u32;
+            let smallest_dim = std::cmp::min(level_width, level_height);
+            // If the smallest dim is less than 40, terminate as we cannot detect features
+            // at a scale that small.
+            if smallest_dim < 40 {
+                None
+            } else {
+                // At a smallest dimension size between 80, only include one sublevel,
+                // as the amount of information in the image is limited.
+                let sublevels = if smallest_dim < 80 {
+                    1
+                } else {
+                    options.num_sublevels
+                };
+                // Return the sublevels.
+                Some(
+                    (0..sublevels)
+                        .map(move |sublevel| EvolutionStep::new(octave, sublevel, options)),
+                )
             }
-        } else {
-            break;
-        }
-    }
-    for i in 1..out_vec.len() {
-        let ttime = out_vec[i].etime - out_vec[i - 1].etime;
-        out_vec[i].fed_tau_steps = fed_tau::fed_tau_by_process_time(ttime, 1, 0.25, true);
+        })
+        .flatten()
+        .collect();
+    // We need to set the tau steps.
+    // This is used to produce each evolution.
+    // Each tau corresponds to one diffusion time step.
+    // In FED (Fast Explicit Diffusion) earlier time steps are smaller
+    // because they are more unstable. Once it becomes more stable, the time
+    // steps become larger.
+    for i in 1..evolutions.len() {
+        // Comute the total difference in time between evolutions.
+        let ttime = evolutions[i].etime - evolutions[i - 1].etime;
+        // Compute the separate tau steps and assign it to the evolution.
+        evolutions[i].fed_tau_steps = fed_tau::fed_tau_by_process_time(ttime, 1, 0.25, true);
         debug!(
             "{} steps in evolution {}.",
-            out_vec[i].fed_tau_steps.len(),
+            evolutions[i].fed_tau_steps.len(),
             i
         );
     }
-    out_vec
+    evolutions
 }
