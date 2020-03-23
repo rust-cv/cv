@@ -92,9 +92,10 @@ fn create_nonlinear_scale_space(
         }
         evolutions[i].Lsmooth = gaussian_blur(&evolutions[i].Lt, 1.0f32);
         trace!("Gaussian blur finished.");
-        evolutions[i].Lx = derivatives::scharr(&evolutions[i].Lsmooth, true, false, 1);
+        evolutions[i].Lx = derivatives::scharr_horizontal(&evolutions[i].Lsmooth, 1);
         trace!("Computing derivative Lx done.");
-        evolutions[i].Ly = derivatives::scharr(&evolutions[i].Lsmooth, false, true, 1);
+        evolutions[i].Ly = derivatives::scharr_vertical(&evolutions[i].Lsmooth, 1);
+        trace!("Computing derivative Ly done.");
         evolutions[i].Lflow = pm_g2(&evolutions[i].Lx, &evolutions[i].Ly, contrast_factor);
         trace!("Lflow finished.");
         evolutions[i].Lstep =

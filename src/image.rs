@@ -124,25 +124,6 @@ impl ImageFunctions for GrayFloatImage {
     }
 }
 
-/// Return sqrt(image_1_i + image_2_i) for all pixels in the input images.
-/// Save the result in image_1.
-///
-/// # Arguments
-/// * `image_1` - the first image.
-/// * `image_2` - the second image.
-pub fn sqrt_squared(image_1: &mut GrayFloatImage, image_2: &GrayFloatImage) {
-    assert_eq!(image_1.width(), image_2.width());
-    assert_eq!(image_1.height(), image_2.height());
-    let length = image_1.width() * image_1.height();
-    let mut itr1 = image_1.iter_mut();
-    let mut itr2 = image_2.iter();
-    for _ in 0..(length) {
-        let p1 = itr1.next().unwrap();
-        let p2 = itr2.next().unwrap();
-        *p1 += *p2;
-    }
-}
-
 /// Fill border with neighboring pixels. A way of preventing instability
 /// around the image borders for things like derivatives.
 ///

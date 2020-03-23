@@ -3,11 +3,11 @@ use crate::evolution::{Config, EvolutionStep};
 use crate::image::{GrayFloatImage, ImageFunctions};
 
 fn compute_multiscale_derivatives_for_evolution(evolution: &mut EvolutionStep, sigma_size: u32) {
-    evolution.Lx = derivatives::scharr(&evolution.Lsmooth, true, false, sigma_size);
-    evolution.Ly = derivatives::scharr(&evolution.Lsmooth, false, true, sigma_size);
-    evolution.Lxx = derivatives::scharr(&evolution.Lx, true, false, sigma_size);
-    evolution.Lyy = derivatives::scharr(&evolution.Ly, false, true, sigma_size);
-    evolution.Lxy = derivatives::scharr(&evolution.Lx, false, true, sigma_size);
+    evolution.Lx = derivatives::scharr_horizontal(&evolution.Lsmooth, sigma_size);
+    evolution.Ly = derivatives::scharr_vertical(&evolution.Lsmooth, sigma_size);
+    evolution.Lxx = derivatives::scharr_horizontal(&evolution.Lx, sigma_size);
+    evolution.Lyy = derivatives::scharr_vertical(&evolution.Ly, sigma_size);
+    evolution.Lxy = derivatives::scharr_vertical(&evolution.Lx, sigma_size);
 }
 
 fn compute_multiscale_derivatives(evolutions: &mut Vec<EvolutionStep>, options: Config) {

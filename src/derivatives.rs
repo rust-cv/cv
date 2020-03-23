@@ -1,6 +1,4 @@
-use crate::image::{
-    horizontal_filter, sqrt_squared, vertical_filter, GrayFloatImage, ImageFunctions,
-};
+use crate::image::{horizontal_filter, vertical_filter, GrayFloatImage};
 
 #[cfg(test)]
 mod tests {
@@ -38,7 +36,7 @@ mod tests {
 ///
 /// # Return value
 /// Output image derivative (an image.)
-fn scharr_horizontal(image: &GrayFloatImage, sigma_size: u32) -> GrayFloatImage {
+pub fn scharr_horizontal(image: &GrayFloatImage, sigma_size: u32) -> GrayFloatImage {
     // a separable Scharr kernel
     let k_horizontal = scharr_main_axis_kernel(sigma_size);
     let k_vertical = scharr_off_axis_kernel(sigma_size);
@@ -56,7 +54,7 @@ fn scharr_horizontal(image: &GrayFloatImage, sigma_size: u32) -> GrayFloatImage 
 ///
 /// # Return value
 /// Output image derivative (an image.)
-fn scharr_vertical(image: &GrayFloatImage, sigma_size: u32) -> GrayFloatImage {
+pub fn scharr_vertical(image: &GrayFloatImage, sigma_size: u32) -> GrayFloatImage {
     // a separable Scharr kernel
     let k_vertical = scharr_main_axis_kernel(sigma_size);
     let k_horizontal = scharr_off_axis_kernel(sigma_size);
@@ -98,33 +96,4 @@ fn scharr_main_axis_kernel(scale: u32) -> Vec<f32> {
     kernel[size / 2] = (w * norm) as f32;
     kernel[size - 1] = norm as f32;
     kernel
-}
-
-/// Produce the Scharr image derivative.
-///
-/// # Arguments
-/// * `x_order` - Order of derivative in x direction.
-/// * `y_order` - Order of derivative in y direction.
-/// * `sigma_size` - the scale of the kernel.
-///
-/// # Return value
-/// The image derivative (an image).
-pub fn scharr(
-    image: &GrayFloatImage,
-    x_order: bool,
-    y_order: bool,
-    sigma_size: u32,
-) -> GrayFloatImage {
-    if x_order && y_order {
-        let horizontal = scharr_horizontal(&image, sigma_size);
-        let mut vertical = scharr_horizontal(&image, sigma_size);
-        sqrt_squared(&mut vertical, &horizontal);
-        vertical
-    } else if x_order {
-        scharr_horizontal(&image, sigma_size)
-    } else if y_order {
-        scharr_vertical(&image, sigma_size)
-    } else {
-        GrayFloatImage::new(image.width(), image.height())
-    }
 }

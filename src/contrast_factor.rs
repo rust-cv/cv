@@ -23,8 +23,8 @@ pub fn compute_contrast_factor(
     let mut hmax: f64 = 0.0;
     let mut histogram: Vec<f64> = vec![0f64; num_bins];
     let gaussian = gaussian_blur(image, gradient_histogram_scale as f32);
-    let Lx = crate::derivatives::scharr(&gaussian, true, false, 1);
-    let Ly = crate::derivatives::scharr(&gaussian, false, true, 1);
+    let Lx = crate::derivatives::scharr_horizontal(&gaussian, 1);
+    let Ly = crate::derivatives::scharr_vertical(&gaussian, 1);
     for y in 1..(gaussian.height() - 1) {
         for x in 1..(gaussian.width() - 1) {
             let Lx = f64::from(Lx.get(x, y));
