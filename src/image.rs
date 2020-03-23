@@ -1,5 +1,5 @@
 use derive_more::{Deref, DerefMut};
-use image::{DynamicImage, GenericImageView, GrayImage, ImageBuffer, Luma};
+use image::{imageops, DynamicImage, GenericImageView, GrayImage, ImageBuffer, Luma};
 use std::f32;
 
 /// The image type we use in this library.
@@ -98,19 +98,12 @@ impl ImageFunctions for GrayFloatImage {
     fn half_size(&self) -> Self {
         let width = self.width() / 2;
         let height = self.height() / 2;
-        let mut out = Self::new(width, height);
-        for x in 0..width {
-            for y in 0..height {
-                let mut val = 0f32;
-                for x_src in (2 * x)..(2 * x + 2) {
-                    for y_src in (2 * y)..(2 * y + 2) {
-                        val += self.get(x_src, y_src);
-                    }
-                }
-                out.put(x, y, val / 4f32);
-            }
-        }
-        out
+        Self(imageops::resize(
+            &self.0,
+            width as u32,
+            height as u32,
+            imageops::FilterType::Nearest,
+        ))
     }
 }
 

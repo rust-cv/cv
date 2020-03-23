@@ -31,8 +31,8 @@ fn estimate_pose() {
 
     // This ensures the underlying algorithm does not change
     // by making sure that we get the exact expected number of features.
-    assert_eq!(ds1.len(), 579);
-    assert_eq!(ds2.len(), 500);
+    assert_eq!(ds1.len(), 582);
+    assert_eq!(ds2.len(), 505);
 
     info!(
         "Running matching on {} and {} descriptors",
@@ -59,7 +59,7 @@ fn estimate_pose() {
     info!("inliers: {}", inliers.len());
 
     // Ensures the underlying algorithms don't change at all.
-    assert_eq!(inliers.len(), 35);
+    assert_eq!(inliers.len(), 33);
 }
 
 fn image_to_kps(path: impl AsRef<Path>) -> (Vec<akaze::Keypoint>, Vec<Descriptor>) {
