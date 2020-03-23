@@ -28,37 +28,37 @@ pub fn calculate_step(evolution_step: &mut EvolutionStep, step_size: f64) {
 
     // Middle diffusion
     for y in ymiddle.clone() {
-        let mut Ld_yn = Ld.buffer.iter();
+        let mut Ld_yn = Ld.iter();
         let mut Ld_yn_i = Ld_yn.nth(w * (y - 1) + 1).unwrap();
 
-        let mut Ld_yp = Ld.buffer.iter();
+        let mut Ld_yp = Ld.iter();
         let mut Ld_yp_i = Ld_yp.nth(w * (y + 1) + 1).unwrap();
 
-        let mut Ld_xn = Ld.buffer.iter();
+        let mut Ld_xn = Ld.iter();
         let mut Ld_xn_i = Ld_xn.nth(w * y).unwrap();
 
-        let mut Ld_x = Ld.buffer.iter();
+        let mut Ld_x = Ld.iter();
         let mut Ld_x_i = Ld_x.nth(w * y + 1).unwrap();
 
-        let mut Ld_xp = Ld.buffer.iter();
+        let mut Ld_xp = Ld.iter();
         let mut Ld_xp_i = Ld_xp.nth(w * y + 2).unwrap();
 
-        let mut c_yn = c.buffer.iter();
+        let mut c_yn = c.iter();
         let mut c_yn_i = c_yn.nth(w * (y - 1) + 1).unwrap();
 
-        let mut c_yp = c.buffer.iter();
+        let mut c_yp = c.iter();
         let mut c_yp_i = c_yp.nth(w * (y + 1) + 1).unwrap();
 
-        let mut c_xn = c.buffer.iter();
+        let mut c_xn = c.iter();
         let mut c_xn_i = c_xn.nth(w * y).unwrap();
 
-        let mut c_x = c.buffer.iter();
+        let mut c_x = c.iter();
         let mut c_x_i = c_x.nth(w * y + 1).unwrap();
 
-        let mut c_xp = c.buffer.iter();
+        let mut c_xp = c.iter();
         let mut c_xp_i = c_xp.nth(w * y + 2).unwrap();
 
-        let slice = &mut Lstep.buffer[(w * y + 1)..(w * y + w - 1)];
+        let slice = &mut (***Lstep)[(w * y + 1)..(w * y + w - 1)];
         for Lstep_x_i in slice.iter_mut() {
             let x_pos = (c_x_i + c_xp_i) * (Ld_xp_i - Ld_x_i);
             let x_neg = (c_xn_i + c_x_i) * (Ld_x_i - Ld_xn_i);
@@ -137,8 +137,8 @@ pub fn calculate_step(evolution_step: &mut EvolutionStep, step_size: f64) {
         }
     }
 
-    let mut Lstep_iter = Lstep.buffer.iter();
-    for Ld_iter in Ld.buffer.iter_mut() {
+    let mut Lstep_iter = Lstep.iter();
+    for Ld_iter in Ld.iter_mut() {
         *Ld_iter += Lstep_iter.next().unwrap();
     }
 }

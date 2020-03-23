@@ -1,4 +1,5 @@
-use image::{DynamicImage, GenericImageView, GrayImage, Pixel};
+use derive_more::{Deref, DerefMut};
+use image::{DynamicImage, GenericImageView, GrayImage, ImageBuffer, Luma};
 use std::f32;
 
 /// The image type we use in this library.
@@ -25,12 +26,9 @@ use std::f32;
 /// because the image crate versions are missing some key optimizations
 /// like using a separable filter, and using the filters implemented
 /// here ended up speeding up everything a lot.
-#[derive(Debug, Clone)]
-pub struct GrayFloatImage {
-    pub buffer: Vec<f32>,
-    width: usize,
-    height: usize,
-}
+#[derive(Debug, Clone, Deref, DerefMut)]
+pub struct GrayFloatImage(ImageBuffer<Luma<f32>, Vec<f32>>);
+
 pub trait ImageFunctions {
     /// The width of the image.
     /// # Return value
@@ -74,28 +72,29 @@ pub trait ImageFunctions {
 
 impl ImageFunctions for GrayFloatImage {
     fn width(&self) -> usize {
-        self.width
+        self.0.width() as usize
     }
 
     fn height(&self) -> usize {
-        self.height
+        self.0.height() as usize
     }
 
     fn new(width: usize, height: usize) -> Self {
-        Self {
-            buffer: vec![0f32; width * height],
-            height,
-            width,
-        }
+        Self(ImageBuffer::from_pixel(
+            width as u32,
+            height as u32,
+            Luma([0.0]),
+        ))
     }
 
     fn get(&self, x: usize, y: usize) -> f32 {
-        self.buffer[self.width * y + x]
+        self.get_pixel(x as u32, y as u32)[0]
     }
 
     fn put(&mut self, x: usize, y: usize, pixel_value: f32) {
-        self.buffer[self.width * y + x] = pixel_value;
+        self.put_pixel(x as u32, y as u32, Luma([pixel_value]));
     }
+
     fn half_size(&self) -> Self {
         let width = self.width() / 2;
         let height = self.height() / 2;
@@ -126,11 +125,10 @@ pub fn create_unit_float_image(input_image: &DynamicImage) -> GrayFloatImage {
     let mut output_image =
         GrayFloatImage::new(input_image.width() as usize, input_image.height() as usize);
     {
-        let mut itr_output = output_image.buffer.iter_mut();
-        for gray_pixel in gray_image.pixels() {
-            let output_ptr = itr_output.next().unwrap();
-            let pixel_value: u8 = gray_pixel.channels()[0];
-            *output_ptr = f32::from(pixel_value) * 1f32 / 255f32;
+        // Copy all the pixels from one image to the other.
+        for (dest, src) in output_image.iter_mut().zip(gray_image.pixels()) {
+            // Convert from u8 to f32.
+            *dest = f32::from(src[0]) * 1f32 / 255f32;
         }
     }
     output_image
@@ -146,10 +144,8 @@ pub fn sqrt_squared(image_1: &mut GrayFloatImage, image_2: &GrayFloatImage) {
     debug_assert!(image_1.width() == image_2.width());
     debug_assert!(image_1.height() == image_2.height());
     let length = image_1.width() * image_1.height();
-    let slice_1 = &mut image_1.buffer[..];
-    let slice_2 = &image_2.buffer[..];
-    let mut itr1 = slice_1.iter_mut();
-    let mut itr2 = slice_2.iter();
+    let mut itr1 = image_1.iter_mut();
+    let mut itr2 = image_2.iter();
     for _ in 0..(length) {
         let p1 = itr1.next().unwrap();
         let p2 = itr2.next().unwrap();
@@ -201,20 +197,16 @@ pub fn horizontal_filter(image: &GrayFloatImage, kernel: &[f32]) -> GrayFloatIma
     let w = image.width() as i32;
     let h = image.height() as i32;
     let mut output = GrayFloatImage::new(image.width(), image.height());
-    {
-        let out_slice = &mut output.buffer[..];
-        let image_slice = &image.buffer[..];
-        for k in -half_width..=half_width {
-            let mut out_itr = out_slice.iter_mut();
-            let mut image_itr = image_slice.iter();
-            let mut out_ptr = out_itr.nth(half_width as usize).unwrap();
-            let mut image_val = image_itr.nth((half_width + k) as usize).unwrap();
-            let kernel_value = kernel[(k + half_width) as usize];
-            for _ in half_width..(w * h - half_width - 1) {
-                *out_ptr += kernel_value * image_val;
-                out_ptr = out_itr.next().unwrap();
-                image_val = image_itr.next().unwrap();
-            }
+    for k in -half_width..=half_width {
+        let mut out_itr = output.iter_mut();
+        let mut image_itr = image.iter();
+        let mut out_ptr = out_itr.nth(half_width as usize).unwrap();
+        let mut image_val = image_itr.nth((half_width + k) as usize).unwrap();
+        let kernel_value = kernel[(k + half_width) as usize];
+        for _ in half_width..(w * h - half_width - 1) {
+            *out_ptr += kernel_value * image_val;
+            out_ptr = out_itr.next().unwrap();
+            image_val = image_itr.next().unwrap();
         }
     }
     fill_border(&mut output, half_width as usize);
@@ -236,22 +228,18 @@ pub fn vertical_filter(image: &GrayFloatImage, kernel: &[f32]) -> GrayFloatImage
     let w = image.width() as i32;
     let h = image.height() as i32;
     let mut output = GrayFloatImage::new(image.width(), image.height());
-    {
-        let out_slice = &mut output.buffer[..];
-        let image_slice = &image.buffer[..];
-        for k in -half_width..=half_width {
-            let mut out_itr = out_slice.iter_mut();
-            let mut image_itr = image_slice.iter();
-            let mut out_ptr = out_itr.nth((half_width * w) as usize).unwrap();
-            let mut image_val = image_itr
-                .nth(((half_width * w) + (k * w)) as usize)
-                .unwrap();
-            let kernel_value = kernel[(k + half_width) as usize];
-            for _ in (half_width * w)..(w * h - (half_width * w) - 1) {
-                *out_ptr += kernel_value * image_val;
-                out_ptr = out_itr.next().unwrap();
-                image_val = image_itr.next().unwrap();
-            }
+    for k in -half_width..=half_width {
+        let mut out_itr = output.iter_mut();
+        let mut image_itr = image.iter();
+        let mut out_ptr = out_itr.nth((half_width * w) as usize).unwrap();
+        let mut image_val = image_itr
+            .nth(((half_width * w) + (k * w)) as usize)
+            .unwrap();
+        let kernel_value = kernel[(k + half_width) as usize];
+        for _ in (half_width * w)..(w * h - (half_width * w) - 1) {
+            *out_ptr += kernel_value * image_val;
+            out_ptr = out_itr.next().unwrap();
+            image_val = image_itr.next().unwrap();
         }
     }
     fill_border(&mut output, half_width as usize);

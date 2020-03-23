@@ -19,18 +19,18 @@ fn find_scale_space_extrema(evolutions: &mut Vec<EvolutionStep>, options: Config
         // maintain 5 iterators, one for the current pixel and one
         // for each cardinal pixel. Iterate through all non-border
         // pixels
-        let mut x_m_iter = evolution.Ldet.buffer.iter();
+        let mut x_m_iter = evolution.Ldet.iter();
         let mut x_m_i = x_m_iter.nth(w).unwrap(); // 0, 1
-        let mut x_iter = evolution.Ldet.buffer.iter();
+        let mut x_iter = evolution.Ldet.iter();
         let mut x_i = x_iter.nth(w + 1).unwrap(); // 1, 1
-        let mut x_p_iter = evolution.Ldet.buffer.iter();
+        let mut x_p_iter = evolution.Ldet.iter();
         let mut x_p_i = x_p_iter.nth(w + 2).unwrap(); // 2, 1
-        let mut y_m_iter = evolution.Ldet.buffer.iter();
+        let mut y_m_iter = evolution.Ldet.iter();
         let mut y_m_i = y_m_iter.nth(1).unwrap(); // 1, 0
-        let mut y_p_iter = evolution.Ldet.buffer.iter();
+        let mut y_p_iter = evolution.Ldet.iter();
         let mut y_p_i = y_p_iter.nth(2 * w + 1).unwrap(); // 1, 2
                                                           // Iterate from 1,1 to the second-to-last pixel of the second-to-last row
-        for i in (w + 1)..(evolution.Ldet.buffer.len() - w - 1) {
+        for i in (w + 1)..(evolution.Ldet.len() - w - 1) {
             let x = i % w;
             let y = i / w;
             // Apply detector threshold

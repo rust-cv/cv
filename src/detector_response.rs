@@ -33,11 +33,11 @@ pub fn detector_response(evolutions: &mut Vec<EvolutionStep>, options: Config) {
         let ratio = f64::powf(2.0, f64::from(evolution.octave));
         let sigma_size = f64::round(evolution.esigma * options.derivative_factor / ratio) as u32;
         let sigma_size_quat = sigma_size * sigma_size * sigma_size * sigma_size;
-        let mut Lxx_iter = evolution.Lxx.buffer.iter();
-        let mut Lyy_iter = evolution.Lyy.buffer.iter();
-        let mut Lxy_iter = evolution.Lxy.buffer.iter();
+        let mut Lxx_iter = evolution.Lxx.iter();
+        let mut Lyy_iter = evolution.Lyy.iter();
+        let mut Lxy_iter = evolution.Lxy.iter();
         evolution.Ldet = GrayFloatImage::new(evolution.Lxx.width(), evolution.Lxx.height());
-        for Ldet_iter in evolution.Ldet.buffer.iter_mut() {
+        for Ldet_iter in evolution.Ldet.iter_mut() {
             let Lxx_i = Lxx_iter.next().unwrap();
             let Lyy_i = Lyy_iter.next().unwrap();
             let Lxy_i = Lxy_iter.next().unwrap();
