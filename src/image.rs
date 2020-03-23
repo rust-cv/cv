@@ -1,5 +1,5 @@
 use derive_more::{Deref, DerefMut};
-use image::{imageops, DynamicImage, GenericImageView, GrayImage, ImageBuffer, Luma};
+use image::{imageops, DynamicImage, GrayImage, ImageBuffer, Luma};
 use std::f32;
 
 /// The image type we use in this library.
@@ -28,6 +28,23 @@ use std::f32;
 /// here ended up speeding up everything a lot.
 #[derive(Debug, Clone, Deref, DerefMut)]
 pub struct GrayFloatImage(ImageBuffer<Luma<f32>, Vec<f32>>);
+
+impl GrayFloatImage {
+    /// Create a unit float image from the image crate's DynamicImage type.
+    ///
+    /// # Arguments
+    /// * `input_image` - the input image.
+    /// # Return value
+    /// An image with pixel values between 0 and 1.
+    pub fn from_dynamic(input_image: &DynamicImage) -> Self {
+        let gray_image: GrayImage = input_image.to_luma();
+        Self(ImageBuffer::from_fn(
+            gray_image.width(),
+            gray_image.height(),
+            |x, y| Luma([f32::from(gray_image[(x, y)][0]) / 255f32]),
+        ))
+    }
+}
 
 pub trait ImageFunctions {
     /// The width of the image.
@@ -105,26 +122,6 @@ impl ImageFunctions for GrayFloatImage {
             imageops::FilterType::Nearest,
         ))
     }
-}
-
-/// Create a unit float image from the image crate's DynamicImage type.
-///
-/// # Arguments
-/// * `input_image` - the input image.
-/// # Return value
-/// An image with pixel values between 0 and 1.
-pub fn create_unit_float_image(input_image: &DynamicImage) -> GrayFloatImage {
-    let gray_image: GrayImage = input_image.to_luma();
-    let mut output_image =
-        GrayFloatImage::new(input_image.width() as usize, input_image.height() as usize);
-    {
-        // Copy all the pixels from one image to the other.
-        for (dest, src) in output_image.iter_mut().zip(gray_image.pixels()) {
-            // Convert from u8 to f32.
-            *dest = f32::from(src[0]) * 1f32 / 255f32;
-        }
-    }
-    output_image
 }
 
 /// Return sqrt(image_1_i + image_2_i) for all pixels in the input images.

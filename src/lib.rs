@@ -154,7 +154,7 @@ pub fn extract_features(
     options: Config,
 ) -> (Vec<EvolutionStep>, Vec<Keypoint>, Vec<Descriptor>) {
     let input_image = ::image::open(input_image_path).unwrap();
-    let float_image = image::create_unit_float_image(&input_image);
+    let float_image = GrayFloatImage::from_dynamic(&input_image);
     info!(
         "Loaded a {} x {} image",
         input_image.width(),
