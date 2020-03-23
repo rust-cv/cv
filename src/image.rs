@@ -131,8 +131,8 @@ impl ImageFunctions for GrayFloatImage {
 /// * `image_1` - the first image.
 /// * `image_2` - the second image.
 pub fn sqrt_squared(image_1: &mut GrayFloatImage, image_2: &GrayFloatImage) {
-    debug_assert!(image_1.width() == image_2.width());
-    debug_assert!(image_1.height() == image_2.height());
+    assert_eq!(image_1.width(), image_2.width());
+    assert_eq!(image_1.height(), image_2.height());
     let length = image_1.width() * image_1.height();
     let mut itr1 = image_1.iter_mut();
     let mut itr2 = image_2.iter();
