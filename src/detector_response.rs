@@ -31,9 +31,9 @@ fn compute_multiscale_derivatives(evolutions: &mut Vec<EvolutionStep>, options: 
 pub fn detector_response(evolutions: &mut Vec<EvolutionStep>, options: Config) {
     compute_multiscale_derivatives(evolutions, options);
     for evolution in evolutions.iter_mut() {
-        let ratio = f64::powf(2.0, f64::from(evolution.octave));
-        let sigma_size = f64::round(evolution.esigma * options.derivative_factor / ratio) as u32;
-        let sigma_size_quat = sigma_size * sigma_size * sigma_size * sigma_size;
+        let ratio = f64::powi(2.0, evolution.octave as i32);
+        let sigma_size = f64::round(evolution.esigma * options.derivative_factor / ratio);
+        let sigma_size_quat = sigma_size.powi(4) as f32;
         evolution.Ldet = GrayFloatImage::new(evolution.Lxx.width(), evolution.Lxx.height());
         for (Ldet, Lxx, Lyy, Lxy) in izip!(
             evolution.Ldet.iter_mut(),
@@ -41,7 +41,7 @@ pub fn detector_response(evolutions: &mut Vec<EvolutionStep>, options: Config) {
             evolution.Lyy.iter(),
             evolution.Lxy.iter(),
         ) {
-            *Ldet = ((Lxx * Lyy) - (Lxy * Lxy)) * sigma_size_quat as f32;
+            *Ldet = ((Lxx * Lyy) - (Lxy * Lxy)) * sigma_size_quat;
         }
     }
 }
