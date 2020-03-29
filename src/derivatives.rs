@@ -1,24 +1,6 @@
-use crate::image::{
-    fill_border, horizontal_filter, vertical_filter, GrayFloatImage, ImageFunctions,
-};
+use crate::image::{fill_border, GrayFloatImage, ImageFunctions};
 use ndarray::{s, Array2};
 use ndarray_image::{NdGray, NdImage};
-
-#[cfg(test)]
-mod tests {
-    use super::scharr_off_axis_kernel;
-    use approx::relative_eq;
-
-    #[test]
-    fn scharr_3x3_off_axis_kernel() {
-        let expected_kernel = vec![-1f32, 0f32, 1f32];
-        let produced_kernel = scharr_off_axis_kernel(1u32);
-        assert_eq!(expected_kernel.len(), produced_kernel.len());
-        for i in 0..produced_kernel.len() {
-            relative_eq!(expected_kernel[i], produced_kernel[i]);
-        }
-    }
-}
 
 /// Compute the Scharr derivative horizontally
 ///
@@ -31,10 +13,18 @@ mod tests {
 /// # Return value
 /// Output image derivative (an image.)
 pub fn scharr_horizontal(image: &GrayFloatImage, sigma_size: u32) -> GrayFloatImage {
-    // a separable Scharr kernel
-    let k_vertical = scharr_off_axis_kernel(sigma_size);
-    let img_horizontal = scharr_main_axis(&image, sigma_size, FilterDirection::Horizontal);
-    vertical_filter(&img_horizontal, &k_vertical)
+    let img_horizontal = scharr_axis(
+        &image,
+        sigma_size,
+        FilterDirection::Horizontal,
+        FilterOrder::Main,
+    );
+    scharr_axis(
+        &img_horizontal,
+        sigma_size,
+        FilterDirection::Vertical,
+        FilterOrder::Off,
+    )
 }
 
 /// Compute the Scharr derivative vertically
@@ -48,10 +38,18 @@ pub fn scharr_horizontal(image: &GrayFloatImage, sigma_size: u32) -> GrayFloatIm
 /// # Return value
 /// Output image derivative (an image.)
 pub fn scharr_vertical(image: &GrayFloatImage, sigma_size: u32) -> GrayFloatImage {
-    // a separable Scharr kernel
-    let k_horizontal = scharr_off_axis_kernel(sigma_size);
-    let img_horizontal = horizontal_filter(&image, &k_horizontal);
-    scharr_main_axis(&img_horizontal, sigma_size, FilterDirection::Vertical)
+    let img_horizontal = scharr_axis(
+        &image,
+        sigma_size,
+        FilterDirection::Horizontal,
+        FilterOrder::Off,
+    );
+    scharr_axis(
+        &img_horizontal,
+        sigma_size,
+        FilterDirection::Vertical,
+        FilterOrder::Main,
+    )
 }
 
 /// Multiplies and accumulates
@@ -82,10 +80,17 @@ enum FilterDirection {
     Vertical,
 }
 
-fn scharr_main_axis(
+#[derive(Copy, Clone, Debug, PartialEq)]
+enum FilterOrder {
+    Main,
+    Off,
+}
+
+fn scharr_axis(
     image: &GrayFloatImage,
     sigma_size: u32,
     dir: FilterDirection,
+    order: FilterOrder,
 ) -> GrayFloatImage {
     let input: NdGray<f32> = NdImage(&image.0).into();
     let mut output = Array2::<f32>::zeros([image.height(), image.width()]);
@@ -98,57 +103,27 @@ fn scharr_main_axis(
     // Middle intensity of filter.
     let middle = norm * w as f32;
 
-    let mut offsets = [[border, 0], [border, border], [border, 2 * border]];
+    let mut offsets = match order {
+        FilterOrder::Main => vec![
+            (norm, [border, 0]),
+            (middle, [border, border]),
+            (norm, [border, 2 * border]),
+        ],
+        FilterOrder::Off => vec![(-1.0, [border, 0]), (1.0, [border, 2 * border])],
+    };
 
     if dir == FilterDirection::Horizontal {
         // Swap the offsets if the filter is a horizontal filter.
-        for [x, y] in &mut offsets {
+        for (_, [x, y]) in &mut offsets {
             std::mem::swap(x, y);
         }
     }
 
     // Accumulate the three components.
-    accumulate_mul_offset(
-        &mut output,
-        &input,
-        norm,
-        border,
-        offsets[0][0],
-        offsets[0][1],
-    );
-    accumulate_mul_offset(
-        &mut output,
-        &input,
-        middle,
-        border,
-        offsets[1][0],
-        offsets[1][1],
-    );
-    accumulate_mul_offset(
-        &mut output,
-        &input,
-        norm,
-        border,
-        offsets[2][0],
-        offsets[2][1],
-    );
+    for (val, [x, y]) in offsets {
+        accumulate_mul_offset(&mut output, &input, val, border, x, y);
+    }
     let mut output = GrayFloatImage::from_array2(output);
     fill_border(&mut output, border);
     output
-}
-
-/// Produce the Scharr kernel for a certain scale, in the off-axis direction.
-///
-/// # Arguments
-/// * `scale` - the scale of the kernel.
-///
-/// # Return value
-/// The kernel.
-pub fn scharr_off_axis_kernel(scale: u32) -> Vec<f32> {
-    let size = 3 + 2 * (scale - 1) as usize;
-    let mut kernel = vec![0f32; size];
-    kernel[0] = -1f32;
-    kernel[size / 2] = 0f32;
-    kernel[size - 1] = 1f32;
-    kernel
 }
