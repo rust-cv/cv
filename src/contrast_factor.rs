@@ -20,21 +20,18 @@ pub fn compute_contrast_factor(
     num_bins: usize,
 ) -> f64 {
     let mut num_points: f64 = 0.0;
-    let mut hmax: f64 = 0.0;
     let mut histogram: Vec<f64> = vec![0f64; num_bins];
     let gaussian = gaussian_blur(image, gradient_histogram_scale as f32);
     let Lx = crate::derivatives::scharr_horizontal(&gaussian, 1);
     let Ly = crate::derivatives::scharr_vertical(&gaussian, 1);
-    for y in 1..(gaussian.height() - 1) {
-        for x in 1..(gaussian.width() - 1) {
-            let Lx = f64::from(Lx.get(x, y));
-            let Ly = f64::from(Ly.get(x, y));
-            let modg: f64 = f64::sqrt(Lx * Lx + Ly * Ly);
-            if modg > hmax {
-                hmax = modg;
-            }
-        }
-    }
+    let hmax = (1..gaussian.height() - 1)
+        .flat_map(|y| (1..gaussian.width() - 1).map(move |x| (x, y)))
+        .map(|(x, y)| Lx.get(x, y).powi(2) as f64 + Ly.get(x, y).powi(2) as f64)
+        .map(float_ord::FloatOrd)
+        .max()
+        .unwrap()
+        .0
+        .sqrt();
     for y in 1..(gaussian.height() - 1) {
         for x in 1..(gaussian.width() - 1) {
             let Lx = f64::from(Lx.get(x, y));
