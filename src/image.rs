@@ -1,7 +1,6 @@
 use derive_more::{Deref, DerefMut};
 use image::{imageops, DynamicImage, GrayImage, ImageBuffer, Luma};
-use ndarray::{s, Array2};
-use ndarray_image::{NdGray, NdImage};
+use ndarray::Array2;
 use std::f32;
 
 /// The image type we use in this library.
