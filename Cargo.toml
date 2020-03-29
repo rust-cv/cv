@@ -16,6 +16,7 @@ derive_more = "0.99.5"
 ndarray-image = "0.2.0"
 ndarray = "0.13.0"
 float-ord = "0.2.0"
+itertools = "0.9.0"
 
 [dev-dependencies]
 approx = "0.3.2"

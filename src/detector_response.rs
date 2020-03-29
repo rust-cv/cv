@@ -1,6 +1,7 @@
 use crate::derivatives;
 use crate::evolution::{Config, EvolutionStep};
 use crate::image::{GrayFloatImage, ImageFunctions};
+use itertools::izip;
 
 fn compute_multiscale_derivatives_for_evolution(evolution: &mut EvolutionStep, sigma_size: u32) {
     evolution.Lx = derivatives::scharr_horizontal(&evolution.Lsmooth, sigma_size);
@@ -33,15 +34,14 @@ pub fn detector_response(evolutions: &mut Vec<EvolutionStep>, options: Config) {
         let ratio = f64::powf(2.0, f64::from(evolution.octave));
         let sigma_size = f64::round(evolution.esigma * options.derivative_factor / ratio) as u32;
         let sigma_size_quat = sigma_size * sigma_size * sigma_size * sigma_size;
-        let mut Lxx_iter = evolution.Lxx.iter();
-        let mut Lyy_iter = evolution.Lyy.iter();
-        let mut Lxy_iter = evolution.Lxy.iter();
         evolution.Ldet = GrayFloatImage::new(evolution.Lxx.width(), evolution.Lxx.height());
-        for Ldet_iter in evolution.Ldet.iter_mut() {
-            let Lxx_i = Lxx_iter.next().unwrap();
-            let Lyy_i = Lyy_iter.next().unwrap();
-            let Lxy_i = Lxy_iter.next().unwrap();
-            *Ldet_iter = ((Lxx_i * Lyy_i) - (Lxy_i * Lxy_i)) * (sigma_size_quat as f32);
+        for (Ldet, Lxx, Lyy, Lxy) in izip!(
+            evolution.Ldet.iter_mut(),
+            evolution.Lxx.iter(),
+            evolution.Lyy.iter(),
+            evolution.Lxy.iter(),
+        ) {
+            *Ldet = ((Lxx * Lyy) - (Lxy * Lxy)) * sigma_size_quat as f32;
         }
     }
 }
