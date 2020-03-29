@@ -1,5 +1,7 @@
 use derive_more::{Deref, DerefMut};
 use image::{imageops, DynamicImage, GrayImage, ImageBuffer, Luma};
+use ndarray::{s, Array2};
+use ndarray_image::{NdGray, NdImage};
 use std::f32;
 
 /// The image type we use in this library.
@@ -27,7 +29,7 @@ use std::f32;
 /// like using a separable filter, and using the filters implemented
 /// here ended up speeding up everything a lot.
 #[derive(Debug, Clone, Deref, DerefMut)]
-pub struct GrayFloatImage(ImageBuffer<Luma<f32>, Vec<f32>>);
+pub struct GrayFloatImage(pub ImageBuffer<Luma<f32>, Vec<f32>>);
 
 impl GrayFloatImage {
     /// Create a unit float image from the image crate's DynamicImage type.
@@ -43,6 +45,26 @@ impl GrayFloatImage {
             gray_image.height(),
             |x, y| Luma([f32::from(gray_image[(x, y)][0]) / 255f32]),
         ))
+    }
+
+    pub fn from_path(path: impl AsRef<std::path::Path>) -> ::image::ImageResult<Self> {
+        let input_image = ::image::open(path)?;
+        Ok(Self::from_dynamic(&input_image))
+    }
+
+    pub fn from_array2(arr: Array2<f32>) -> Self {
+        Self(
+            ImageBuffer::from_raw(arr.dim().1 as u32, arr.dim().0 as u32, arr.into_raw_vec())
+                .expect("raw vector didn't have enough pixels for the image"),
+        )
+    }
+
+    pub fn save(&self, path: impl AsRef<std::path::Path>) -> ::image::ImageResult<()> {
+        let bytes: ImageBuffer<Luma<u8>, Vec<u8>> =
+            ImageBuffer::from_fn(self.0.width(), self.0.height(), |x, y| {
+                Luma([(self.0[(x, y)][0] * 255.0) as u8])
+            });
+        bytes.save(path)
     }
 }
 

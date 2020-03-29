@@ -15,9 +15,7 @@ type Match = FeatureMatch<pinhole::NormalizedKeyPoint>;
 
 #[test]
 fn estimate_pose() {
-    env_logger::builder()
-        .format_timestamp(Some(env_logger::TimestampPrecision::Millis))
-        .init();
+    pretty_env_logger::init_timed();
     // Intrinsics retrieved from calib_cam_to_cam.txt K_00.
     let intrinsics = pinhole::CameraIntrinsics {
         focals: Vector2::new(9.842_439e2, 9.808_141e2),
