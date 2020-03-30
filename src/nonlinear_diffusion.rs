@@ -29,33 +29,43 @@ pub fn calculate_step(evolution_step: &mut EvolutionStep, step_size: f64) {
     // Middle diffusion
     for y in ymiddle.clone() {
         let mut Ld_yn = Ld.iter();
+        // Up 1 right 1
         let mut Ld_yn_i = Ld_yn.nth(w * (y - 1) + 1).unwrap();
 
         let mut Ld_yp = Ld.iter();
+        // Down 1 right 1
         let mut Ld_yp_i = Ld_yp.nth(w * (y + 1) + 1).unwrap();
 
         let mut Ld_xn = Ld.iter();
+        // Middle
         let mut Ld_xn_i = Ld_xn.nth(w * y).unwrap();
 
         let mut Ld_x = Ld.iter();
+        // Right 1
         let mut Ld_x_i = Ld_x.nth(w * y + 1).unwrap();
 
         let mut Ld_xp = Ld.iter();
+        // Right 2
         let mut Ld_xp_i = Ld_xp.nth(w * y + 2).unwrap();
 
         let mut c_yn = c.iter();
+        // Up 1 right 1
         let mut c_yn_i = c_yn.nth(w * (y - 1) + 1).unwrap();
 
         let mut c_yp = c.iter();
+        // Down 1 right 1
         let mut c_yp_i = c_yp.nth(w * (y + 1) + 1).unwrap();
 
         let mut c_xn = c.iter();
+        // Middle
         let mut c_xn_i = c_xn.nth(w * y).unwrap();
 
         let mut c_x = c.iter();
+        // Right 1
         let mut c_x_i = c_x.nth(w * y + 1).unwrap();
 
         let mut c_xp = c.iter();
+        // Right 2
         let mut c_xp_i = c_xp.nth(w * y + 2).unwrap();
 
         let slice = &mut (***Lstep)[(w * y + 1)..(w * y + w - 1)];
