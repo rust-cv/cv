@@ -28,52 +28,104 @@ pub fn calculate_step(evolution_step: &mut EvolutionStep, step_size: f64) {
 
     // Middle diffusion
     for y in ymiddle.clone() {
+        // Ld
+        //   -0+
+        // -:_*_
+        // 0:___
+        // +:___
         let mut Ld_yn = Ld.iter();
-        // Up 1 right 1
         let mut Ld_yn_i = Ld_yn.nth(w * (y - 1) + 1).unwrap();
 
+        // Ld
+        //   -0+
+        // -:___
+        // 0:___
+        // +:_*_
         let mut Ld_yp = Ld.iter();
-        // Down 1 right 1
         let mut Ld_yp_i = Ld_yp.nth(w * (y + 1) + 1).unwrap();
 
+        // Ld
+        //   -0+
+        // -:___
+        // 0:*__
+        // +:___
         let mut Ld_xn = Ld.iter();
-        // Middle
         let mut Ld_xn_i = Ld_xn.nth(w * y).unwrap();
 
+        // Ld
+        //   -0+
+        // -:___
+        // 0:_*_
+        // +:___
         let mut Ld_x = Ld.iter();
-        // Right 1
         let mut Ld_x_i = Ld_x.nth(w * y + 1).unwrap();
 
+        // Ld
+        //   -0+
+        // -:___
+        // 0:__*
+        // +:___
         let mut Ld_xp = Ld.iter();
-        // Right 2
         let mut Ld_xp_i = Ld_xp.nth(w * y + 2).unwrap();
 
+        // c
+        //   -0+
+        // -:_*_
+        // 0:___
+        // +:___
         let mut c_yn = c.iter();
-        // Up 1 right 1
         let mut c_yn_i = c_yn.nth(w * (y - 1) + 1).unwrap();
 
+        // c
+        //   -0+
+        // -:___
+        // 0:___
+        // +:_*_
         let mut c_yp = c.iter();
-        // Down 1 right 1
         let mut c_yp_i = c_yp.nth(w * (y + 1) + 1).unwrap();
 
+        // c
+        //   -0+
+        // -:___
+        // 0:*__
+        // +:___
         let mut c_xn = c.iter();
-        // Middle
         let mut c_xn_i = c_xn.nth(w * y).unwrap();
 
+        // c
+        //   -0+
+        // -:___
+        // 0:_*_
+        // +:___
         let mut c_x = c.iter();
-        // Right 1
         let mut c_x_i = c_x.nth(w * y + 1).unwrap();
 
+        // c
+        //   -0+
+        // -:___
+        // 0:__*
+        // +:___
         let mut c_xp = c.iter();
-        // Right 2
         let mut c_xp_i = c_xp.nth(w * y + 2).unwrap();
 
         let slice = &mut (***Lstep)[(w * y + 1)..(w * y + w - 1)];
         for Lstep_x_i in slice.iter_mut() {
+            // All this code uses the sum of the conductivity between the center pixel
+            // and one other to determine the net conductivity. This is then multiplied
+            // by the difference of the neighboring pixel to the current one. Luminosity
+            // diffuses in the negative direction only, so it leaves up and left and comes
+            // in from the right and down.
+
+            // Right
             let x_pos = (c_x_i + c_xp_i) * (Ld_xp_i - Ld_x_i);
+            // Left
             let x_neg = (c_xn_i + c_x_i) * (Ld_x_i - Ld_xn_i);
+            // Down
             let y_pos = (c_x_i + c_yp_i) * (Ld_yp_i - Ld_x_i);
+            // Up
             let y_neg = (c_yn_i + c_x_i) * (Ld_x_i - Ld_yn_i);
+            // Only half of the flow is used since each neighbor will compute it again (duplication).
+            // The step size scales how much time passes.
             *Lstep_x_i = 0.5 * (step_size as f32) * (x_pos - x_neg + y_pos - y_neg);
 
             c_x_i = c_x.next().unwrap();
