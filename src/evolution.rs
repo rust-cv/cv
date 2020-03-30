@@ -81,8 +81,6 @@ pub struct EvolutionStep {
     pub Lxy: GrayFloatImage,
     /// Diffusivity image
     pub Lflow: GrayFloatImage,
-    /// Evolution step update
-    pub Lstep: GrayFloatImage,
     /// Detector response
     pub Ldet: GrayFloatImage,
     /// fed_tau steps
@@ -117,7 +115,6 @@ impl EvolutionStep {
             Lyy: GrayFloatImage::new(0, 0),
             Lxy: GrayFloatImage::new(0, 0),
             Lflow: GrayFloatImage::new(0, 0),
-            Lstep: GrayFloatImage::new(0, 0),
             Ldet: GrayFloatImage::new(0, 0),
             fed_tau_steps: vec![],
         }

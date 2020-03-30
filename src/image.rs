@@ -58,6 +58,15 @@ impl GrayFloatImage {
         )
     }
 
+    pub fn into_array2(self) -> Array2<f32> {
+        Array2::from_shape_vec((self.height(), self.width()), self.0.into_raw())
+            .expect("raw vector didn't have enough pixels for the array dimensions")
+    }
+
+    pub fn zero_array(&self) -> Array2<f32> {
+        Array2::zeros((self.height(), self.width()))
+    }
+
     pub fn save(&self, path: impl AsRef<std::path::Path>) -> ::image::ImageResult<()> {
         let bytes: ImageBuffer<Luma<u8>, Vec<u8>> =
             ImageBuffer::from_fn(self.0.width(), self.0.height(), |x, y| {

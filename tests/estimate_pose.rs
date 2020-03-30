@@ -29,8 +29,8 @@ fn estimate_pose() {
 
     // This ensures the underlying algorithm does not change
     // by making sure that we get the exact expected number of features.
-    assert_eq!(ds1.len(), 582);
-    assert_eq!(ds2.len(), 505);
+    assert_eq!(ds1.len(), 575);
+    assert_eq!(ds2.len(), 498);
 
     info!(
         "Running matching on {} and {} descriptors",
@@ -46,6 +46,7 @@ fn estimate_pose() {
         })
         .collect();
     info!("Finished matching with {} matches", matches.len());
+    assert_eq!(matches.len(), 32);
 
     // Run ARRSAC with the eight-point algorithm.
     info!("Running ARRSAC");
@@ -55,9 +56,13 @@ fn estimate_pose() {
         .model_inliers(&eight_point, matches.iter().copied())
         .expect("failed to estimate model");
     info!("inliers: {}", inliers.len());
+    info!(
+        "inlier ratio: {}",
+        inliers.len() as f32 / matches.len() as f32
+    );
 
     // Ensures the underlying algorithms don't change at all.
-    assert_eq!(inliers.len(), 33);
+    assert_eq!(inliers.len(), 32);
 }
 
 fn image_to_kps(path: impl AsRef<Path>) -> (Vec<akaze::Keypoint>, Vec<Descriptor>) {

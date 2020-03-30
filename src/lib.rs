@@ -98,8 +98,6 @@ fn create_nonlinear_scale_space(
         trace!("Computing derivative Ly done.");
         evolutions[i].Lflow = pm_g2(&evolutions[i].Lx, &evolutions[i].Ly, contrast_factor);
         trace!("Lflow finished.");
-        evolutions[i].Lstep =
-            GrayFloatImage::new(evolutions[i].Lt.width(), evolutions[i].Lt.height());
         for j in 0..evolutions[i].fed_tau_steps.len() {
             trace!("Starting diffusion step.");
             let step_size = evolutions[i].fed_tau_steps[j];
