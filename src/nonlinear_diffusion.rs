@@ -1,5 +1,6 @@
 use crate::evolution::EvolutionStep;
 use crate::image::GrayFloatImage;
+use log::*;
 use ndarray::s;
 
 /// This function performs a scalar non-linear diffusion step.
@@ -13,9 +14,11 @@ use ndarray::s;
 /// dL_by_ds = d(c dL_by_dx)_by_dx + d(c dL_by_dy)_by_dy
 #[allow(non_snake_case)]
 pub fn calculate_step(evolution_step: &mut EvolutionStep, step_size: f64) {
+    trace!("diffusion allocating temporaries");
     // Get the ndarray types.
     let mut input = evolution_step.Lt.clone().into_array2();
     let conductivities = evolution_step.Lflow.clone().into_array2();
+    trace!("diffusion finished allocating temporaries");
 
     // Produce the horizontal and vertical conductivity.
     let horizontal_conductivity =
