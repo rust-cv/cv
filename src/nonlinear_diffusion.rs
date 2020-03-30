@@ -141,7 +141,7 @@ pub fn calculate_step(evolution_step: &mut EvolutionStep, step_size: f64) {
             Ld_yn_i = Ld_yn.next().unwrap();
         }
     }
-    // First row
+    // Top
     for x in xmiddle.clone() {
         let x_pos = eval(c, Ld, x, ybegin, [0, 1, 1, 0], [0, 0, 0, 0]);
         let y_pos = eval(c, Ld, x, ybegin, [0, 0, 0, 0], [0, 1, 1, 0]);
@@ -152,35 +152,40 @@ pub fn calculate_step(evolution_step: &mut EvolutionStep, step_size: f64) {
             0.5 * (step_size as f32) * (x_pos - x_neg + y_pos),
         );
     }
+    // Top left
     {
         let x_pos = eval(c, Ld, xbegin, ybegin, [0, 1, 1, 0], [0, 0, 0, 0]);
         let y_pos = eval(c, Ld, xbegin, ybegin, [0, 0, 0, 0], [0, 1, 1, 0]);
         Lstep.put(xbegin, ybegin, 0.5 * (step_size as f32) * (x_pos + y_pos));
     }
+    // Top right
     {
         let y_pos = eval(c, Ld, xend, ybegin, [0, 0, 0, 0], [0, 1, 1, 0]);
         let x_neg = eval(c, Ld, xend, ybegin, [-1, 0, 0, -1], [0, 0, 0, 0]);
         Lstep.put(xend, ybegin, 0.5 * (step_size as f32) * (-x_neg + y_pos));
     }
-    // Last row
+    // Bottom
     for x in xmiddle.clone() {
         let x_pos = eval(c, Ld, x, yend, [0, 1, 1, 0], [0, 0, 0, 0]);
         let y_pos = eval(c, Ld, x, yend, [0, 0, 0, 0], [0, -1, -1, 0]);
         let x_neg = eval(c, Ld, x, yend, [-1, 0, 0, -1], [0, 0, 0, 0]);
         Lstep.put(x, yend, 0.5 * (step_size as f32) * (x_pos - x_neg + y_pos));
     }
+    // Bottom left
     {
         let x_pos = eval(c, Ld, xbegin, yend, [0, 1, 1, 0], [0, 0, 0, 0]);
         let y_pos = eval(c, Ld, xbegin, yend, [0, 0, 0, 0], [0, -1, -1, 0]);
         Lstep.put(xbegin, yend, 0.5 * (step_size as f32) * (x_pos + y_pos));
     }
+    // Bottom right
     {
         let y_pos = eval(c, Ld, xend, yend, [0, 0, 0, 0], [0, -1, -1, 0]);
         let x_neg = eval(c, Ld, xend, yend, [-1, 0, 0, -1], [0, 0, 0, 0]);
         Lstep.put(xend, yend, 0.5 * (step_size as f32) * (-x_neg + y_pos));
     }
-    // First and last columns
+    // Left and right
     for y in ymiddle {
+        // Left
         {
             let x_pos = eval(c, Ld, xbegin, y, [0, 1, 1, 0], [0, 0, 0, 0]);
             let y_pos = eval(c, Ld, xbegin, y, [0, 0, 0, 0], [0, 1, 1, 0]);
@@ -191,6 +196,7 @@ pub fn calculate_step(evolution_step: &mut EvolutionStep, step_size: f64) {
                 0.5 * (step_size as f32) * (x_pos + y_pos - y_neg),
             );
         }
+        // Right
         {
             let y_pos = eval(c, Ld, xend, y, [0, 0, 0, 0], [0, 1, 1, 0]);
             let x_neg = eval(c, Ld, xend, y, [-1, 0, 0, -1], [0, 0, 0, 0]);
