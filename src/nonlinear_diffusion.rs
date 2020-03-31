@@ -1,7 +1,5 @@
 use crate::evolution::EvolutionStep;
 use crate::image::GrayFloatImage;
-use itertools::izip;
-use log::*;
 use ndarray::{azip, s, Array2};
 
 /// This function performs a scalar non-linear diffusion step.
