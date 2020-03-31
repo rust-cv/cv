@@ -1,7 +1,8 @@
 use crate::evolution::EvolutionStep;
 use crate::image::GrayFloatImage;
+use itertools::izip;
 use log::*;
-use ndarray::s;
+use ndarray::{azip, s, Array2};
 
 /// This function performs a scalar non-linear diffusion step.
 ///
@@ -13,26 +14,34 @@ use ndarray::s;
 /// Forward Euler Scheme 3x3 stencil
 /// dL_by_ds = d(c dL_by_dx)_by_dx + d(c dL_by_dy)_by_dy
 #[allow(non_snake_case)]
-pub fn calculate_step(evolution_step: &mut EvolutionStep, step_size: f64) {
-    trace!("diffusion allocating temporaries");
+pub fn calculate_step(evolution_step: &mut EvolutionStep, step_size: f32) {
     // Get the ndarray types.
     let mut input = evolution_step.Lt.clone().into_array2();
     let conductivities = evolution_step.Lflow.clone().into_array2();
-    trace!("diffusion finished allocating temporaries");
+    let dim = input.dim();
+    // Horizontal flow.
+    let mut horizontal_flow = Array2::<f32>::zeros((dim.0, dim.1 - 1));
+    azip!((
+        flow in &mut horizontal_flow,
+        &a in input.slice(s![.., ..-1]),
+        &b in input.slice(s![.., 1..]),
+        &ca in conductivities.slice(s![.., ..-1]),
+        &cb in conductivities.slice(s![.., 1..]),
+    ) {
+        *flow = step_size * ca * cb * (b - a);
+    });
+    // Vertical flow.
+    let mut vertical_flow = Array2::<f32>::zeros((dim.0 - 1, dim.1));
+    azip!((
+        flow in &mut vertical_flow,
+        &a in input.slice(s![..-1, ..]),
+        &b in input.slice(s![1.., ..]),
+        &ca in conductivities.slice(s![..-1, ..]),
+        &cb in conductivities.slice(s![1.., ..]),
+    ) {
+        *flow = step_size * ca * cb * (b - a);
+    });
 
-    // Produce the horizontal and vertical conductivity.
-    let horizontal_conductivity =
-        &conductivities.slice(s![.., 1..]) * &conductivities.slice(s![.., ..-1]);
-    let vertical_conductivity =
-        &conductivities.slice(s![1.., ..]) * &conductivities.slice(s![..-1, ..]);
-    // Produce the horizontal and vertical flow.
-    let horizontal_flow = step_size as f32
-        * horizontal_conductivity
-        * (&input.slice(s![.., 1..]) - &input.slice(s![.., ..-1]));
-    let vertical_flow = step_size as f32
-        * vertical_conductivity
-        * (&input.slice(s![1.., ..]) - &input.slice(s![..-1, ..]));
-    // Add the flows into the input
     // Left
     input
         .slice_mut(s![.., ..-1])

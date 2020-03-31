@@ -101,7 +101,7 @@ fn create_nonlinear_scale_space(
         for j in 0..evolutions[i].fed_tau_steps.len() {
             trace!("Starting diffusion step.");
             let step_size = evolutions[i].fed_tau_steps[j];
-            nonlinear_diffusion::calculate_step(&mut evolutions[i], step_size);
+            nonlinear_diffusion::calculate_step(&mut evolutions[i], step_size as f32);
             trace!("Diffusion step finished with step size {}", step_size);
         }
     }
