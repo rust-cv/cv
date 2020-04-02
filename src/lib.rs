@@ -16,6 +16,7 @@ use crate::image::{gaussian_blur, GrayFloatImage, ImageFunctions};
 use ::image::GenericImageView;
 use evolution::*;
 use log::*;
+use ndarray::azip;
 use std::path::Path;
 
 /// This function computes the Perona and Malik conductivity coefficient g2
@@ -29,20 +30,18 @@ use std::path::Path;
 /// Output image
 #[allow(non_snake_case)]
 fn pm_g2(Lx: &GrayFloatImage, Ly: &GrayFloatImage, k: f64) -> GrayFloatImage {
-    let mut dst = GrayFloatImage::new(Lx.width(), Lx.height());
-    debug_assert!(Lx.width() == Ly.width());
-    debug_assert!(Lx.height() == Ly.height());
-    let inverse_k: f64 = 1.0f64 / (k * k);
-    for y in 0..Lx.height() {
-        for x in 0..Lx.width() {
-            let Lx_pixel: f64 = f64::from(Lx.get(x, y));
-            let Ly_pixel: f64 = f64::from(Ly.get(x, y));
-            let dst_pixel: f64 =
-                1.0f64 / (1.0f64 + inverse_k * (Lx_pixel * Lx_pixel + Ly_pixel * Ly_pixel));
-            dst.put(x, y, dst_pixel as f32);
-        }
-    }
-    dst
+    assert!(Lx.width() == Ly.width());
+    assert!(Lx.height() == Ly.height());
+    let inverse_k = (1.0f64 / (k * k)) as f32;
+    let mut conductivities = Lx.zero_array();
+    azip!((
+        c in &mut conductivities,
+        &x in Lx.ref_array2(),
+        &y in Ly.ref_array2(),
+    ) {
+        *c = 1.0 / (1.0 + inverse_k * (x * x + y * y));
+    });
+    GrayFloatImage::from_array2(conductivities)
 }
 
 /// A nonlinear scale space performs selective blurring to preserve edges.
