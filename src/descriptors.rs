@@ -36,7 +36,6 @@ fn get_mldb_descriptor(
     evolutions: &[EvolutionStep],
     options: Config,
 ) -> Hamming<Bits512> {
-    let t = (6usize + 36usize + 120usize) * options.descriptor_channels;
     let mut output = Hamming(Bits512([0; 64]));
     let max_channels = 3usize;
     debug_assert!(options.descriptor_channels <= max_channels);
