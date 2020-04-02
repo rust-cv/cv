@@ -13,6 +13,10 @@ const LOWES_RATIO: f32 = 0.5;
 type Descriptor = Hamming<Bits512>;
 type Match = FeatureMatch<pinhole::NormalizedKeyPoint>;
 
+fn image_to_kps(path: impl AsRef<Path>) -> (Vec<akaze::Keypoint>, Vec<Descriptor>) {
+    akaze::extract_path(path, akaze::Config::new(0.01)).unwrap()
+}
+
 #[test]
 fn estimate_pose() {
     pretty_env_logger::init_timed();
@@ -63,13 +67,6 @@ fn estimate_pose() {
 
     // Ensures the underlying algorithms don't change at all.
     assert_eq!(inliers.len(), 32);
-}
-
-fn image_to_kps(path: impl AsRef<Path>) -> (Vec<akaze::Keypoint>, Vec<Descriptor>) {
-    let mut akaze_config = akaze::Config::default();
-    akaze_config.detector_threshold = 0.01;
-    let (_, kps, ds) = akaze::extract_features(path, akaze_config);
-    (kps, ds)
 }
 
 fn match_descriptors(ds1: &[Descriptor], ds2: &[Descriptor]) -> Vec<(usize, usize)> {

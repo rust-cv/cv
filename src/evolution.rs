@@ -34,6 +34,17 @@ pub struct Config {
     pub descriptor_pattern_size: usize,
 }
 
+impl Config {
+    /// This convenience new function is provided for the very common case
+    /// that the detector threshold needs to be modified.
+    pub fn new(threshold: f64) -> Self {
+        Self {
+            detector_threshold: threshold,
+            ..Default::default()
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Config {
         Config {

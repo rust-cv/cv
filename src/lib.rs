@@ -11,7 +11,7 @@ mod scale_space_extrema;
 pub use evolution::Config;
 
 use crate::image::{gaussian_blur, GrayFloatImage};
-use ::image::GenericImageView;
+use ::image::{DynamicImage, GenericImageView, ImageResult};
 use cv_core::nalgebra::Point2;
 use cv_core::ImagePoint;
 use evolution::*;
@@ -136,43 +136,62 @@ fn find_image_keypoints(evolutions: &mut Vec<EvolutionStep>, options: Config) ->
 /// but this function can document how the various parts fit together.
 ///
 /// # Arguments
-/// * `input_image_path` - The input image for which to extract features.
-/// * `output_features_path` - The output path to which to write an output JSON file.
-/// * `options` The options for the algorithm.
+/// * `image` - The input image for which to extract features.
+/// * `options` - The options for the algorithm. Set this to `None` for default options.
 ///
-/// # Return value
-/// * The evolutions of the process. Can be used for further analysis or visualization, or ignored.
-/// * The keypoints at which features occur.
-/// * The descriptors that were computed.
+/// Returns the keypoints and the descriptors.
 ///
-/// # Examples
+/// # Example
 /// ```no_run
-/// extern crate akaze;
 /// use std::path::Path;
 /// let options = akaze::Config::default();
-/// let (_evolutions, keypoints, descriptors) =
-///     akaze::extract_features(
-///       "test-data/1.jpg",
-///       options);
+/// let (keypoints, descriptors) = akaze::extract(
+///     &image::open("test-data/1.jpg").unwrap(),
+///     options,
+/// );
 /// ```
 ///
-pub fn extract_features(
-    input_image_path: impl AsRef<Path>,
-    options: Config,
-) -> (Vec<EvolutionStep>, Vec<Keypoint>, Vec<Hamming<Bits512>>) {
-    let input_image = ::image::open(input_image_path).unwrap();
-    let float_image = GrayFloatImage::from_dynamic(&input_image);
-    info!(
-        "Loaded a {} x {} image",
-        input_image.width(),
-        input_image.height()
-    );
-    let mut evolutions =
-        evolution::allocate_evolutions(input_image.width(), input_image.height(), options);
+pub fn extract(
+    image: &DynamicImage,
+    options: impl Into<Option<Config>>,
+) -> (Vec<Keypoint>, Vec<Hamming<Bits512>>) {
+    let options = options.into().unwrap_or_default();
+    let float_image = GrayFloatImage::from_dynamic(&image);
+    info!("Loaded a {} x {} image", image.width(), image.height());
+    let mut evolutions = evolution::allocate_evolutions(image.width(), image.height(), options);
     create_nonlinear_scale_space(&mut evolutions, &float_image, options);
     trace!("Creating scale space finished.");
     let keypoints = find_image_keypoints(&mut evolutions, options);
     let descriptors = descriptors::extract_descriptors(&evolutions, &keypoints, options);
     trace!("Computing descriptors finished.");
-    (evolutions, keypoints, descriptors)
+    (keypoints, descriptors)
+}
+
+/// Extract features using the Akaze feature extractor from an image on disk.
+///
+/// This performs all operations end-to-end. The client might be only interested
+/// in certain portions of the process, all of which are exposed in public functions,
+/// but this function can document how the various parts fit together.
+///
+/// # Arguments
+/// * `path` - The input image path for which to extract features.
+/// * `options` - The options for the algorithm. Set this to `None` for default options.
+///
+/// Returns an `ImageResult` of the keypoints and the descriptors.
+///
+/// # Examples
+/// ```no_run
+/// use std::path::Path;
+/// let options = akaze::Config::default();
+/// let (keypoints, descriptors) = akaze::extract_path(
+///     "test-data/1.jpg",
+///     options,
+/// ).unwrap();
+/// ```
+///
+pub fn extract_path(
+    path: impl AsRef<Path>,
+    options: impl Into<Option<Config>>,
+) -> ImageResult<(Vec<Keypoint>, Vec<Hamming<Bits512>>)> {
+    Ok(extract(&::image::open(path)?, options))
 }

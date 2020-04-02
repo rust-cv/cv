@@ -47,21 +47,11 @@ impl GrayFloatImage {
         ))
     }
 
-    pub fn from_path(path: impl AsRef<std::path::Path>) -> ::image::ImageResult<Self> {
-        let input_image = ::image::open(path)?;
-        Ok(Self::from_dynamic(&input_image))
-    }
-
     pub fn from_array2(arr: Array2<f32>) -> Self {
         Self(
             ImageBuffer::from_raw(arr.dim().1 as u32, arr.dim().0 as u32, arr.into_raw_vec())
                 .expect("raw vector didn't have enough pixels for the image"),
         )
-    }
-
-    pub fn into_array2(self) -> Array2<f32> {
-        Array2::from_shape_vec((self.height(), self.width()), self.0.into_raw())
-            .expect("raw vector didn't have enough pixels for the array dimensions")
     }
 
     pub fn ref_array2(&self) -> ArrayView2<f32> {
@@ -74,14 +64,6 @@ impl GrayFloatImage {
 
     pub fn zero_array(&self) -> Array2<f32> {
         Array2::zeros((self.height(), self.width()))
-    }
-
-    pub fn save(&self, path: impl AsRef<std::path::Path>) -> ::image::ImageResult<()> {
-        let bytes: ImageBuffer<Luma<u8>, Vec<u8>> =
-            ImageBuffer::from_fn(self.0.width(), self.0.height(), |x, y| {
-                Luma([(self.0[(x, y)][0] * 255.0) as u8])
-            });
-        bytes.save(path)
     }
 
     pub fn width(&self) -> usize {
