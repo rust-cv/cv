@@ -1,5 +1,4 @@
-use crate::fed_tau;
-use crate::image::{GrayFloatImage, ImageFunctions};
+use crate::{fed_tau, GrayFloatImage};
 use log::*;
 
 #[derive(Debug, Copy, Clone)]

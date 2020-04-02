@@ -83,59 +83,16 @@ impl GrayFloatImage {
             });
         bytes.save(path)
     }
-}
 
-pub trait ImageFunctions {
-    /// The width of the image.
-    /// # Return value
-    /// The width.
-    fn width(&self) -> usize;
-
-    /// The height of the image.
-    /// # Return value
-    /// The height.
-    fn height(&self) -> usize;
-
-    /// Create a new image
-    ///
-    /// # Arguments
-    /// * `width` - Width of image
-    /// * `height` - Height of image.
-    /// # Return value
-    /// The image.
-    fn new(width: usize, height: usize) -> Self;
-
-    /// Return an image with each dimension halved
-    fn half_size(&self) -> Self;
-
-    /// get a float pixel at x, y
-    ///
-    /// # Arguments
-    /// * `x` - x coordinate.
-    /// * `y` - y coordinate.
-    /// # Return value
-    /// the value of the pixel.
-    fn get(&self, x: usize, y: usize) -> f32;
-
-    /// put a float pixel to x, y
-    ///
-    /// # Arguments
-    /// * `x` - x coordinate.
-    /// * `y` - y coordinate.
-    /// pixel_value: value to put
-    fn put(&mut self, x: usize, y: usize, pixel_value: f32);
-}
-
-impl ImageFunctions for GrayFloatImage {
-    fn width(&self) -> usize {
+    pub fn width(&self) -> usize {
         self.0.width() as usize
     }
 
-    fn height(&self) -> usize {
+    pub fn height(&self) -> usize {
         self.0.height() as usize
     }
 
-    fn new(width: usize, height: usize) -> Self {
+    pub fn new(width: usize, height: usize) -> Self {
         Self(ImageBuffer::from_pixel(
             width as u32,
             height as u32,
@@ -143,15 +100,15 @@ impl ImageFunctions for GrayFloatImage {
         ))
     }
 
-    fn get(&self, x: usize, y: usize) -> f32 {
+    pub fn get(&self, x: usize, y: usize) -> f32 {
         self.get_pixel(x as u32, y as u32)[0]
     }
 
-    fn put(&mut self, x: usize, y: usize, pixel_value: f32) {
+    pub fn put(&mut self, x: usize, y: usize, pixel_value: f32) {
         self.put_pixel(x as u32, y as u32, Luma([pixel_value]));
     }
 
-    fn half_size(&self) -> Self {
+    pub fn half_size(&self) -> Self {
         let width = self.width() / 2;
         let height = self.height() / 2;
         Self(imageops::resize(

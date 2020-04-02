@@ -10,7 +10,7 @@ mod scale_space_extrema;
 
 pub use evolution::Config;
 
-use crate::image::{gaussian_blur, GrayFloatImage, ImageFunctions};
+use crate::image::{gaussian_blur, GrayFloatImage};
 use ::image::GenericImageView;
 use evolution::*;
 use log::*;

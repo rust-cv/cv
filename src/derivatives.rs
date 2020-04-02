@@ -1,4 +1,4 @@
-use crate::image::{fill_border, GrayFloatImage, ImageFunctions};
+use crate::image::{fill_border, GrayFloatImage};
 use ndarray::{s, Array2};
 use ndarray_image::{NdGray, NdImage};
 

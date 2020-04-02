@@ -1,6 +1,6 @@
 use crate::derivatives;
 use crate::evolution::{Config, EvolutionStep};
-use crate::image::{GrayFloatImage, ImageFunctions};
+use crate::image::GrayFloatImage;
 use ndarray::azip;
 
 fn compute_multiscale_derivatives_for_evolution(evolution: &mut EvolutionStep, sigma_size: u32) {

@@ -1,5 +1,4 @@
 use crate::evolution::{Config, EvolutionStep};
-use crate::image::ImageFunctions;
 use crate::Keypoint;
 use log::*;
 use nalgebra::{Matrix2, Vector2, LU};

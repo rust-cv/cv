@@ -1,4 +1,4 @@
-use crate::image::{gaussian_blur, GrayFloatImage, ImageFunctions};
+use crate::image::{gaussian_blur, GrayFloatImage};
 use log::*;
 
 /// This function computes a good empirical value for the k contrast factor
