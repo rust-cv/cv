@@ -1,5 +1,4 @@
 use crate::evolution::EvolutionStep;
-use crate::image::GrayFloatImage;
 use ndarray::{azip, s, Array2};
 
 /// This function performs a scalar non-linear diffusion step.
@@ -14,8 +13,8 @@ use ndarray::{azip, s, Array2};
 #[allow(non_snake_case)]
 pub fn calculate_step(evolution_step: &mut EvolutionStep, step_size: f32) {
     // Get the ndarray types.
-    let mut input = evolution_step.Lt.clone().into_array2();
-    let conductivities = evolution_step.Lflow.clone().into_array2();
+    let mut input = evolution_step.Lt.mut_array2();
+    let conductivities = evolution_step.Lflow.ref_array2();
     let dim = input.dim();
     // Horizontal flow.
     let mut horizontal_flow = Array2::<f32>::zeros((dim.0, dim.1 - 1));
@@ -56,7 +55,4 @@ pub fn calculate_step(evolution_step: &mut EvolutionStep, step_size: f32) {
     input
         .slice_mut(s![1.., ..])
         .zip_mut_with(&vertical_flow, |acc, &i| *acc -= i);
-
-    // Replace Lt.
-    evolution_step.Lt = GrayFloatImage::from_array2(input);
 }
