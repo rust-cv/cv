@@ -8,8 +8,6 @@ mod image;
 mod nonlinear_diffusion;
 mod scale_space_extrema;
 
-pub use evolution::Config;
-
 use crate::image::{gaussian_blur, GrayFloatImage};
 use ::image::{DynamicImage, GenericImageView, ImageResult};
 use cv_core::nalgebra::Point2;
@@ -50,6 +48,88 @@ pub struct Keypoint {
 impl ImagePoint for Keypoint {
     fn image_point(&self) -> Point2<f64> {
         Point2::new(self.point.0 as f64, self.point.1 as f64)
+    }
+}
+
+/// Contains the configuration parameters of AKAZE.
+///
+/// The most important parameter to pay attention to is `detector_threshold`.
+/// [`Config::new`] can be used to set this threshold and let all other parameters
+/// remain default. You can also use the helpers [`Config::sparse`] and
+/// [`Config::dense`]. The default value of `detector_threshold` is `0.001`.
+///
+#[derive(Debug, Copy, Clone)]
+pub struct Config {
+    /// Default number of sublevels per scale level
+    pub num_sublevels: u32,
+
+    /// Maximum octave evolution of the image 2^sigma (coarsest scale sigma units)
+    pub max_octave_evolution: u32,
+
+    /// Base scale offset (sigma units)
+    pub base_scale_offset: f64,
+
+    /// The initial contrast factor parameter
+    pub initial_contrast: f64,
+
+    /// Percentile level for the contrast factor
+    pub contrast_percentile: f64,
+
+    /// Number of bins for the contrast factor histogram
+    pub contrast_factor_num_bins: usize,
+
+    /// Factor for the multiscale derivatives
+    pub derivative_factor: f64,
+
+    /// Detector response threshold to accept point
+    pub detector_threshold: f64,
+
+    /// Number of channels in the descriptor (1, 2, 3)
+    pub descriptor_channels: usize,
+
+    /// Actual patch size is 2*pattern_size*point.scale
+    pub descriptor_pattern_size: usize,
+}
+
+impl Config {
+    /// This convenience constructor is provided for the very common case
+    /// that the detector threshold needs to be modified.
+    pub fn new(threshold: f64) -> Self {
+        Self {
+            detector_threshold: threshold,
+            ..Default::default()
+        }
+    }
+
+    /// Create a `Config` that sparsely detects features.
+    ///
+    /// Uses a threshold of `0.01` (default is `0.001`).
+    pub fn sparse() -> Self {
+        Self::new(0.01)
+    }
+
+    /// Create a `Config` that densely detects features.
+    ///
+    /// Uses a threshold of `0.0001` (default is `0.001`).
+    pub fn dense() -> Self {
+        Self::new(0.0001)
+    }
+}
+
+impl Default for Config {
+    fn default() -> Config {
+        Config {
+            num_sublevels: 4,
+            max_octave_evolution: 4,
+            base_scale_offset: 1.6f64,
+            initial_contrast: 0.001f64,
+            contrast_percentile: 0.7f64,
+            contrast_factor_num_bins: 300,
+            derivative_factor: 1.5f64,
+            detector_threshold: 0.001f64,
+            descriptor_channels: 3usize,
+            descriptor_pattern_size: 10usize,
+        }
     }
 }
 

@@ -5,7 +5,7 @@ use std::path::Path;
 type Descriptor = Hamming<Bits512>;
 
 fn image_to_kps(path: impl AsRef<Path>) -> (Vec<akaze::Keypoint>, Vec<Descriptor>) {
-    akaze::extract_path(path, akaze::Config::new(0.01)).unwrap()
+    akaze::extract_path(path, akaze::Config::sparse()).unwrap()
 }
 
 fn extract(c: &mut Criterion) {

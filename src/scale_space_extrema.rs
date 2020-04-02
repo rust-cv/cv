@@ -1,5 +1,5 @@
-use crate::evolution::{Config, EvolutionStep};
-use crate::Keypoint;
+use crate::evolution::EvolutionStep;
+use crate::{Config, Keypoint};
 use log::*;
 use nalgebra::{Matrix2, Vector2, LU};
 use std::f32::consts::PI;

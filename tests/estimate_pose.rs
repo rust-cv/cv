@@ -14,7 +14,7 @@ type Descriptor = Hamming<Bits512>;
 type Match = FeatureMatch<pinhole::NormalizedKeyPoint>;
 
 fn image_to_kps(path: impl AsRef<Path>) -> (Vec<akaze::Keypoint>, Vec<Descriptor>) {
-    akaze::extract_path(path, akaze::Config::new(0.01)).unwrap()
+    akaze::extract_path(path, akaze::Config::sparse()).unwrap()
 }
 
 #[test]

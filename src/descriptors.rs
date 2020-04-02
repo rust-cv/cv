@@ -1,4 +1,4 @@
-use crate::evolution::{Config, EvolutionStep};
+use crate::{Config, EvolutionStep};
 
 use crate::Keypoint;
 use space::{Bits512, Hamming};
