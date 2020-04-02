@@ -5,12 +5,10 @@ mod detector_response;
 mod evolution;
 mod fed_tau;
 mod image;
-mod keypoint;
 mod nonlinear_diffusion;
 mod scale_space_extrema;
 
 pub use evolution::Config;
-pub use keypoint::{Descriptor, Keypoint};
 
 use crate::image::{gaussian_blur, GrayFloatImage, ImageFunctions};
 use ::image::GenericImageView;
@@ -18,6 +16,43 @@ use evolution::*;
 use log::*;
 use ndarray::azip;
 use std::path::Path;
+
+use cv_core::nalgebra::Point2;
+use cv_core::ImagePoint;
+use space::{Bits512, Hamming};
+
+/// A point of interest in an image.
+/// This pretty much follows from OpenCV conventions.
+#[derive(Debug, Clone, Copy)]
+pub struct Keypoint {
+    /// The horizontal coordinate in a coordinate system is
+    /// defined s.t. +x faces right and starts from the top
+    /// of the image.
+    /// the vertical coordinate in a coordinate system is defined
+    /// s.t. +y faces toward the bottom of an image and starts
+    /// from the left side of the image.
+    pub point: (f32, f32),
+    /// The magnitude of response from the detector.
+    pub response: f32,
+
+    /// The radius defining the extent of the keypoint, in pixel units
+    pub size: f32,
+
+    /// The level of scale space in which the keypoint was detected.
+    pub octave: usize,
+
+    /// A classification ID
+    pub class_id: usize,
+
+    /// The orientation angle
+    pub angle: f32,
+}
+
+impl ImagePoint for Keypoint {
+    fn image_point(&self) -> Point2<f64> {
+        Point2::new(self.point.0 as f64, self.point.1 as f64)
+    }
+}
 
 /// This function computes the Perona and Malik conductivity coefficient g2
 /// g2 = 1 / (1 + dL^2 / k^2)
@@ -150,7 +185,7 @@ fn find_image_keypoints(evolutions: &mut Vec<EvolutionStep>, options: Config) ->
 pub fn extract_features(
     input_image_path: impl AsRef<Path>,
     options: Config,
-) -> (Vec<EvolutionStep>, Vec<Keypoint>, Vec<Descriptor>) {
+) -> (Vec<EvolutionStep>, Vec<Keypoint>, Vec<Hamming<Bits512>>) {
     let input_image = ::image::open(input_image_path).unwrap();
     let float_image = GrayFloatImage::from_dynamic(&input_image);
     info!(

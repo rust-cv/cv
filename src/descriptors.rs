@@ -1,7 +1,8 @@
 use crate::evolution::{Config, EvolutionStep};
 use crate::image::ImageFunctions;
 
-use crate::keypoint::{Descriptor, Keypoint};
+use crate::Keypoint;
+use space::{Bits512, Hamming};
 
 /// Extract descriptors from keypoints/an evolution
 ///
@@ -15,15 +16,11 @@ pub fn extract_descriptors(
     evolutions: &[EvolutionStep],
     keypoints: &[Keypoint],
     options: Config,
-) -> Vec<Descriptor> {
-    //int t = (6+36+120)*options_.descriptor_channels
-    //desc = cv::Mat::zeros(kpts.size(), ceil(t/8.), CV_8UC1);
-    let mut output_descriptors: Vec<Descriptor> = vec![];
-    for keypoint in keypoints {
-        let descriptor = get_mldb_descriptor(keypoint, evolutions, options);
-        output_descriptors.push(descriptor);
-    }
-    output_descriptors
+) -> Vec<Hamming<Bits512>> {
+    keypoints
+        .iter()
+        .map(|keypoint| get_mldb_descriptor(keypoint, evolutions, options))
+        .collect()
 }
 
 /// Computes the rotation invariant M-LDB binary descriptor (maximum descriptor length)
@@ -38,12 +35,9 @@ fn get_mldb_descriptor(
     keypoint: &Keypoint,
     evolutions: &[EvolutionStep],
     options: Config,
-) -> Descriptor {
+) -> Hamming<Bits512> {
     let t = (6usize + 36usize + 120usize) * options.descriptor_channels;
-    let mut output = Descriptor {
-        // 486 bit descriptor
-        vector: vec![0u8; (t + 7) / 8],
-    };
+    let mut output = Hamming(Bits512([0; 64]));
     let max_channels = 3usize;
     debug_assert!(options.descriptor_channels <= max_channels);
     let mut values: Vec<f32> = vec![0f32; (16 * max_channels) as usize];
@@ -73,7 +67,7 @@ fn get_mldb_descriptor(
         );
         mldb_binary_comparisons(
             &values,
-            &mut output.vector,
+            &mut (output.0).0,
             val_count,
             &mut dpos,
             options.descriptor_channels,

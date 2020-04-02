@@ -68,15 +68,7 @@ fn estimate_pose() {
 fn image_to_kps(path: impl AsRef<Path>) -> (Vec<akaze::Keypoint>, Vec<Descriptor>) {
     let mut akaze_config = akaze::Config::default();
     akaze_config.detector_threshold = 0.01;
-    let (_, kps, akaze_ds) = akaze::extract_features(path, akaze_config);
-    let ds = akaze_ds
-        .into_iter()
-        .map(|akaze::Descriptor { vector }| {
-            let mut arr = [0; 512 / 8];
-            arr[0..61].copy_from_slice(&vector);
-            Hamming(Bits512(arr))
-        })
-        .collect();
+    let (_, kps, ds) = akaze::extract_features(path, akaze_config);
     (kps, ds)
 }
 
