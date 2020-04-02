@@ -1,4 +1,4 @@
-use crate::evolution::EvolutionStep;
+use crate::{EvolutionStep, GrayFloatImage};
 use ndarray::{azip, s, Array2};
 
 /// This function performs a scalar non-linear diffusion step.
@@ -55,4 +55,29 @@ pub fn calculate_step(evolution_step: &mut EvolutionStep, step_size: f32) {
     input
         .slice_mut(s![1.., ..])
         .zip_mut_with(&vertical_flow, |acc, &i| *acc -= i);
+}
+
+/// This function computes the Perona and Malik conductivity coefficient g2
+/// g2 = 1 / (1 + dL^2 / k^2)
+///
+/// # Arguments
+/// * `Lx` - First order image derivative in X-direction (horizontal)
+/// * `Ly` - First order image derivative in Y-direction (vertical)
+/// * `k` - Contrast factor parameter
+/// # Return value
+/// Output image
+#[allow(non_snake_case)]
+pub fn pm_g2(Lx: &GrayFloatImage, Ly: &GrayFloatImage, k: f64) -> GrayFloatImage {
+    assert!(Lx.width() == Ly.width());
+    assert!(Lx.height() == Ly.height());
+    let inverse_k = (1.0f64 / (k * k)) as f32;
+    let mut conductivities = Lx.zero_array();
+    azip!((
+        c in &mut conductivities,
+        &x in Lx.ref_array2(),
+        &y in Ly.ref_array2(),
+    ) {
+        *c = 1.0 / (1.0 + inverse_k * (x * x + y * y));
+    });
+    GrayFloatImage::from_array2(conductivities)
 }

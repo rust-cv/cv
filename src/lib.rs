@@ -12,14 +12,13 @@ pub use evolution::Config;
 
 use crate::image::{gaussian_blur, GrayFloatImage};
 use ::image::GenericImageView;
-use evolution::*;
-use log::*;
-use ndarray::azip;
-use std::path::Path;
-
 use cv_core::nalgebra::Point2;
 use cv_core::ImagePoint;
+use evolution::*;
+use log::*;
+use nonlinear_diffusion::pm_g2;
 use space::{Bits512, Hamming};
+use std::path::Path;
 
 /// A point of interest in an image.
 /// This pretty much follows from OpenCV conventions.
@@ -52,31 +51,6 @@ impl ImagePoint for Keypoint {
     fn image_point(&self) -> Point2<f64> {
         Point2::new(self.point.0 as f64, self.point.1 as f64)
     }
-}
-
-/// This function computes the Perona and Malik conductivity coefficient g2
-/// g2 = 1 / (1 + dL^2 / k^2)
-///
-/// # Arguments
-/// * `Lx` - First order image derivative in X-direction (horizontal)
-/// * `Ly` - First order image derivative in Y-direction (vertical)
-/// * `k` - Contrast factor parameter
-/// # Return value
-/// Output image
-#[allow(non_snake_case)]
-fn pm_g2(Lx: &GrayFloatImage, Ly: &GrayFloatImage, k: f64) -> GrayFloatImage {
-    assert!(Lx.width() == Ly.width());
-    assert!(Lx.height() == Ly.height());
-    let inverse_k = (1.0f64 / (k * k)) as f32;
-    let mut conductivities = Lx.zero_array();
-    azip!((
-        c in &mut conductivities,
-        &x in Lx.ref_array2(),
-        &y in Ly.ref_array2(),
-    ) {
-        *c = 1.0 / (1.0 + inverse_k * (x * x + y * y));
-    });
-    GrayFloatImage::from_array2(conductivities)
 }
 
 /// A nonlinear scale space performs selective blurring to preserve edges.
