@@ -1,7 +1,7 @@
 use crate::derivatives;
 use crate::evolution::{Config, EvolutionStep};
 use crate::image::{GrayFloatImage, ImageFunctions};
-use itertools::izip;
+use ndarray::azip;
 
 fn compute_multiscale_derivatives_for_evolution(evolution: &mut EvolutionStep, sigma_size: u32) {
     evolution.Lx = derivatives::scharr_horizontal(&evolution.Lsmooth, sigma_size);
@@ -35,13 +35,13 @@ pub fn detector_response(evolutions: &mut Vec<EvolutionStep>, options: Config) {
         let sigma_size = f64::round(evolution.esigma * options.derivative_factor / ratio);
         let sigma_size_quat = sigma_size.powi(4) as f32;
         evolution.Ldet = GrayFloatImage::new(evolution.Lxx.width(), evolution.Lxx.height());
-        for (Ldet, Lxx, Lyy, Lxy) in izip!(
-            evolution.Ldet.iter_mut(),
-            evolution.Lxx.iter(),
-            evolution.Lyy.iter(),
-            evolution.Lxy.iter(),
+        azip!((
+            Ldet in evolution.Ldet.mut_array2(),
+            &Lxx in evolution.Lxx.ref_array2(),
+            &Lyy in evolution.Lyy.ref_array2(),
+            &Lxy in evolution.Lxy.ref_array2(),
         ) {
             *Ldet = ((Lxx * Lyy) - (Lxy * Lxy)) * sigma_size_quat;
-        }
+        });
     }
 }

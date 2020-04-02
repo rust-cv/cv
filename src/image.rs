@@ -1,6 +1,7 @@
 use derive_more::{Deref, DerefMut};
 use image::{imageops, DynamicImage, GrayImage, ImageBuffer, Luma};
-use ndarray::Array2;
+use ndarray::{Array2, ArrayView2, ArrayViewMut2};
+use ndarray_image::NdImage;
 use std::f32;
 
 /// The image type we use in this library.
@@ -61,6 +62,14 @@ impl GrayFloatImage {
     pub fn into_array2(self) -> Array2<f32> {
         Array2::from_shape_vec((self.height(), self.width()), self.0.into_raw())
             .expect("raw vector didn't have enough pixels for the array dimensions")
+    }
+
+    pub fn ref_array2(&self) -> ArrayView2<f32> {
+        NdImage(&self.0).into()
+    }
+
+    pub fn mut_array2(&mut self) -> ArrayViewMut2<f32> {
+        NdImage(&mut self.0).into()
     }
 
     pub fn zero_array(&self) -> Array2<f32> {
