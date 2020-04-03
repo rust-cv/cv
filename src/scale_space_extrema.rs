@@ -1,5 +1,5 @@
 use crate::evolution::EvolutionStep;
-use crate::{Config, Keypoint};
+use crate::{Config, KeyPoint};
 use log::*;
 use std::f32::consts::PI;
 
@@ -8,8 +8,8 @@ use std::f32::consts::PI;
 /// # Argument
 /// * `evolutions` - evolutions to mutate in place.
 /// * `options` - options to use.
-fn find_scale_space_extrema(evolutions: &mut Vec<EvolutionStep>, options: Config) -> Vec<Keypoint> {
-    let mut keypoint_cache: Vec<Keypoint> = vec![];
+fn find_scale_space_extrema(evolutions: &mut Vec<EvolutionStep>, options: Config) -> Vec<KeyPoint> {
+    let mut keypoint_cache: Vec<KeyPoint> = vec![];
     let smax = 10.0f32 * f32::sqrt(2.0f32);
     for (e_id, evolution) in evolutions.iter_mut().enumerate() {
         let w = evolution.Ldet.width();
@@ -39,7 +39,7 @@ fn find_scale_space_extrema(evolutions: &mut Vec<EvolutionStep>, options: Config
                 *x_i > *y_m_i &&
                 *x_i > *y_p_i
             {
-                let mut keypoint = Keypoint {
+                let mut keypoint = KeyPoint {
                     response: f32::abs(*x_i),
                     size: (evolution.esigma * options.derivative_factor) as f32,
                     octave: evolution.octave as usize,
@@ -107,7 +107,7 @@ fn find_scale_space_extrema(evolutions: &mut Vec<EvolutionStep>, options: Config
         }
     }
     // Now filter points with the upper scale level
-    let mut output_keypoints: Vec<Keypoint> = vec![];
+    let mut output_keypoints: Vec<KeyPoint> = vec![];
     for i in 0..keypoint_cache.len() {
         let mut is_repeated = false;
         let kp_i = keypoint_cache[i];
@@ -138,10 +138,10 @@ fn find_scale_space_extrema(evolutions: &mut Vec<EvolutionStep>, options: Config
 /// # Return value
 /// The resulting keypoints.
 fn do_subpixel_refinement(
-    in_keypoints: &[Keypoint],
+    in_keypoints: &[KeyPoint],
     evolutions: &[EvolutionStep],
-) -> Vec<Keypoint> {
-    let mut result: Vec<Keypoint> = vec![];
+) -> Vec<KeyPoint> {
+    let mut result: Vec<KeyPoint> = vec![];
     for keypoint in in_keypoints.iter() {
         let ratio = f32::powf(2.0f32, keypoint.octave as f32);
         let x = f32::round(keypoint.point.0 / ratio) as usize;
@@ -202,7 +202,7 @@ fn do_subpixel_refinement(
 /// * `options` - The options to use.
 /// # Return value
 /// The resulting keypoints.
-pub fn detect_keypoints(evolutions: &mut Vec<EvolutionStep>, options: Config) -> Vec<Keypoint> {
+pub fn detect_keypoints(evolutions: &mut Vec<EvolutionStep>, options: Config) -> Vec<KeyPoint> {
     let mut keypoints = find_scale_space_extrema(evolutions, options);
     keypoints = do_subpixel_refinement(&keypoints, &evolutions);
     keypoints
@@ -277,7 +277,7 @@ static GAUSS25: [[f32; 7usize]; 7usize] = [
 ];
 
 /// Compute the main orientation of the keypoint.
-fn compute_main_orientation(keypoint: &mut Keypoint, evolutions: &[EvolutionStep]) {
+fn compute_main_orientation(keypoint: &mut KeyPoint, evolutions: &[EvolutionStep]) {
     let mut res_x: [f32; 109usize] = [0f32; 109usize];
     let mut res_y: [f32; 109usize] = [0f32; 109usize];
     let mut angs: [f32; 109usize] = [0f32; 109usize];

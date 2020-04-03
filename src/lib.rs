@@ -21,7 +21,7 @@ use std::path::Path;
 /// A point of interest in an image.
 /// This pretty much follows from OpenCV conventions.
 #[derive(Debug, Clone, Copy)]
-pub struct Keypoint {
+pub struct KeyPoint {
     /// The horizontal coordinate in a coordinate system is
     /// defined s.t. +x faces right and starts from the top
     /// of the image.
@@ -45,7 +45,7 @@ pub struct Keypoint {
     pub angle: f32,
 }
 
-impl ImagePoint for Keypoint {
+impl ImagePoint for KeyPoint {
     fn image_point(&self) -> Point2<f64> {
         Point2::new(self.point.0 as f64, self.point.1 as f64)
     }
@@ -203,7 +203,7 @@ fn create_nonlinear_scale_space(
 /// # Return Value
 /// The resulting keypoints.
 ///
-fn find_image_keypoints(evolutions: &mut Vec<EvolutionStep>, options: Config) -> Vec<Keypoint> {
+fn find_image_keypoints(evolutions: &mut Vec<EvolutionStep>, options: Config) -> Vec<KeyPoint> {
     detector_response::detector_response(evolutions, options);
     trace!("Computing detector response finished.");
     scale_space_extrema::detect_keypoints(evolutions, options)
@@ -234,7 +234,7 @@ fn find_image_keypoints(evolutions: &mut Vec<EvolutionStep>, options: Config) ->
 pub fn extract(
     image: &DynamicImage,
     options: impl Into<Option<Config>>,
-) -> (Vec<Keypoint>, Vec<Hamming<Bits512>>) {
+) -> (Vec<KeyPoint>, Vec<Hamming<Bits512>>) {
     let options = options.into().unwrap_or_default();
     let float_image = GrayFloatImage::from_dynamic(&image);
     info!("Loaded a {} x {} image", image.width(), image.height());
@@ -272,6 +272,6 @@ pub fn extract(
 pub fn extract_path(
     path: impl AsRef<Path>,
     options: impl Into<Option<Config>>,
-) -> ImageResult<(Vec<Keypoint>, Vec<Hamming<Bits512>>)> {
+) -> ImageResult<(Vec<KeyPoint>, Vec<Hamming<Bits512>>)> {
     Ok(extract(&::image::open(path)?, options))
 }

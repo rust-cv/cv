@@ -13,7 +13,7 @@ const LOWES_RATIO: f32 = 0.5;
 type Descriptor = Hamming<Bits512>;
 type Match = FeatureMatch<pinhole::NormalizedKeyPoint>;
 
-fn image_to_kps(path: impl AsRef<Path>) -> (Vec<akaze::Keypoint>, Vec<Descriptor>) {
+fn image_to_kps(path: impl AsRef<Path>) -> (Vec<akaze::KeyPoint>, Vec<Descriptor>) {
     akaze::extract_path(path, akaze::Config::sparse()).unwrap()
 }
 

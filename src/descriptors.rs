@@ -1,6 +1,6 @@
 use crate::{Config, EvolutionStep};
 
-use crate::Keypoint;
+use crate::KeyPoint;
 use space::{Bits512, Hamming};
 
 /// Extract descriptors from keypoints/an evolution
@@ -13,7 +13,7 @@ use space::{Bits512, Hamming};
 /// A vector of descriptors.
 pub fn extract_descriptors(
     evolutions: &[EvolutionStep],
-    keypoints: &[Keypoint],
+    keypoints: &[KeyPoint],
     options: Config,
 ) -> Vec<Hamming<Bits512>> {
     keypoints
@@ -31,7 +31,7 @@ pub fn extract_descriptors(
 /// # Return value
 /// Binary-based descriptor
 fn get_mldb_descriptor(
-    keypoint: &Keypoint,
+    keypoint: &KeyPoint,
     evolutions: &[EvolutionStep],
     options: Config,
 ) -> Hamming<Bits512> {
