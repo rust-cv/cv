@@ -1,21 +1,20 @@
-use akaze::types::evolution::Config as AkazeConfig;
-use akaze::types::keypoint::Descriptor as AkazeDescriptor;
 use arrsac::{Arrsac, Config as ArrsacConfig};
 use cv_core::nalgebra::{Point2, Vector2};
+use cv_core::pinhole::CameraIntrinsics;
 use cv_core::sample_consensus::{Consensus, Model};
-use cv_core::{CameraIntrinsics, ImageKeyPoint, KeyPointsMatch};
+use cv_core::{CameraModel, FeatureMatch};
 use eight_point::EightPoint;
-use hnsw::{u8x64, Distance, Hamming};
 use log::info;
 use rand::SeedableRng;
 use rand_pcg::Pcg64;
-use std::path::PathBuf;
+use space::{Bits512, Hamming, MetricPoint};
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{sync_channel, Receiver};
 use structopt::StructOpt;
 
-type Descriptor = Hamming<u8x64>;
+type Descriptor = Hamming<Bits512>;
 
-#[derive(StructOpt)]
+#[derive(StructOpt, Clone)]
 #[structopt(
     name = "vslam-sandbox",
     about = "A tool for testing vslam algorithms.",
@@ -30,6 +29,9 @@ struct Opt {
     /// The threshold for ARRSAC.
     #[structopt(short, long, default_value = "0.001")]
     arrsac_threshold: f32,
+    /// The threshold for AKAZE.
+    #[structopt(short = "z", long, default_value = "0.001")]
+    akaze_threshold: f64,
     /// List of image files
     ///
     /// Must be Kitti 2011_09_26 camera 0
@@ -38,9 +40,7 @@ struct Opt {
 }
 
 fn main() {
-    env_logger::builder()
-        .format_timestamp(Some(env_logger::TimestampPrecision::Millis))
-        .init();
+    pretty_env_logger::init_timed();
     let opt = Opt::from_args();
     // Intrinsics retrieved from calib_cam_to_cam.txt K_00.
     let intrinsics = CameraIntrinsics {
@@ -50,7 +50,7 @@ fn main() {
     };
 
     // Create a channel that will produce features in another parallel thread.
-    let features = features_stream(opt.images.clone());
+    let features = features_stream(&opt);
     let mut prev = features.recv().unwrap();
     for next in features {
         info!("start frame");
@@ -65,9 +65,9 @@ fn main() {
                 let is_symmetric = reverse_matches[bix].0 == aix;
                 let in_threshold = distance < opt.match_threshold;
                 if is_symmetric && in_threshold {
-                    let a = intrinsics.normalize(prev.0[aix]);
-                    let b = intrinsics.normalize(next.0[bix]);
-                    Some(KeyPointsMatch(a, b))
+                    let a = intrinsics.calibrate(prev.0[aix]);
+                    let b = intrinsics.calibrate(next.0[bix]);
+                    Some(FeatureMatch(a, b))
                 } else {
                     None
                 }
@@ -105,34 +105,22 @@ fn main() {
     }
 }
 
-fn features_stream(paths: Vec<PathBuf>) -> Receiver<(Vec<ImageKeyPoint>, Vec<Descriptor>)> {
+fn features_stream(opt: &Opt) -> Receiver<(Vec<akaze::KeyPoint>, Vec<Descriptor>)> {
     let (tx, rx) = sync_channel(5);
 
+    let opt = opt.clone();
+
     std::thread::spawn(move || {
-        for path in paths {
-            tx.send(kps_descriptors(path)).unwrap();
+        for path in &opt.images {
+            tx.send(kps_descriptors(path, &opt)).unwrap();
         }
     });
 
     rx
 }
 
-fn kps_descriptors(path: PathBuf) -> (Vec<ImageKeyPoint>, Vec<Descriptor>) {
-    let mut akaze_config = AkazeConfig::default();
-    akaze_config.detector_threshold = 0.01;
-    let (_, kps, descriptors) = akaze::extract_features(path, akaze_config);
-    (
-        kps.into_iter()
-            .map(|kp| ImageKeyPoint(Point2::new(kp.point.0 as f64, kp.point.1 as f64)))
-            .collect::<Vec<_>>(),
-        descriptors
-            .into_iter()
-            .map(|AkazeDescriptor { mut vector }| {
-                vector.resize_with(64, Default::default);
-                vector.as_slice().into()
-            })
-            .collect::<Vec<_>>(),
-    )
+fn kps_descriptors(path: impl AsRef<Path>, opt: &Opt) -> (Vec<akaze::KeyPoint>, Vec<Descriptor>) {
+    akaze::extract_path(path, akaze::Config::new(opt.akaze_threshold)).unwrap()
 }
 
 fn matching(a_descriptors: &[Descriptor], b_descriptors: &[Descriptor]) -> Vec<(usize, u32)> {
@@ -141,7 +129,7 @@ fn matching(a_descriptors: &[Descriptor], b_descriptors: &[Descriptor]) -> Vec<(
         .map(|a| {
             b_descriptors
                 .iter()
-                .map(|b| Descriptor::distance(&a, &b))
+                .map(|b| a.distance(&b))
                 .enumerate()
                 .min_by_key(|&(_, d)| d)
                 .unwrap()
