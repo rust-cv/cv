@@ -1,6 +1,6 @@
 # akaze
 
-[![Discord][dci]][dcl] [![Crates.io][ci]][cl] ![MIT/Apache][li] [![docs.rs][di]][dl] ![LoC][lo] ![Tests][btl] ![Lints][bll] ![no_std][bnl]
+[![Discord][dci]][dcl] [![Crates.io][ci]][cl] ![MIT/Apache][li] [![docs.rs][di]][dl] ![LoC][lo] ![Tests][btl] ![Lints][bll]
 
 [ci]: https://img.shields.io/crates/v/akaze.svg
 [cl]: https://crates.io/crates/akaze/
