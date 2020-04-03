@@ -22,6 +22,8 @@ AKAZE feature extraction algorithm for computer vision
 
 Implementation of AKAZE based on the one by indianajohn. He gave me permission to copy this here and work from that.
 
+See `tests/estimate_pose.rs` for a demonstration on how to use this crate.
+
 This crate adds several optimizations (using ndarray) to the original implementation and integrates directly into the rust-cv ecosystem for ease-of-use. This crate does not currently use threading to speed anything up, but it might be added as a Cargo feature in the future.
 
 The original implementation can be found here: https://github.com/pablofdezalc/akaze

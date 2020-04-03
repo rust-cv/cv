@@ -27,6 +27,7 @@ fn estimate_pose() {
         skew: 0.0,
     };
 
+    // Extract features with AKAZE.
     info!("Extracting features");
     let (kps1, ds1) = image_to_kps("res/0000000000.png");
     let (kps2, ds2) = image_to_kps("res/0000000014.png");
@@ -36,6 +37,7 @@ fn estimate_pose() {
     assert_eq!(ds1.len(), 575);
     assert_eq!(ds2.len(), 497);
 
+    // Perform matching.
     info!(
         "Running matching on {} and {} descriptors",
         ds1.len(),
