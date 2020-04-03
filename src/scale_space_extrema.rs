@@ -1,7 +1,6 @@
 use crate::evolution::EvolutionStep;
 use crate::{Config, Keypoint};
 use log::*;
-use nalgebra::{Matrix2, Vector2, LU};
 use std::f32::consts::PI;
 
 /// Compute scale space extrema to get the detector response.
@@ -163,13 +162,20 @@ fn do_subpixel_refinement(
         let d_xx = x_p + x_m - 2f32 * x_i;
         let d_yy = y_p + y_m - 2f32 * x_i;
         let d_xy = 0.25f32 * (x_p_y_p + x_m_y_m) - 0.25f32 * (x_p_y_m + x_m_y_p);
-        let a = Matrix2::new(d_xx, d_xy, d_xy, d_yy);
-        let b = Vector2::new(-d_x, -d_y);
-        let lu = LU::new(a);
-        lu.solve(&b);
-        if f32::abs(b[0]) <= 1.0 && f32::abs(b[1]) <= 1.0 {
+        let inv_det_a = (d_xx * d_yy - d_xy * d_xy).recip();
+        let inv_a = [
+            inv_det_a * d_yy,
+            inv_det_a * -d_xy,
+            inv_det_a * -d_xy,
+            inv_det_a * d_xx,
+        ];
+        let dst = [
+            -d_x * inv_a[0] + -d_y * inv_a[1],
+            -d_x * inv_a[2] + -d_y * inv_a[3],
+        ];
+        if f32::abs(dst[0]) <= 1.0 && f32::abs(dst[1]) <= 1.0 {
             let mut keypoint_clone = *keypoint;
-            keypoint_clone.point = ((x as f32) + b[0], (y as f32) + b[1]);
+            keypoint_clone.point = ((x as f32) + dst[0], (y as f32) + dst[1]);
             keypoint_clone.point = (
                 keypoint_clone.point.0 * ratio + 0.5f32 * (ratio - 1f32),
                 keypoint_clone.point.1 * ratio + 0.5f32 * (ratio - 1f32),

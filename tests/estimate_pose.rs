@@ -34,7 +34,7 @@ fn estimate_pose() {
     // This ensures the underlying algorithm does not change
     // by making sure that we get the exact expected number of features.
     assert_eq!(ds1.len(), 575);
-    assert_eq!(ds2.len(), 498);
+    assert_eq!(ds2.len(), 497);
 
     info!(
         "Running matching on {} and {} descriptors",
@@ -50,7 +50,7 @@ fn estimate_pose() {
         })
         .collect();
     info!("Finished matching with {} matches", matches.len());
-    assert_eq!(matches.len(), 32);
+    assert_eq!(matches.len(), 35);
 
     // Run ARRSAC with the eight-point algorithm.
     info!("Running ARRSAC");
@@ -66,7 +66,7 @@ fn estimate_pose() {
     );
 
     // Ensures the underlying algorithms don't change at all.
-    assert_eq!(inliers.len(), 32);
+    assert_eq!(inliers.len(), 35);
 }
 
 fn match_descriptors(ds1: &[Descriptor], ds2: &[Descriptor]) -> Vec<(usize, usize)> {
