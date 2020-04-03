@@ -30,4 +30,4 @@ The original implementation can be found here: https://github.com/pablofdezalc/a
 
 The previous rust implementation can be found here: https://github.com/indianajohn/akaze-rust
 
-The main site for the algorithm is normally [here](http://www.robesafe.com/personal/pablo.alcantarilla/kaze.html), but it was down, so I found another link to the paper: http://tulipp.eu/wp-content/uploads/2019/03/2017_TUD_HEART_kalms.pdf
+The main site for the algorithm is normally [here](http://www.robesafe.com/personal/pablo.alcantarilla/kaze.html), but it was down, so I found another link to the paper: http://www.bmva.org/bmvc/2013/Papers/paper0013/paper0013.pdf
