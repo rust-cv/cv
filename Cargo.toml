@@ -1,8 +1,15 @@
 [package]
 name = "akaze"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
+description = "AKAZE feature extraction algorithm for computer vision"
+keywords = ["keypoint", "descriptor", "vision", "sfm", "slam"]
+categories = ["computer-vision", "science::robotics"]
+repository = "https://github.com/rust-cv/akaze"
+documentation = "https://docs.rs/akaze/"
+license = "MIT"
+readme = "README.md"
 
 [dependencies]
 image = { version = "0.23.2", default-features = false }

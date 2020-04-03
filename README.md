@@ -20,7 +20,7 @@
 
 AKAZE feature extraction algorithm for computer vision
 
-Implementation of AKAZE based on the one by indianajohn. He gave me permission to copy this here and work from that.
+Implementation of AKAZE based on the one by indianajohn. He gave me permission to copy this here and work from that, as his job conflicts with maintainership. The crate is greatly changed from the original.
 
 See `tests/estimate_pose.rs` for a demonstration on how to use this crate.
 
