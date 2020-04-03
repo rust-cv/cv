@@ -8,26 +8,21 @@ edition = "2018"
 image = { version = "0.23.2", default-features = false }
 log = { version = "0.4.8", default-features = false }
 primal = { version = "0.2.3", default-features = false }
-scoped_threadpool = { version = "0.1.9", default-features = false }
-num_cpus = { version = "1.12.0", default-features = false }
 cv-core = { version = "0.9.1", default-features = false }
 derive_more = { version = "0.99.5", default-features = false }
 ndarray-image = { version = "0.2.1", default-features = false }
 ndarray = { version = "0.13.0", default-features = false }
 float-ord = { version = "0.2.0", default-features = false }
-itertools = { version = "0.9.0", default-features = false }
 space = { version = "0.10.3", features = ["simd-hamming"] }
 
 
 [dev-dependencies]
-approx = "0.3.2"
 eight-point = "0.3.0"
 arrsac = "0.3.0"
 cv-core = { version = "0.9.1", features = ["pinhole"] }
 space = { version = "0.10.3", features = ["simd"] }
 rand = "0.7.3"
 rand_pcg = "0.2.1"
-env_logger = "0.7.1"
 criterion = "0.3.1"
 pretty_env_logger = "0.4.0"
 image = "0.23.2"
