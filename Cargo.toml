@@ -3,6 +3,13 @@ name = "cv"
 version = "0.1.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
+description = "Batteries-included pure-Rust computer vision crate"
+keywords = ["computer", "vision", "photogrammetry", "camera"]
+categories = ["computer-vision"]
+repository = "https://github.com/rust-cv/cv"
+documentation = "https://docs.rs/cv/"
+license = "MIT"
+readme = "README.md"
 
 [features]
 default = [
