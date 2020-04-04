@@ -1,0 +1,25 @@
+[package]
+name = "cv"
+version = "0.1.0"
+authors = ["Geordon Worley <vadixidav@gmail.com>"]
+edition = "2018"
+
+[features]
+default = [
+    "pinhole",
+    "akaze",
+    "eight-point",
+    "levenberg-marquardt",
+    "arrsac",
+    "hnsw"
+]
+pinhole = ["cv-core/pinhole"]
+
+[dependencies]
+cv-core = "0.9.1"
+space = "0.10.3"
+akaze = { version = "0.2.0", optional = true }
+eight-point = { version = "0.3.0", optional = true }
+levenberg-marquardt = { version = "0.4.0", optional = true }
+arrsac = { version = "0.3.0", optional = true }
+hnsw = { version = "0.6.1", optional = true }
