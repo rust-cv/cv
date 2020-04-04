@@ -1,6 +1,5 @@
 use crate::image::{fill_border, GrayFloatImage};
-use ndarray::{s, Array2};
-use ndarray_image::{NdGray, NdImage};
+use ndarray::{s, Array2, ArrayView2, ArrayViewMut2};
 
 /// Compute the Scharr derivative horizontally
 ///
@@ -54,8 +53,8 @@ pub fn scharr_vertical(image: &GrayFloatImage, sigma_size: u32) -> GrayFloatImag
 
 /// Multiplies and accumulates
 fn accumulate_mul_offset(
-    accumulator: &mut Array2<f32>,
-    source: &NdGray<f32>,
+    mut accumulator: ArrayViewMut2<f32>,
+    source: ArrayView2<f32>,
     val: f32,
     border: usize,
     xoff: usize,
@@ -92,7 +91,6 @@ fn scharr_axis(
     dir: FilterDirection,
     order: FilterOrder,
 ) -> GrayFloatImage {
-    let input: NdGray<f32> = NdImage(&image.0).into();
     let mut output = Array2::<f32>::zeros([image.height(), image.width()]);
     // Get the border size (we wont fill in this border width of the output).
     let border = sigma_size as usize;
@@ -121,7 +119,7 @@ fn scharr_axis(
 
     // Accumulate the three components.
     for (val, [x, y]) in offsets {
-        accumulate_mul_offset(&mut output, &input, val, border, x, y);
+        accumulate_mul_offset(output.view_mut(), image.ref_array2(), val, border, x, y);
     }
     let mut output = GrayFloatImage::from_array2(output);
     fill_border(&mut output, border);
