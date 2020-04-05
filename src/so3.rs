@@ -8,6 +8,8 @@ pub struct Skew3(pub Vector3<f64>);
 
 impl Skew3 {
     /// This converts a matrix in skew-symmetric form into a Skew3.
+    ///
+    /// Warning: Does no check to ensure matrix is actually skew-symmetric.
     pub fn vee(mat: Matrix3<f64>) -> Self {
         Self(Vector3::new(mat.m32, mat.m13, mat.m21))
     }
