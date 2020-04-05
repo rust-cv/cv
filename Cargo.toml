@@ -24,3 +24,4 @@ derive_more = "0.99.3"
 sample-consensus = "0.2.0"
 float-ord = "0.2.0"
 libm = "0.2.1"
+num-traits = { version = "0.2.11", default-features = false }

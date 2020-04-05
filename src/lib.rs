@@ -23,6 +23,7 @@ pub mod geom;
 mod keypoint;
 mod matches;
 mod pose;
+mod so3;
 mod world;
 
 pub use camera::*;
@@ -31,4 +32,5 @@ pub use matches::*;
 pub use nalgebra;
 pub use pose::*;
 pub use sample_consensus;
+pub use so3::*;
 pub use world::*;
