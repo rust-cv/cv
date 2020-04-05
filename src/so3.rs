@@ -17,12 +17,7 @@ impl Skew3 {
     /// This converts the Skew3 into its skew-symmetric matrix form.
     #[rustfmt::skip]
     pub fn hat(self) -> Matrix3<f64> {
-        let w = self.0;
-        Matrix3::new(
-            0.0,  -w.z,   w.y,
-            w.z,   0.0,  -w.x,
-           -w.y,   w.x,   0.0,
-       )
+        self.0.cross_matrix()
     }
 
     /// This converts the Skew3 into its squared skew-symmetric matrix form efficiently.
@@ -40,6 +35,32 @@ impl Skew3 {
              w12,          -w11 - w33,     w23,
              w13,           w23,          -w11 - w22,
         )
+    }
+
+    /// The jacobian of the output of a rotation in respect to the
+    /// input of a rotation.
+    ///
+    /// `y = R * x`
+    ///
+    /// `dy/dx = R`
+    ///
+    /// The formula is pretty simple and is just the rotation matrix created
+    /// from the exponential map of this so(3) element into SO(3).
+    pub fn jacobian_output_to_input(self) -> Matrix3<f64> {
+        let rotation: Rotation3<f64> = self.into();
+        rotation.into()
+    }
+
+    /// The jacobian of the output of a rotation in respect to the
+    /// rotation itself.
+    ///
+    /// `y = R * x`
+    ///
+    /// `dy/dR = -hat(y)`
+    ///
+    /// The derivative is purely based on the current output vector, and thus doesn't take `self`.
+    pub fn jacobian_output_to_self(y: Vector3<f64>) -> Matrix3<f64> {
+        -y.cross_matrix()
     }
 }
 
