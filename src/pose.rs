@@ -3,6 +3,7 @@ use crate::pinhole;
 use crate::{Bearing, CameraPoint, FeatureMatch, FeatureWorldMatch, WorldPoint};
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use nalgebra::{IsometryMatrix3, Matrix3, Point3, Rotation3, Vector3, SVD};
+use num_traits::Float;
 use sample_consensus::Model;
 
 /// This contains a world pose, which is a pose of the world relative to the camera.
@@ -178,7 +179,7 @@ impl Model<FeatureMatch<pinhole::NormalizedKeyPoint>> for EssentialMatrix {
         let FeatureMatch(pinhole::NormalizedKeyPoint(a), pinhole::NormalizedKeyPoint(b)) = *data;
 
         // The result is a 1x1 matrix which we must get element 0 from.
-        libm::fabsf((b.to_homogeneous().transpose() * mat * a.to_homogeneous())[0] as f32)
+        Float::abs((b.to_homogeneous().transpose() * mat * a.to_homogeneous())[0] as f32)
     }
 }
 
