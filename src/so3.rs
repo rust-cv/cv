@@ -1,4 +1,12 @@
-use nalgebra::{Matrix3, Rotation3, Unit, Vector3};
+// use alga::{
+//     general::{Id, Identity, Multiplicative},
+//     linear::{
+//         AffineTransformation, DirectIsometry, Isometry, OrthogonalTransformation,
+//         ProjectiveTransformation, Rotation, Similarity,
+//     },
+// };
+use core::ops::{Mul, MulAssign};
+use nalgebra::{dimension::U3, AbstractRotation, Matrix3, Point3, Rotation3, Unit, Vector3};
 use num_traits::Float;
 
 /// Contains a member of the lie algebra so(3), a representation of the tangent space
@@ -7,6 +15,11 @@ use num_traits::Float;
 pub struct Skew3(pub Vector3<f64>);
 
 impl Skew3 {
+    /// Converts the Skew3 to a Rotation3 matrix.
+    pub fn rotation(self) -> Rotation3<f64> {
+        self.into()
+    }
+
     /// This converts a matrix in skew-symmetric form into a Skew3.
     ///
     /// Warning: Does no check to ensure matrix is actually skew-symmetric.
@@ -35,6 +48,11 @@ impl Skew3 {
              w12,          -w11 - w33,     w23,
              w13,           w23,          -w11 - w22,
         )
+    }
+
+    /// Computes the lie bracket [self, rhs].
+    pub fn bracket(self, rhs: Self) -> Self {
+        Self::vee(self.hat() * rhs.hat() - rhs.hat() * self.hat())
     }
 
     /// The jacobian of the output of a rotation in respect to the
@@ -66,8 +84,10 @@ impl Skew3 {
 
 impl From<Skew3> for Rotation3<f64> {
     fn from(w: Skew3) -> Self {
+        // This check is done to avoid the degenerate case where the angle is near zero.
         let theta2 = w.0.norm_squared();
         if theta2 <= f64::epsilon() {
+            // TODO: This can possibly be improved with a better approximation.
             Self::identity()
         } else {
             let theta = theta2.sqrt();
@@ -80,5 +100,56 @@ impl From<Skew3> for Rotation3<f64> {
 impl From<Rotation3<f64>> for Skew3 {
     fn from(r: Rotation3<f64>) -> Self {
         Self(r.scaled_axis())
+    }
+}
+
+impl Mul for Skew3 {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self {
+        (self.rotation() * rhs.rotation()).into()
+    }
+}
+
+impl MulAssign for Skew3 {
+    fn mul_assign(&mut self, rhs: Self) {
+        *self = *self * rhs;
+    }
+}
+
+impl AbstractRotation<f64, U3> for Skew3 {
+    #[inline]
+    fn identity() -> Self {
+        Self(Vector3::zeros())
+    }
+
+    #[inline]
+    fn inverse(&self) -> Self {
+        Self(-self.0)
+    }
+
+    #[inline]
+    fn inverse_mut(&mut self) {
+        self.0 = -self.0;
+    }
+
+    #[inline]
+    fn transform_vector(&self, v: &Vector3<f64>) -> Vector3<f64> {
+        self.rotation().transform_vector(v)
+    }
+
+    #[inline]
+    fn transform_point(&self, p: &Point3<f64>) -> Point3<f64> {
+        self.rotation().transform_point(p)
+    }
+
+    #[inline]
+    fn inverse_transform_vector(&self, v: &Vector3<f64>) -> Vector3<f64> {
+        self.inverse().rotation().transform_vector(v)
+    }
+
+    #[inline]
+    fn inverse_transform_point(&self, p: &Point3<f64>) -> Point3<f64> {
+        self.inverse().rotation().inverse_transform_point(p)
     }
 }
