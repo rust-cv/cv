@@ -5,6 +5,7 @@ use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use nalgebra::{
     IsometryMatrix3, Matrix3, Matrix3x2, Matrix6x2, Matrix6x3, Point3, Rotation3, Vector3, SVD,
 };
+#[cfg(feature = "pinhole")]
 use num_traits::Float;
 use sample_consensus::Model;
 
