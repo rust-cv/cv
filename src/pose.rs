@@ -1,8 +1,10 @@
 #[cfg(feature = "pinhole")]
 use crate::pinhole;
-use crate::{Bearing, CameraPoint, FeatureMatch, FeatureWorldMatch, WorldPoint};
+use crate::{Bearing, CameraPoint, FeatureMatch, FeatureWorldMatch, Skew3, WorldPoint};
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
-use nalgebra::{IsometryMatrix3, Matrix3, Point3, Rotation3, Vector3, SVD};
+use nalgebra::{
+    IsometryMatrix3, Matrix3, Matrix3x2, Matrix6x2, Matrix6x3, Point3, Rotation3, Vector3, SVD,
+};
 use num_traits::Float;
 use sample_consensus::Model;
 
@@ -31,6 +33,58 @@ impl WorldPose {
     pub fn transform(&self, WorldPoint(point): WorldPoint) -> CameraPoint {
         let WorldPose(iso) = *self;
         CameraPoint(iso * point)
+    }
+
+    /// Computes the Jacobian of the projection in respect to the `WorldPose`.
+    ///
+    /// The Jacobian is in the format:
+    /// ```no_build,no_run
+    /// | dx/dtx dy/dPx |
+    /// | dx/dty dy/dPy |
+    /// | dx/dtz dy/dPz |
+    /// | dx/dwx dy/dwx |
+    /// | dx/dwy dy/dwy |
+    /// | dx/dwz dy/dwz |
+    /// ```
+    ///
+    /// Where `t` refers to the translation vector and
+    /// `w` refers to the log map of the rotation in so(3).
+    #[rustfmt::skip]
+    pub fn projection_pose_jacobian(&self, point: WorldPoint) -> Matrix6x2<f64> {
+        // World point (input)
+        let p = point.0.coords;
+        // Camera point (intermediate output)
+        let pc = (self.0 * point.0).coords;
+
+        // dP/dT (Jacobian of camera point in respect to translation component)
+        let dp_dt = Matrix3::<f64>::identity();
+
+        // dP/dR
+        let dp_dr = Skew3::jacobian_output_to_self(p);
+
+        // dP/dT,Q (Jacobian of 3d camera point in respect to translation and quaternion)
+        let dp_dtq = Matrix6x3::<f64>::from_rows(&[
+            dp_dt.row(0),
+            dp_dt.row(1),
+            dp_dt.row(2),
+            dp_dr.row(0),
+            dp_dr.row(1),
+            dp_dr.row(2),
+        ]);
+
+        // 1 / pz
+        let pcz = pc.z.recip();
+        // - 1 / pz^2
+        let npcz2 = -(pcz * pcz);
+
+        // dK/dp (Jacobian of normalized image coordinate in respect to 3d camera point)
+        let dk_dp = Matrix3x2::new(
+            pcz,    0.0,
+            0.0,    pcz,
+            npcz2,  npcz2,
+        );
+
+        dp_dtq * dk_dp
     }
 }
 

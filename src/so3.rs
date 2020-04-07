@@ -78,7 +78,7 @@ impl Skew3 {
     ///
     /// The derivative is purely based on the current output vector, and thus doesn't take `self`.
     pub fn jacobian_output_to_self(y: Vector3<f64>) -> Matrix3<f64> {
-        -y.cross_matrix()
+        (-y).cross_matrix()
     }
 }
 
