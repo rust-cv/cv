@@ -52,16 +52,16 @@ impl WorldPose {
     /// `w` refers to the log map of the rotation in so(3).
     #[rustfmt::skip]
     pub fn projection_pose_jacobian(&self, point: WorldPoint) -> Matrix6x2<f64> {
-        // World point (input)
-        let p = point.0.coords;
-        // Camera point (intermediate output)
+        // Rotated point (intermediate output)
+        let pr = (self.0.rotation * point.0).coords;
+        // Camera point/rotated and translated point (intermediate output)
         let pc = (self.0 * point.0).coords;
 
         // dP/dT (Jacobian of camera point in respect to translation component)
         let dp_dt = Matrix3::<f64>::identity();
 
         // dP/dR
-        let dp_dr = Skew3::jacobian_output_to_self(p);
+        let dp_dr = Skew3::jacobian_output_to_self(pr);
 
         // dP/dT,Q (Jacobian of 3d camera point in respect to translation and quaternion)
         let dp_dtq = Matrix6x3::<f64>::from_rows(&[
