@@ -82,6 +82,7 @@ impl Skew3 {
     }
 }
 
+/// This is the exponential map.
 impl From<Skew3> for Rotation3<f64> {
     fn from(w: Skew3) -> Self {
         // This check is done to avoid the degenerate case where the angle is near zero.
@@ -96,6 +97,7 @@ impl From<Skew3> for Rotation3<f64> {
     }
 }
 
+/// This is the log map.
 impl From<Rotation3<f64>> for Skew3 {
     fn from(r: Rotation3<f64>) -> Self {
         Self(r.scaled_axis())
