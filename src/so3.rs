@@ -87,8 +87,7 @@ impl From<Skew3> for Rotation3<f64> {
         // This check is done to avoid the degenerate case where the angle is near zero.
         let theta2 = w.0.norm_squared();
         if theta2 <= f64::epsilon() {
-            // TODO: This can possibly be improved with a better approximation.
-            Self::identity()
+            Rotation3::from_matrix(&(Matrix3::identity() + w.hat()))
         } else {
             let theta = theta2.sqrt();
             let axis = Unit::new_unchecked(w.0 / theta);
