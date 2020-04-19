@@ -7,16 +7,16 @@ edition = "2018"
 [dependencies]
 cv-core = "0.9.1"
 eight-point = "0.3.0"
-structopt = "0.3.12"
-serde = { version = "1.0.105", features = ["derive"] }
-akaze = { git = "https://github.com/rust-cv/akaze.git" }
-image = "0.23.2"
+structopt = "0.3.13"
+serde = { version = "1.0.106", features = ["derive"] }
+image = "0.23.3"
 arrsac = "0.3.0"
 rand = "0.7.3"
 rand_pcg = "0.2.1"
 log = "0.4.8"
 space = { version = "0.10.3", features = ["simd-hamming"] }
 pretty_env_logger = "0.4.0"
+akaze = "0.2.0"
 
 [profile.release]
 lto = true
