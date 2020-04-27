@@ -1,0 +1,9 @@
+[package]
+name = "cv-optimize"
+version = "0.1.0"
+authors = ["Geordon Worley <vadixidav@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+levenberg-marquardt = { git = "https://github.com/jannschu/levenberg-marquardt.git", rev = "minpack-rewrite" }
+cv-core = "0.9.1"
