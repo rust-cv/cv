@@ -1,6 +1,7 @@
 use crate::{Bearing, CameraModel, CameraPoint, ImagePoint, KeyPoint};
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use nalgebra::{Matrix3, Point2, Vector2, Vector3};
+use num_traits::Float;
 
 /// A point in normalized image coordinates. This keypoint has been corrected
 /// for distortion and normalized based on the camrea intrinsic matrix.
@@ -164,6 +165,96 @@ impl CameraModel for CameraIntrinsics {
         let x = projection.x * self.focals.x + self.skew * projection.y;
         let centered = Point2::new(x, y);
         KeyPoint(centered + self.principal_point.coords)
+    }
+}
+
+/// This contains intrinsic camera parameters as per
+/// [this Wikipedia page](https://en.wikipedia.org/wiki/Camera_resectioning#Intrinsic_parameters).
+///
+/// This also performs undistortion by applying one radial distortion coefficient (K1).
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct SimpleRadialDistortionCameraIntrinsics {
+    pub simple_intrinsics: CameraIntrinsics,
+    pub k1: f64,
+}
+
+impl SimpleRadialDistortionCameraIntrinsics {
+    pub fn new(simple_intrinsics: CameraIntrinsics, k1: f64) -> Self {
+        Self {
+            simple_intrinsics,
+            k1,
+        }
+    }
+}
+
+impl CameraModel for SimpleRadialDistortionCameraIntrinsics {
+    type Projection = NormalizedKeyPoint;
+
+    /// Takes in a point from an image in pixel coordinates and
+    /// converts it to a [`NormalizedKeyPoint`].
+    ///
+    /// ```
+    /// # use cv_core::{KeyPoint, CameraModel};
+    /// # use cv_core::pinhole::{NormalizedKeyPoint, CameraIntrinsics, SimpleRadialDistortionCameraIntrinsics};
+    /// # use cv_core::nalgebra::{Vector2, Vector3, Point2};
+    /// let intrinsics = CameraIntrinsics {
+    ///     focals: Vector2::new(800.0, 900.0),
+    ///     principal_point: Point2::new(500.0, 600.0),
+    ///     skew: 1.7,
+    /// };
+    /// let k1 = -0.164624;
+    /// let intrinsics = SimpleRadialDistortionCameraIntrinsics::new(
+    ///     intrinsics,
+    ///     k1,
+    /// );
+    /// let kp = KeyPoint(Point2::new(471.0, 322.0));
+    /// let nkp = intrinsics.calibrate(kp);
+    /// let simple_nkp = intrinsics.simple_intrinsics.calibrate(kp);
+    /// let distance = (nkp.0.coords - (simple_nkp.0.coords / (1.0 + k1 * simple_nkp.0.coords.norm_squared()))).norm();
+    /// assert!(distance < 0.1);
+    /// ```
+    fn calibrate<P>(&self, point: P) -> NormalizedKeyPoint
+    where
+        P: ImagePoint,
+    {
+        let NormalizedKeyPoint(distorted) = self.simple_intrinsics.calibrate(point);
+        let r2 = distorted.coords.norm_squared();
+        let undistorted = (distorted.coords / (1.0 + self.k1 * r2)).into();
+
+        NormalizedKeyPoint(undistorted)
+    }
+
+    /// Converts a [`NormalizedKeyPoint`] back into pixel coordinates.
+    ///
+    /// ```
+    /// # use cv_core::{KeyPoint, CameraModel};
+    /// # use cv_core::pinhole::{NormalizedKeyPoint, CameraIntrinsics, SimpleRadialDistortionCameraIntrinsics};
+    /// # use cv_core::nalgebra::{Vector2, Vector3, Point2};
+    /// let intrinsics = CameraIntrinsics {
+    ///     focals: Vector2::new(800.0, 900.0),
+    ///     principal_point: Point2::new(500.0, 600.0),
+    ///     skew: 1.7,
+    /// };
+    /// let intrinsics = SimpleRadialDistortionCameraIntrinsics::new(
+    ///     intrinsics,
+    ///     -0.164624,
+    /// );
+    /// let kp = KeyPoint(Point2::new(471.0, 322.0));
+    /// let nkp = intrinsics.calibrate(kp);
+    /// let ukp = intrinsics.uncalibrate(nkp);
+    /// assert!((kp.0 - ukp.0).norm() < 1e-6, "{:?}", (kp.0 - ukp.0).norm());
+    /// ```
+    fn uncalibrate(&self, projection: NormalizedKeyPoint) -> KeyPoint {
+        let NormalizedKeyPoint(undistorted) = projection;
+        // This was not easy to compute, but you can set up a quadratic to solve
+        // for r^2 with the undistorted keypoint. This is the result.
+        let u2 = undistorted.coords.norm_squared();
+        // This is actually r^2 * k1.
+        let r2_mul_k1 = -(2.0 * self.k1 * u2 + Float::sqrt(1.0 - 4.0 * self.k1 * u2) - 1.0)
+            / (2.0 * self.k1 * u2);
+        self.simple_intrinsics.uncalibrate(NormalizedKeyPoint(
+            (undistorted.coords * (1.0 + r2_mul_k1)).into(),
+        ))
     }
 }
 
