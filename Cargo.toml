@@ -5,5 +5,6 @@ authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-levenberg-marquardt = { git = "https://github.com/jannschu/levenberg-marquardt.git", rev = "minpack-rewrite" }
-cv-core = "0.9.1"
+levenberg-marquardt = "0.5.0"
+cv-core = "0.10.0"
+nalgebra = { version = "0.21.0", features = ["alloc"], default-features = false }
