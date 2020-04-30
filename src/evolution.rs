@@ -1,4 +1,4 @@
-use crate::{fed_tau, Config, GrayFloatImage};
+use crate::{fed_tau, Akaze, GrayFloatImage};
 use log::*;
 
 #[derive(Debug)]
@@ -43,7 +43,7 @@ impl EvolutionStep {
     /// * `octave` - The target octave.
     /// * `octave` - The target sublevel.
     /// * `options` - The options to use.
-    fn new(octave: u32, sublevel: u32, options: Config) -> EvolutionStep {
+    fn new(octave: u32, sublevel: u32, options: &Akaze) -> EvolutionStep {
         let esigma = options.base_scale_offset
             * f64::powf(
                 2.0f64,
@@ -70,56 +70,58 @@ impl EvolutionStep {
     }
 }
 
-/// Allocate and calculate prerequisites to the construction of a scale space.
-///
-/// # Arguments
-/// `width` - The width of the input image.
-/// `height` - The height of the input image.
-/// `options` - The configuration to use.
-pub fn allocate_evolutions(width: u32, height: u32, options: Config) -> Vec<EvolutionStep> {
-    let mut evolutions: Vec<EvolutionStep> = (0..options.max_octave_evolution)
-        .filter_map(|octave| {
-            let rfactor = 2.0f64.powi(-(octave as i32));
-            let level_height = (f64::from(height) * rfactor) as u32;
-            let level_width = (f64::from(width) * rfactor) as u32;
-            let smallest_dim = std::cmp::min(level_width, level_height);
-            // If the smallest dim is less than 40, terminate as we cannot detect features
-            // at a scale that small.
-            if smallest_dim < 40 {
-                None
-            } else {
-                // At a smallest dimension size between 80, only include one sublevel,
-                // as the amount of information in the image is limited.
-                let sublevels = if smallest_dim < 80 {
-                    1
+impl Akaze {
+    /// Allocate and calculate prerequisites to the construction of a scale space.
+    ///
+    /// # Arguments
+    /// `width` - The width of the input image.
+    /// `height` - The height of the input image.
+    /// `options` - The configuration to use.
+    pub fn allocate_evolutions(&self, width: u32, height: u32) -> Vec<EvolutionStep> {
+        let mut evolutions: Vec<EvolutionStep> = (0..self.max_octave_evolution)
+            .filter_map(|octave| {
+                let rfactor = 2.0f64.powi(-(octave as i32));
+                let level_height = (f64::from(height) * rfactor) as u32;
+                let level_width = (f64::from(width) * rfactor) as u32;
+                let smallest_dim = std::cmp::min(level_width, level_height);
+                // If the smallest dim is less than 40, terminate as we cannot detect features
+                // at a scale that small.
+                if smallest_dim < 40 {
+                    None
                 } else {
-                    options.num_sublevels
-                };
-                // Return the sublevels.
-                Some(
-                    (0..sublevels)
-                        .map(move |sublevel| EvolutionStep::new(octave, sublevel, options)),
-                )
-            }
-        })
-        .flatten()
-        .collect();
-    // We need to set the tau steps.
-    // This is used to produce each evolution.
-    // Each tau corresponds to one diffusion time step.
-    // In FED (Fast Explicit Diffusion) earlier time steps are smaller
-    // because they are more unstable. Once it becomes more stable, the time
-    // steps become larger.
-    for i in 1..evolutions.len() {
-        // Comute the total difference in time between evolutions.
-        let ttime = evolutions[i].etime - evolutions[i - 1].etime;
-        // Compute the separate tau steps and assign it to the evolution.
-        evolutions[i].fed_tau_steps = fed_tau::fed_tau_by_process_time(ttime, 1, 0.25, true);
-        debug!(
-            "{} steps in evolution {}.",
-            evolutions[i].fed_tau_steps.len(),
-            i
-        );
+                    // At a smallest dimension size between 80, only include one sublevel,
+                    // as the amount of information in the image is limited.
+                    let sublevels = if smallest_dim < 80 {
+                        1
+                    } else {
+                        self.num_sublevels
+                    };
+                    // Return the sublevels.
+                    Some(
+                        (0..sublevels)
+                            .map(move |sublevel| EvolutionStep::new(octave, sublevel, self)),
+                    )
+                }
+            })
+            .flatten()
+            .collect();
+        // We need to set the tau steps.
+        // This is used to produce each evolution.
+        // Each tau corresponds to one diffusion time step.
+        // In FED (Fast Explicit Diffusion) earlier time steps are smaller
+        // because they are more unstable. Once it becomes more stable, the time
+        // steps become larger.
+        for i in 1..evolutions.len() {
+            // Comute the total difference in time between evolutions.
+            let ttime = evolutions[i].etime - evolutions[i - 1].etime;
+            // Compute the separate tau steps and assign it to the evolution.
+            evolutions[i].fed_tau_steps = fed_tau::fed_tau_by_process_time(ttime, 1, 0.25, true);
+            debug!(
+                "{} steps in evolution {}.",
+                evolutions[i].fed_tau_steps.len(),
+                i
+            );
+        }
+        evolutions
     }
-    evolutions
 }

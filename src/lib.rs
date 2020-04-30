@@ -59,7 +59,7 @@ impl ImagePoint for KeyPoint {
 /// [`Config::dense`]. The default value of `detector_threshold` is `0.001`.
 ///
 #[derive(Debug, Copy, Clone)]
-pub struct Config {
+pub struct Akaze {
     /// Default number of sublevels per scale level
     pub num_sublevels: u32,
 
@@ -91,7 +91,7 @@ pub struct Config {
     pub descriptor_pattern_size: usize,
 }
 
-impl Config {
+impl Akaze {
     /// This convenience constructor is provided for the very common case
     /// that the detector threshold needs to be modified.
     pub fn new(threshold: f64) -> Self {
@@ -116,9 +116,9 @@ impl Config {
     }
 }
 
-impl Default for Config {
-    fn default() -> Config {
-        Config {
+impl Default for Akaze {
+    fn default() -> Akaze {
+        Akaze {
             num_sublevels: 4,
             max_octave_evolution: 4,
             base_scale_offset: 1.6f64,
@@ -133,145 +133,136 @@ impl Default for Config {
     }
 }
 
-/// A nonlinear scale space performs selective blurring to preserve edges.
-///
-/// # Arguments
-/// * `evolutions` - The output scale space.
-/// * `image` - The input image.
-/// * `options` - The options to use.
-fn create_nonlinear_scale_space(
-    evolutions: &mut Vec<EvolutionStep>,
-    image: &GrayFloatImage,
-    options: Config,
-) {
-    trace!("Creating first evolution.");
-    evolutions[0].Lt = gaussian_blur(image, options.base_scale_offset as f32);
-    trace!("Gaussian blur finished.");
-    evolutions[0].Lsmooth = evolutions[0].Lt.clone();
-    debug!(
-        "Convolving first evolution with sigma={} Gaussian.",
-        options.base_scale_offset
-    );
-    let mut contrast_factor = contrast_factor::compute_contrast_factor(
-        &evolutions[0].Lsmooth,
-        options.contrast_percentile,
-        1.0f64,
-        options.contrast_factor_num_bins,
-    );
-    trace!("Computing contrast factor finished.");
-    debug!(
-        "Contrast percentile={}, Num bins={}, Initial contrast factor={}",
-        options.contrast_percentile, options.contrast_factor_num_bins, contrast_factor
-    );
-    for i in 1..evolutions.len() {
-        trace!("Creating evolution {}.", i);
-        if evolutions[i].octave > evolutions[i - 1].octave {
-            evolutions[i].Lt = evolutions[i - 1].Lt.half_size();
-            trace!("Half-sizing done.");
-            contrast_factor *= 0.75;
-            debug!(
-                "New image size: {}x{}, new contrast factor: {}",
-                evolutions[i].Lt.width(),
-                evolutions[i].Lt.height(),
-                contrast_factor
-            );
-        } else {
-            evolutions[i].Lt = evolutions[i - 1].Lt.clone();
-        }
-        evolutions[i].Lsmooth = gaussian_blur(&evolutions[i].Lt, 1.0f32);
+impl Akaze {
+    /// A nonlinear scale space performs selective blurring to preserve edges.
+    ///
+    /// # Arguments
+    /// * `evolutions` - The output scale space.
+    /// * `image` - The input image.
+    fn create_nonlinear_scale_space(
+        &self,
+        evolutions: &mut Vec<EvolutionStep>,
+        image: &GrayFloatImage,
+    ) {
+        trace!("Creating first evolution.");
+        evolutions[0].Lt = gaussian_blur(image, self.base_scale_offset as f32);
         trace!("Gaussian blur finished.");
-        evolutions[i].Lx = derivatives::scharr_horizontal(&evolutions[i].Lsmooth, 1);
-        trace!("Computing derivative Lx done.");
-        evolutions[i].Ly = derivatives::scharr_vertical(&evolutions[i].Lsmooth, 1);
-        trace!("Computing derivative Ly done.");
-        evolutions[i].Lflow = pm_g2(&evolutions[i].Lx, &evolutions[i].Ly, contrast_factor);
-        trace!("Lflow finished.");
-        for j in 0..evolutions[i].fed_tau_steps.len() {
-            trace!("Starting diffusion step.");
-            let step_size = evolutions[i].fed_tau_steps[j];
-            nonlinear_diffusion::calculate_step(&mut evolutions[i], step_size as f32);
-            trace!("Diffusion step finished with step size {}", step_size);
+        evolutions[0].Lsmooth = evolutions[0].Lt.clone();
+        debug!(
+            "Convolving first evolution with sigma={} Gaussian.",
+            self.base_scale_offset
+        );
+        let mut contrast_factor = contrast_factor::compute_contrast_factor(
+            &evolutions[0].Lsmooth,
+            self.contrast_percentile,
+            1.0f64,
+            self.contrast_factor_num_bins,
+        );
+        trace!("Computing contrast factor finished.");
+        debug!(
+            "Contrast percentile={}, Num bins={}, Initial contrast factor={}",
+            self.contrast_percentile, self.contrast_factor_num_bins, contrast_factor
+        );
+        for i in 1..evolutions.len() {
+            trace!("Creating evolution {}.", i);
+            if evolutions[i].octave > evolutions[i - 1].octave {
+                evolutions[i].Lt = evolutions[i - 1].Lt.half_size();
+                trace!("Half-sizing done.");
+                contrast_factor *= 0.75;
+                debug!(
+                    "New image size: {}x{}, new contrast factor: {}",
+                    evolutions[i].Lt.width(),
+                    evolutions[i].Lt.height(),
+                    contrast_factor
+                );
+            } else {
+                evolutions[i].Lt = evolutions[i - 1].Lt.clone();
+            }
+            evolutions[i].Lsmooth = gaussian_blur(&evolutions[i].Lt, 1.0f32);
+            trace!("Gaussian blur finished.");
+            evolutions[i].Lx = derivatives::scharr_horizontal(&evolutions[i].Lsmooth, 1);
+            trace!("Computing derivative Lx done.");
+            evolutions[i].Ly = derivatives::scharr_vertical(&evolutions[i].Lsmooth, 1);
+            trace!("Computing derivative Ly done.");
+            evolutions[i].Lflow = pm_g2(&evolutions[i].Lx, &evolutions[i].Ly, contrast_factor);
+            trace!("Lflow finished.");
+            for j in 0..evolutions[i].fed_tau_steps.len() {
+                trace!("Starting diffusion step.");
+                let step_size = evolutions[i].fed_tau_steps[j];
+                nonlinear_diffusion::calculate_step(&mut evolutions[i], step_size as f32);
+                trace!("Diffusion step finished with step size {}", step_size);
+            }
         }
     }
-}
 
-/// Find image keypoints using the Akaze feature extractor.
-///
-/// # Arguments
-/// * `input_image` - An image from which to extract features.
-/// * `options` the options for the algorithm.
-/// # Return Value
-/// The resulting keypoints.
-///
-fn find_image_keypoints(evolutions: &mut Vec<EvolutionStep>, options: Config) -> Vec<KeyPoint> {
-    detector_response::detector_response(evolutions, options);
-    trace!("Computing detector response finished.");
-    scale_space_extrema::detect_keypoints(evolutions, options)
-}
+    /// Find image keypoints using the Akaze feature extractor.
+    ///
+    /// # Arguments
+    /// * `input_image` - An image from which to extract features.
+    /// * `options` the options for the algorithm.
+    /// # Return Value
+    /// The resulting keypoints.
+    ///
+    fn find_image_keypoints(&self, evolutions: &mut Vec<EvolutionStep>) -> Vec<KeyPoint> {
+        self.detector_response(evolutions);
+        trace!("Computing detector response finished.");
+        self.detect_keypoints(evolutions)
+    }
 
-/// Extract features using the Akaze feature extractor.
-///
-/// This performs all operations end-to-end. The client might be only interested
-/// in certain portions of the process, all of which are exposed in public functions,
-/// but this function can document how the various parts fit together.
-///
-/// # Arguments
-/// * `image` - The input image for which to extract features.
-/// * `options` - The options for the algorithm. Set this to `None` for default options.
-///
-/// Returns the keypoints and the descriptors.
-///
-/// # Example
-/// ```no_run
-/// use std::path::Path;
-/// let options = akaze::Config::default();
-/// let (keypoints, descriptors) = akaze::extract(
-///     &image::open("test-data/1.jpg").unwrap(),
-///     options,
-/// );
-/// ```
-///
-pub fn extract(
-    image: &DynamicImage,
-    options: impl Into<Option<Config>>,
-) -> (Vec<KeyPoint>, Vec<Hamming<Bits512>>) {
-    let options = options.into().unwrap_or_default();
-    let float_image = GrayFloatImage::from_dynamic(&image);
-    info!("Loaded a {} x {} image", image.width(), image.height());
-    let mut evolutions = evolution::allocate_evolutions(image.width(), image.height(), options);
-    create_nonlinear_scale_space(&mut evolutions, &float_image, options);
-    trace!("Creating scale space finished.");
-    let keypoints = find_image_keypoints(&mut evolutions, options);
-    let descriptors = descriptors::extract_descriptors(&evolutions, &keypoints, options);
-    trace!("Computing descriptors finished.");
-    (keypoints, descriptors)
-}
+    /// Extract features using the Akaze feature extractor.
+    ///
+    /// This performs all operations end-to-end. The client might be only interested
+    /// in certain portions of the process, all of which are exposed in public functions,
+    /// but this function can document how the various parts fit together.
+    ///
+    /// # Arguments
+    /// * `image` - The input image for which to extract features.
+    /// * `options` - The options for the algorithm. Set this to `None` for default options.
+    ///
+    /// Returns the keypoints and the descriptors.
+    ///
+    /// # Example
+    /// ```
+    /// use std::path::Path;
+    /// let akaze = akaze::Akaze::default();
+    /// let (keypoints, descriptors) = akaze.extract(&image::open("res/0000000000.png").unwrap());
+    /// ```
+    ///
+    pub fn extract(&self, image: &DynamicImage) -> (Vec<KeyPoint>, Vec<Hamming<Bits512>>) {
+        let float_image = GrayFloatImage::from_dynamic(&image);
+        info!("Loaded a {} x {} image", image.width(), image.height());
+        let mut evolutions = self.allocate_evolutions(image.width(), image.height());
+        self.create_nonlinear_scale_space(&mut evolutions, &float_image);
+        trace!("Creating scale space finished.");
+        let keypoints = self.find_image_keypoints(&mut evolutions);
+        let descriptors = self.extract_descriptors(&evolutions, &keypoints);
+        trace!("Computing descriptors finished.");
+        (keypoints, descriptors)
+    }
 
-/// Extract features using the Akaze feature extractor from an image on disk.
-///
-/// This performs all operations end-to-end. The client might be only interested
-/// in certain portions of the process, all of which are exposed in public functions,
-/// but this function can document how the various parts fit together.
-///
-/// # Arguments
-/// * `path` - The input image path for which to extract features.
-/// * `options` - The options for the algorithm. Set this to `None` for default options.
-///
-/// Returns an `ImageResult` of the keypoints and the descriptors.
-///
-/// # Examples
-/// ```no_run
-/// use std::path::Path;
-/// let options = akaze::Config::default();
-/// let (keypoints, descriptors) = akaze::extract_path(
-///     "test-data/1.jpg",
-///     options,
-/// ).unwrap();
-/// ```
-///
-pub fn extract_path(
-    path: impl AsRef<Path>,
-    options: impl Into<Option<Config>>,
-) -> ImageResult<(Vec<KeyPoint>, Vec<Hamming<Bits512>>)> {
-    Ok(extract(&::image::open(path)?, options))
+    /// Extract features using the Akaze feature extractor from an image on disk.
+    ///
+    /// This performs all operations end-to-end. The client might be only interested
+    /// in certain portions of the process, all of which are exposed in public functions,
+    /// but this function can document how the various parts fit together.
+    ///
+    /// # Arguments
+    /// * `path` - The input image path for which to extract features.
+    /// * `options` - The options for the algorithm. Set this to `None` for default options.
+    ///
+    /// Returns an `ImageResult` of the keypoints and the descriptors.
+    ///
+    /// # Examples
+    /// ```
+    /// use std::path::Path;
+    /// let akaze = akaze::Akaze::default();
+    /// let (keypoints, descriptors) = akaze.extract_path("res/0000000000.png").unwrap();
+    /// ```
+    ///
+    pub fn extract_path(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> ImageResult<(Vec<KeyPoint>, Vec<Hamming<Bits512>>)> {
+        Ok(self.extract(&::image::open(path)?))
+    }
 }

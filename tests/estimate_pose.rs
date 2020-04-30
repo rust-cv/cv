@@ -1,3 +1,4 @@
+use akaze::Akaze;
 use arrsac::{Arrsac, Config as ArrsacConfig};
 use cv_core::nalgebra::{Point2, Vector2};
 use cv_core::sample_consensus::Consensus;
@@ -14,7 +15,7 @@ type Descriptor = Hamming<Bits512>;
 type Match = FeatureMatch<cv_pinhole::NormalizedKeyPoint>;
 
 fn image_to_kps(path: impl AsRef<Path>) -> (Vec<akaze::KeyPoint>, Vec<Descriptor>) {
-    akaze::extract_path(path, akaze::Config::sparse()).unwrap()
+    Akaze::sparse().extract_path(path).unwrap()
 }
 
 #[test]
