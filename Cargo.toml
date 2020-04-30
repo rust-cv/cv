@@ -5,6 +5,6 @@ authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-cv-core = { git = "https://github.com/rust-cv/cv-core.git" }
-derive_more = "0.99.3"
+cv-core = "0.10.0"
+derive_more = "0.99.5"
 num-traits = { version = "0.2.11", default-features = false }
