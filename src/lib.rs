@@ -186,6 +186,7 @@ pub struct CameraIntrinsicsK1Distortion {
 }
 
 impl CameraIntrinsicsK1Distortion {
+    /// Creates the camera intrinsics using simple intrinsics with no distortion and a K1 distortion coefficient.
     pub fn new(simple_intrinsics: CameraIntrinsics, k1: f64) -> Self {
         Self {
             simple_intrinsics,
