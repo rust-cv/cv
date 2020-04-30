@@ -1,7 +1,7 @@
 use arrsac::{Arrsac, Config as ArrsacConfig};
 use cv_core::nalgebra::{Point2, Vector2};
 use cv_core::sample_consensus::Consensus;
-use cv_core::{pinhole, CameraModel, FeatureMatch};
+use cv_core::{CameraModel, FeatureMatch};
 use log::*;
 use rand::SeedableRng;
 use rand_pcg::Pcg64;
@@ -11,7 +11,7 @@ use std::path::Path;
 const LOWES_RATIO: f32 = 0.5;
 
 type Descriptor = Hamming<Bits512>;
-type Match = FeatureMatch<pinhole::NormalizedKeyPoint>;
+type Match = FeatureMatch<cv_pinhole::NormalizedKeyPoint>;
 
 fn image_to_kps(path: impl AsRef<Path>) -> (Vec<akaze::KeyPoint>, Vec<Descriptor>) {
     akaze::extract_path(path, akaze::Config::sparse()).unwrap()
@@ -21,7 +21,7 @@ fn image_to_kps(path: impl AsRef<Path>) -> (Vec<akaze::KeyPoint>, Vec<Descriptor
 fn estimate_pose() {
     pretty_env_logger::init_timed();
     // Intrinsics retrieved from calib_cam_to_cam.txt K_00.
-    let intrinsics = pinhole::CameraIntrinsics {
+    let intrinsics = cv_pinhole::CameraIntrinsics {
         focals: Vector2::new(9.842_439e2, 9.808_141e2),
         principal_point: Point2::new(6.9e2, 2.331_966e2),
         skew: 0.0,
