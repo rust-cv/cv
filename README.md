@@ -32,7 +32,3 @@ The crate is designed to work with `#![no_std]`, even without an allocator. `lib
 for all math algorithms that aren't present in `std`. Any code that doesn't need to be shared
 across all CV crates should not belong in this repository. If there is a good reason to put
 code that some crates may need into `cv-core`, it should be gated behind a feature.
-
-## Features
-
-* `pinhole` - enables the `pinhole` module and some methods for `EssentialMatrix`

@@ -1,11 +1,8 @@
-#[cfg(feature = "pinhole")]
-use crate::pinhole;
 use crate::{Bearing, CameraPoint, FeatureMatch, FeatureWorldMatch, Skew3, WorldPoint};
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use nalgebra::{
     IsometryMatrix3, Matrix3, Matrix3x2, Matrix6x2, Matrix6x3, Point3, Rotation3, Vector3, SVD,
 };
-#[cfg(feature = "pinhole")]
 use num_traits::Float;
 use sample_consensus::Model;
 
@@ -142,23 +139,6 @@ impl RelativeCameraPose {
     /// `essential.residual(&FeatureMatch(a, b))`.
     ///
     /// See the documentation of [`EssentialMatrix`] for more information.
-    #[cfg_attr(
-        feature = "pinhole",
-        doc = r##"
-        ```
-        # use cv_core::{RelativeCameraPose, CameraPoint, FeatureMatch};
-        # use cv_core::sample_consensus::Model;
-        # use cv_core::nalgebra::{Vector3, Point3, IsometryMatrix3, Rotation3};
-        let pose = RelativeCameraPose(IsometryMatrix3::from_parts(
-            Vector3::new(0.3, 0.4, 0.5).into(),
-            Rotation3::from_euler_angles(0.2, 0.3, 0.4),
-        ));
-        let a = CameraPoint(Point3::new(0.5, 0.5, 3.0));
-        let b = pose.transform(a);
-        assert!(pose.essential_matrix().residual(&FeatureMatch(a.into(), b.into())) < 1e-6);
-        ```
-"##
-    )]
     pub fn essential_matrix(&self) -> EssentialMatrix {
         EssentialMatrix(self.0.translation.vector.cross_matrix() * *self.0.rotation.matrix())
     }
@@ -227,14 +207,20 @@ pub struct UnscaledRelativeCameraPose(pub RelativeCameraPose);
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
 pub struct EssentialMatrix(pub Matrix3<f64>);
 
-#[cfg(feature = "pinhole")]
-impl Model<FeatureMatch<pinhole::NormalizedKeyPoint>> for EssentialMatrix {
-    fn residual(&self, data: &FeatureMatch<pinhole::NormalizedKeyPoint>) -> f32 {
+impl<P> Model<FeatureMatch<P>> for EssentialMatrix
+where
+    P: Bearing,
+{
+    fn residual(&self, data: &FeatureMatch<P>) -> f32 {
         let Self(mat) = *self;
-        let FeatureMatch(pinhole::NormalizedKeyPoint(a), pinhole::NormalizedKeyPoint(b)) = *data;
+        let FeatureMatch(a, b) = data;
+        let normalized = |p: &P| {
+            let p = p.bearing_unnormalized();
+            p / p.z
+        };
 
         // The result is a 1x1 matrix which we must get element 0 from.
-        Float::abs((b.to_homogeneous().transpose() * mat * a.to_homogeneous())[0] as f32)
+        Float::abs((normalized(b).transpose() * mat * normalized(a))[0] as f32)
     }
 }
 
@@ -566,33 +552,6 @@ impl EssentialMatrix {
     /// `b` from camera B.
     ///
     /// This does not communicate which points were outliers to each model.
-    #[cfg_attr(
-        feature = "pinhole",
-        doc = r##"
-        ```
-        # use cv_core::{RelativeCameraPose, CameraPoint};
-        # use cv_core::nalgebra::{IsometryMatrix3, Rotation3, Vector3, Point3};
-        # use cv_core::pinhole::NormalizedKeyPoint;
-        let pose = RelativeCameraPose(IsometryMatrix3::from_parts(
-            Vector3::new(-0.8, 0.4, 0.5).into(),
-            Rotation3::from_euler_angles(0.2, 0.3, 0.4),
-        ));
-        let a_point = CameraPoint(Point3::new(-1.0, 2.0, 3.0));
-        let b_point = pose.transform(a_point);
-        // Get the possible poses for the essential matrix created from `pose`.
-        let estimate_pose = pose.essential_matrix()
-            .solve_pose(1e-6, 50, 0.5,
-                cv_core::geom::triangulate_bearing_reproject::<NormalizedKeyPoint>,
-                std::iter::once((a_point, b_point.into()))
-        ).unwrap();
-
-        let angle_residual =
-            estimate_pose.rotation.rotation_to(&pose.rotation).angle();
-        let translation_residual = (pose.translation.vector - estimate_pose.translation.vector).norm();
-        assert!(angle_residual < 1e-4 && translation_residual < 1e-4, "{}, {}, {:?}, {:?}", angle_residual, translation_residual, pose.translation.vector, estimate_pose.translation.vector);
-        ```
-"##
-    )]
     pub fn solve_pose<P>(
         &self,
         epsilon: f64,

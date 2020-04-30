@@ -1,6 +1,3 @@
-#[cfg(feature = "pinhole")]
-pub mod pinhole;
-
 use crate::{ImagePoint, KeyPoint};
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use nalgebra::{Point3, Unit, Vector3};

@@ -11,13 +11,6 @@ categories = ["algorithms", "computer-vision", "no-std", "science", "science::ro
 license = "MIT"
 readme = "README.md"
 
-[package.metadata."docs.rs"]
-all-features = true
-
-[features]
-default = []
-pinhole = []
-
 [dependencies]
 nalgebra = { version = "0.21.0", default-features = false }
 derive_more = "0.99.3"
