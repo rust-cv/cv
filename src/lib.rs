@@ -28,6 +28,7 @@ fn encode_epipolar_equation(
 ///
 /// To recondition the matrix produced by estimation, see
 /// [`cv_core::EssentialMatrix::recondition`].
+#[derive(Copy, Clone, Debug)]
 pub struct EightPoint {
     pub epsilon: f64,
     pub iterations: usize,
