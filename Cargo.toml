@@ -1,0 +1,10 @@
+[package]
+name = "cv-pinhole"
+version = "0.1.0"
+authors = ["Geordon Worley <vadixidav@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+cv-core = { git = "https://github.com/rust-cv/cv-core.git" }
+derive_more = "0.99.3"
+num-traits = { version = "0.2.11", default-features = false }
