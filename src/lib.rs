@@ -1,3 +1,8 @@
+//! This crate seamlessly plugs into `cv-core` and provides pinhole camera models with and without distortion correction.
+//! It can be used to convert image coordinates into real 3d direction vectors (called bearings) pointing towards where
+//! the light came from that hit that pixel. It can also be used to convert backwards from the 3d back to the 2d
+//! using the `uncalibrate` method from the [`cv_core::CameraModel`] trait.
+
 #![no_std]
 
 use cv_core::nalgebra::{Matrix3, Point2, Vector2, Vector3};
@@ -175,12 +180,12 @@ impl CameraModel for CameraIntrinsics {
 ///
 /// This also performs undistortion by applying one radial distortion coefficient (K1).
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
-pub struct SimpleRadialDistortionCameraIntrinsics {
+pub struct CameraIntrinsicsK1Distortion {
     pub simple_intrinsics: CameraIntrinsics,
     pub k1: f64,
 }
 
-impl SimpleRadialDistortionCameraIntrinsics {
+impl CameraIntrinsicsK1Distortion {
     pub fn new(simple_intrinsics: CameraIntrinsics, k1: f64) -> Self {
         Self {
             simple_intrinsics,
@@ -189,7 +194,7 @@ impl SimpleRadialDistortionCameraIntrinsics {
     }
 }
 
-impl CameraModel for SimpleRadialDistortionCameraIntrinsics {
+impl CameraModel for CameraIntrinsicsK1Distortion {
     type Projection = NormalizedKeyPoint;
 
     /// Takes in a point from an image in pixel coordinates and
@@ -197,7 +202,7 @@ impl CameraModel for SimpleRadialDistortionCameraIntrinsics {
     ///
     /// ```
     /// # use cv_core::{KeyPoint, CameraModel};
-    /// # use cv_pinhole::{NormalizedKeyPoint, CameraIntrinsics, SimpleRadialDistortionCameraIntrinsics};
+    /// # use cv_pinhole::{NormalizedKeyPoint, CameraIntrinsics, CameraIntrinsicsK1Distortion};
     /// # use cv_core::nalgebra::{Vector2, Vector3, Point2};
     /// let intrinsics = CameraIntrinsics {
     ///     focals: Vector2::new(800.0, 900.0),
@@ -205,7 +210,7 @@ impl CameraModel for SimpleRadialDistortionCameraIntrinsics {
     ///     skew: 1.7,
     /// };
     /// let k1 = -0.164624;
-    /// let intrinsics = SimpleRadialDistortionCameraIntrinsics::new(
+    /// let intrinsics = CameraIntrinsicsK1Distortion::new(
     ///     intrinsics,
     ///     k1,
     /// );
@@ -230,14 +235,14 @@ impl CameraModel for SimpleRadialDistortionCameraIntrinsics {
     ///
     /// ```
     /// # use cv_core::{KeyPoint, CameraModel};
-    /// # use cv_pinhole::{NormalizedKeyPoint, CameraIntrinsics, SimpleRadialDistortionCameraIntrinsics};
+    /// # use cv_pinhole::{NormalizedKeyPoint, CameraIntrinsics, CameraIntrinsicsK1Distortion};
     /// # use cv_core::nalgebra::{Vector2, Vector3, Point2};
     /// let intrinsics = CameraIntrinsics {
     ///     focals: Vector2::new(800.0, 900.0),
     ///     principal_point: Point2::new(500.0, 600.0),
     ///     skew: 1.7,
     /// };
-    /// let intrinsics = SimpleRadialDistortionCameraIntrinsics::new(
+    /// let intrinsics = CameraIntrinsicsK1Distortion::new(
     ///     intrinsics,
     ///     -0.164624,
     /// );
