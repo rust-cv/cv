@@ -2,7 +2,8 @@
 
 use cv_core::nalgebra::{self, Matrix3, MatrixMN, VectorN, U3, U8, U9};
 use cv_core::sample_consensus::Estimator;
-use cv_core::{pinhole::NormalizedKeyPoint, EssentialMatrix, FeatureMatch};
+use cv_core::{EssentialMatrix, FeatureMatch};
+use cv_pinhole::NormalizedKeyPoint;
 
 fn encode_epipolar_equation(
     matches: impl Iterator<Item = FeatureMatch<NormalizedKeyPoint>>,

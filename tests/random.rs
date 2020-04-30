@@ -1,6 +1,7 @@
 use cv_core::nalgebra::{IsometryMatrix3, Rotation3, Vector2, Vector3};
 use cv_core::sample_consensus::{Estimator, Model};
-use cv_core::{geom, pinhole::NormalizedKeyPoint, CameraPoint, FeatureMatch, RelativeCameraPose};
+use cv_core::{geom, CameraPoint, FeatureMatch, RelativeCameraPose};
+use cv_pinhole::NormalizedKeyPoint;
 
 const SAMPLE_POINTS: usize = 16;
 const RESIDUAL_THRESHOLD: f64 = 1e-4;
