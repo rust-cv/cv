@@ -1,17 +1,11 @@
-// use alga::{
-//     general::{Id, Identity, Multiplicative},
-//     linear::{
-//         AffineTransformation, DirectIsometry, Isometry, OrthogonalTransformation,
-//         ProjectiveTransformation, Rotation, Similarity,
-//     },
-// };
 use core::ops::{Mul, MulAssign};
+use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use nalgebra::{dimension::U3, AbstractRotation, Matrix3, Point3, Rotation3, Unit, Vector3};
 use num_traits::Float;
 
 /// Contains a member of the lie algebra so(3), a representation of the tangent space
 /// of 3d rotation. This is also known as the lie algebra of the 3d rotation group SO(3).
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
 pub struct Skew3(pub Vector3<f64>);
 
 impl Skew3 {
