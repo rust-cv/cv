@@ -339,11 +339,11 @@ impl CameraSpecification {
 /// let triangulator = cv_core::geom::make_one_pose_dlt_triangulator(1e-6, 100);
 ///
 /// // Since the normalized keypoints were computed exactly, there should be no reprojection error.
-/// let errors = cv_pinhole::reprojection_error(pose, FeatureMatch(nkpa, nkpb), triangulator).unwrap();
+/// let errors = cv_pinhole::pose_reprojection_error(pose, FeatureMatch(nkpa, nkpb), triangulator).unwrap();
 /// let average_error = errors.iter().map(|v| v.norm()).sum::<f64>() * 0.5;
 /// assert!(average_error < 1e-6);
 /// ```
-pub fn reprojection_error(
+pub fn pose_reprojection_error(
     pose: RelativeCameraPose,
     m: FeatureMatch<NormalizedKeyPoint>,
     triangulator: impl Fn(
@@ -361,7 +361,7 @@ pub fn reprojection_error(
     })
 }
 
-/// See [`reprojection_error`].
+/// See [`pose_reprojection_error`].
 ///
 /// This is a convenience function that simply finds the average reprojection error rather than all components.
 ///
@@ -384,10 +384,10 @@ pub fn reprojection_error(
 /// let triangulator = cv_core::geom::make_one_pose_dlt_triangulator(1e-6, 100);
 ///
 /// // Since the normalized keypoints were computed exactly, there should be no reprojection error.
-/// let average_error = cv_pinhole::average_reprojection_error(pose, FeatureMatch(nkpa, nkpb), triangulator).unwrap();
+/// let average_error = cv_pinhole::average_pose_reprojection_error(pose, FeatureMatch(nkpa, nkpb), triangulator).unwrap();
 /// assert!(average_error < 1e-6);
 /// ```
-pub fn average_reprojection_error(
+pub fn average_pose_reprojection_error(
     pose: RelativeCameraPose,
     m: FeatureMatch<NormalizedKeyPoint>,
     triangulator: impl Fn(
@@ -396,6 +396,6 @@ pub fn average_reprojection_error(
         NormalizedKeyPoint,
     ) -> Option<Point3<f64>>,
 ) -> Option<f64> {
-    reprojection_error(pose, m, triangulator)
+    pose_reprojection_error(pose, m, triangulator)
         .map(|errors| errors.iter().map(|v| v.norm()).sum::<f64>() * 0.5)
 }
