@@ -1,7 +1,8 @@
+use core::iter::once;
 use cv_core::nalgebra::{
     dimension::{Dynamic, U1, U6},
     storage::Owned,
-    DVector, IsometryMatrix3, MatrixMN, VecStorage, Vector3, Vector6,
+    DVector, IsometryMatrix3, Matrix3, Matrix6x3, MatrixMN, VecStorage, Vector3, Vector6,
 };
 use cv_core::{Bearing, FeatureWorldMatch, Skew3, WorldPose};
 use levenberg_marquardt::LeastSquaresProblem;
@@ -70,6 +71,48 @@ where
 
     /// Compute the Jacobian of the residual vector.
     fn jacobian(&self) -> Option<MatrixMN<f64, Dynamic, U6>> {
-        unimplemented!()
+        let pose = WorldPose(IsometryMatrix3::new(self.translation, self.rotation.0));
+        // Number of correspondences (and hence residuals).
+        let rows = Dynamic::new(self.matches.clone().count());
+        // Create the jacobian.
+        Some(MatrixMN::from_iterator_generic(
+            rows,
+            U6,
+            self.matches
+                .clone()
+                .flat_map(|FeatureWorldMatch(feature, world)| {
+                    // Rotated point (intermediate output)
+                    let pr = (pose.0.rotation * world.0).coords;
+
+                    // dP/dT (Jacobian of camera point in respect to translation component)
+                    let dp_dt = Matrix3::<f64>::identity();
+
+                    // dP/dR
+                    let dp_dr = Skew3::jacobian_output_to_self(pr);
+
+                    // dP/dT,Q (Jacobian of 3d camera point in respect to translation and skew)
+                    let dp_dtq = Matrix6x3::<f64>::from_rows(&[
+                        dp_dt.row(0),
+                        dp_dt.row(1),
+                        dp_dt.row(2),
+                        dp_dr.row(0),
+                        dp_dr.row(1),
+                        dp_dr.row(2),
+                    ]);
+
+                    // Get the normalized bearing.
+                    let feature_bearing = feature.bearing();
+                    // Transform the world point to the camera space and then normalize it to create a bearing.
+                    let world_bearing = pose.transform(world).coords.normalize();
+                    // The cosine distance is our residual metric.
+                    let components = dp_dtq * -feature_bearing.component_mul(&world_bearing);
+                    once(components[0])
+                        .chain(once(components[1]))
+                        .chain(once(components[2]))
+                        .chain(once(components[3]))
+                        .chain(once(components[4]))
+                        .chain(once(components[5]))
+                }),
+        ))
     }
 }
