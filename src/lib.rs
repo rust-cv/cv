@@ -463,7 +463,11 @@ fn compute_poses_nordberg<P: Bearing>(
         d12[1], d13[1], d12xd13[1],
         d12[2], d13[2], d12xd13[2],
     );
-    let x_mat = x_mat.try_inverse().expect("Woops not inversable");
+    let x_mat = if let Some(x_mat) = x_mat.try_inverse() {
+        x_mat
+    } else {
+        return Vec::new();
+    };
 
     lambdas
         .iter()
