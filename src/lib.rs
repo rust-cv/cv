@@ -70,7 +70,6 @@ impl LambdaTwist {
     pub fn gauss_newton_iterations(self, gauss_newton_iterations: usize) -> Self {
         Self {
             gauss_newton_iterations,
-            ..self
         }
     }
 }
@@ -119,6 +118,7 @@ where
 /// b23: f64, -2.0 * cosine of the angle between bearing vector 2 and bearing vector 3.
 /// The paper note it rarely improve after two iterations. The original implementation use 5 iterations.
 #[allow(clippy::similar_names)]
+#[allow(clippy::too_many_arguments)]
 fn gauss_newton_refine_lambda(
     lambda: Vec3,
     iterations: usize,
