@@ -24,6 +24,7 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
+use num_traits::Float;
 
 // Copyright (c) 2018 Michael Persson
 // Adapted to openMVG by Romain Janvier and Pierre Moulon
@@ -187,10 +188,10 @@ fn root2real(b: f64, c: f64) -> (bool, f64, f64) {
         let root = 0.5 * b;
         (false, root, root)
     } else if b < 0.0 {
-        let y = discriminant.sqrt();
+        let y = Float::sqrt(discriminant);
         (true, 0.5 * (-b + y), 0.5 * (-b - y))
     } else {
-        let y = discriminant.sqrt();
+        let y = Float::sqrt(discriminant);
         (true, 2.0 * c / (-b + y), 2.0 * c / (-b - y))
     }
 }
