@@ -21,6 +21,8 @@
 
 Relative camera pose from three 3d to 2d correspondences
 
+To see an example of usage, see `tests/consensus.rs`.
+
 This was derived from https://github.com/rust-cv/p3p/. It was rewritten to utilize Rust CV abstractions.
 
 Implementation based on
