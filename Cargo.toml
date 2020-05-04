@@ -1,6 +1,6 @@
 [package]
 name = "lambda-twist"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Matthieu Pizenberg <matthieu.pizenberg@gmail.com>", "Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 description = "Camera pose estimation given 3D points and corresponding pixel coordinates"
