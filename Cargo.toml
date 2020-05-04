@@ -17,7 +17,6 @@ rustdoc-args = [ "--html-in-header", "katex-header.html" ]
 
 [dependencies]
 cv-core = "0.10.0"
-arraymap = "0.1.1"
 
 [dev-dependencies]
 approx = "0.3.2"

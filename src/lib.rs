@@ -33,7 +33,6 @@ use alloc::vec::Vec;
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use arraymap::ArrayMap;
 use cv_core::nalgebra::{IsometryMatrix3, Matrix3, Rotation3, Translation, Vector3};
 use cv_core::sample_consensus::Estimator;
 use cv_core::{Bearing, FeatureWorldMatch, WorldPoint, WorldPose};
@@ -329,8 +328,14 @@ fn compute_poses_nordberg<P: Bearing>(
     samples: [FeatureWorldMatch<P>; 3],
 ) -> Vec<WorldPose> {
     // Extraction of 3D points vectors
-    let wps = samples.map(|&FeatureWorldMatch(_, WorldPoint(point))| point);
-    let bearings = samples.map(|FeatureWorldMatch(point, _)| point.bearing());
+    let to_wp = |&FeatureWorldMatch(_, WorldPoint(point))| point;
+    let wps = [to_wp(&samples[0]), to_wp(&samples[1]), to_wp(&samples[2])];
+    let to_bearing = |FeatureWorldMatch(point, _): &FeatureWorldMatch<P>| point.bearing();
+    let bearings = [
+        to_bearing(&samples[0]),
+        to_bearing(&samples[1]),
+        to_bearing(&samples[2]),
+    ];
 
     // Compute vectors between 3D points.
     let d12 = wps[0] - wps[1];
