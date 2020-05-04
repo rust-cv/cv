@@ -1,5 +1,3 @@
-#![warn(missing_docs)]
-
 //! This package provides functions to solve camera pose estimation
 //! given a set of three 3D points and their corresponding pixel coordinates.
 //!
@@ -13,6 +11,20 @@
 //!
 //! [pnp]: https://en.wikipedia.org/wiki/Perspective-n-Point
 //! [lambda-twist]: http://openaccess.thecvf.com/content_ECCV_2018/html/Mikael_Persson_Lambda_Twist_An_ECCV_2018_paper.html
+//!
+//! Implementation based on
+//! "Lambda Twist: An Accurate Fast Robust Perspective Three Point (P3P) Solver"
+//! Persson, M. and Nordberg, K. ECCV 2018.
+//! Reference implementation available on the [author github repository][lambda-twist-github].
+//!
+//! [lambda-twist-github]: https://github.com/midjji/lambdatwist-p3p
+#![no_std]
+#![warn(missing_docs)]
+
+extern crate alloc;
+
+use alloc::vec::Vec;
+
 
 // Copyright (c) 2018 Michael Persson
 // Adapted to openMVG by Romain Janvier and Pierre Moulon
@@ -22,12 +34,6 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-//! Implementation based on
-//! "Lambda Twist: An Accurate Fast Robust Perspective Three Point (P3P) Solver"
-//! Persson, M. and Nordberg, K. ECCV 2018.
-//! Reference implementation available on the [author github repository][lambda-twist-github].
-//!
-//! [lambda-twist-github]: https://github.com/midjji/lambdatwist-p3p
 
 use arraymap::ArrayMap;
 use cv_core::nalgebra::{IsometryMatrix3, Matrix3, Translation, Rotation3, Vector3};
@@ -273,7 +279,7 @@ fn eigen_decomposition_singular(x: Mat3) -> (Mat3, Vec3) {
     let c = -x12_sqr - x.m13 * x.m13 - x.m23 * x.m23 + x.m11 * (x.m22 + x.m33) + x.m22 * x.m33;
     let (_, mut e1, mut e2) = root2real(b, c);
     if e1.abs() < e2.abs() {
-        std::mem::swap(&mut e1, &mut e2);
+        core::mem::swap(&mut e1, &mut e2);
     }
     eigenvalues[0] = e1;
     eigenvalues[1] = e2;
