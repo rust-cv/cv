@@ -1,12 +1,12 @@
 use approx::assert_relative_eq;
 use arraymap::ArrayMap;
 use arrsac::{Arrsac, Config};
-use cv_core::nalgebra::{IsometryMatrix3, Point3, Translation, Rotation3, Vector3};
-use lambda_twist::LambdaTwist;
-use rand::{rngs::SmallRng, SeedableRng};
+use cv_core::nalgebra::{IsometryMatrix3, Point3, Rotation3, Translation, Vector3};
 use cv_core::sample_consensus::Consensus;
 use cv_core::FeatureWorldMatch;
 use cv_pinhole::NormalizedKeyPoint;
+use lambda_twist::LambdaTwist;
+use rand::{rngs::SmallRng, SeedableRng};
 
 const EPSILON_APPROX: f64 = 1e-6;
 

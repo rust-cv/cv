@@ -25,7 +25,6 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-
 // Copyright (c) 2018 Michael Persson
 // Adapted to openMVG by Romain Janvier and Pierre Moulon
 // Adapted to Rust by Matthieu Pizenberg
@@ -34,11 +33,10 @@ use alloc::vec::Vec;
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-
 use arraymap::ArrayMap;
-use cv_core::nalgebra::{IsometryMatrix3, Matrix3, Translation, Rotation3, Vector3};
+use cv_core::nalgebra::{IsometryMatrix3, Matrix3, Rotation3, Translation, Vector3};
 use cv_core::sample_consensus::Estimator;
-use cv_core::{FeatureWorldMatch, WorldPoint, WorldPose, Bearing};
+use cv_core::{Bearing, FeatureWorldMatch, WorldPoint, WorldPose};
 
 type Iso3 = IsometryMatrix3<f64>;
 type Mat3 = Matrix3<f64>;
@@ -87,7 +85,8 @@ impl Default for LambdaTwist {
 }
 
 impl<P> Estimator<FeatureWorldMatch<P>> for LambdaTwist
-    where P: Bearing
+where
+    P: Bearing,
 {
     type Model = WorldPose;
     type ModelIter = Vec<WorldPose>;
@@ -96,11 +95,17 @@ impl<P> Estimator<FeatureWorldMatch<P>> for LambdaTwist
     where
         I: Iterator<Item = FeatureWorldMatch<P>> + Clone,
     {
-        compute_poses_nordberg(self.gauss_newton_iterations, [
-            data.next().expect("must provide 3 samples at minimum to LambdaTwist"),
-            data.next().expect("must provide 3 samples at minimum to LambdaTwist"),
-            data.next().expect("must provide 3 samples at minimum to LambdaTwist"),
-        ])
+        compute_poses_nordberg(
+            self.gauss_newton_iterations,
+            [
+                data.next()
+                    .expect("must provide 3 samples at minimum to LambdaTwist"),
+                data.next()
+                    .expect("must provide 3 samples at minimum to LambdaTwist"),
+                data.next()
+                    .expect("must provide 3 samples at minimum to LambdaTwist"),
+            ],
+        )
     }
 }
 
@@ -319,7 +324,10 @@ fn eigen_decomposition_singular(x: Mat3) -> (Mat3, Vec3) {
 ///
 /// The 3x3 matrix `world_3d_points` contains one 3D point per column.
 /// The 3x3 matrix `bearing_vectors` contains one homogeneous image coordinate per column.
-fn compute_poses_nordberg<P: Bearing>(iterations: usize, samples: [FeatureWorldMatch<P>; 3]) -> Vec<WorldPose> {
+fn compute_poses_nordberg<P: Bearing>(
+    iterations: usize,
+    samples: [FeatureWorldMatch<P>; 3],
+) -> Vec<WorldPose> {
     // Extraction of 3D points vectors
     let wps = samples.map(|&FeatureWorldMatch(_, WorldPoint(point))| point);
     let bearings = samples.map(|FeatureWorldMatch(point, _)| point.bearing());
@@ -455,7 +463,8 @@ fn compute_poses_nordberg<P: Bearing>(iterations: usize, samples: [FeatureWorldM
         .iter()
         .map(|&lambda| {
             // Refine estimated depth values.
-            let lambda_refined = gauss_newton_refine_lambda(lambda, iterations, a12, a13, a23, b12, b13, b23);
+            let lambda_refined =
+                gauss_newton_refine_lambda(lambda, iterations, a12, a13, a23, b12, b13, b23);
 
             let ry1 = lambda_refined[0] * *bearings[0];
             let ry2 = lambda_refined[1] * *bearings[1];
@@ -481,4 +490,3 @@ fn compute_poses_nordberg<P: Bearing>(iterations: usize, samples: [FeatureWorldM
         })
         .collect()
 }
-
