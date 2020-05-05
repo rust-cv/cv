@@ -54,11 +54,16 @@ type Vec3 = Vector3<f64>;
 /// - ![lambda_i](https://chart.googleapis.com/chart?cht=tx&chl=lambda_i) are the signed distances from the camera.
 ///
 /// The rotation and pose of the camera itself can be retrieved by converting the [`cv_core::WorldPose`] into a [`cv_core::CameraPose`].
+///
+/// This struct is marked as `#lnon_exhaustive]` to allow the backwards-compatible addition of new fields.
 #[derive(Copy, Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct LambdaTwist {
     /// This determines the number of iterations that Gauss-Newton is ran on the poses to optimize them.
     /// The paper notes that it rarely improves after two iterations. The original implementation uses 5 iterations.
     pub gauss_newton_iterations: usize,
+    /// This determines the number of iterations to spend converging on a proper rotation matrix.
+    pub rotation_convergence_iterations: usize,
 }
 
 impl LambdaTwist {
@@ -71,6 +76,15 @@ impl LambdaTwist {
     pub fn gauss_newton_iterations(self, gauss_newton_iterations: usize) -> Self {
         Self {
             gauss_newton_iterations,
+            ..self
+        }
+    }
+
+    /// Sets the [`LambdaTwist::rotation_convergence_iterations`].
+    pub fn rotation_convergence_iterations(self, rotation_convergence_iterations: usize) -> Self {
+        Self {
+            rotation_convergence_iterations,
+            ..self
         }
     }
 }
@@ -79,6 +93,7 @@ impl Default for LambdaTwist {
     fn default() -> Self {
         Self {
             gauss_newton_iterations: 5,
+            rotation_convergence_iterations: 100,
         }
     }
 }
@@ -96,6 +111,7 @@ where
     {
         compute_poses_nordberg(
             self.gauss_newton_iterations,
+            self.rotation_convergence_iterations,
             [
                 data.next()
                     .expect("must provide 3 samples at minimum to LambdaTwist"),
@@ -326,6 +342,7 @@ fn eigen_decomposition_singular(x: Mat3) -> (Mat3, Vec3) {
 /// The 3x3 matrix `bearing_vectors` contains one homogeneous image coordinate per column.
 fn compute_poses_nordberg<P: Bearing>(
     iterations: usize,
+    rotation_convergence_iterations: usize,
     samples: [FeatureWorldMatch<P>; 3],
 ) -> Vec<WorldPose> {
     // Extraction of 3D points vectors
@@ -496,7 +513,15 @@ fn compute_poses_nordberg<P: Bearing>(
         })
         .map(|(rot, trans)| {
             let translation = Translation::from(trans);
-            WorldPose(Iso3::from_parts(translation, Rotation3::from_matrix(&rot)))
+            WorldPose(Iso3::from_parts(
+                translation,
+                Rotation3::from_matrix_eps(
+                    &rot,
+                    1e-12,
+                    rotation_convergence_iterations,
+                    Rotation3::identity(),
+                ),
+            ))
         })
         .collect()
 }
