@@ -1,5 +1,5 @@
 use derive_more::{Deref, DerefMut};
-use image::{imageops, DynamicImage, GrayImage, ImageBuffer, Luma};
+use image::{imageops, DynamicImage, ImageBuffer, Luma};
 use ndarray::{Array2, ArrayView2, ArrayViewMut2};
 use nshare::{MutNdarray2, RefNdarray2};
 use std::f32;
@@ -39,12 +39,19 @@ impl GrayFloatImage {
     /// # Return value
     /// An image with pixel values between 0 and 1.
     pub fn from_dynamic(input_image: &DynamicImage) -> Self {
-        let gray_image: GrayImage = input_image.to_luma();
-        Self(ImageBuffer::from_fn(
-            gray_image.width(),
-            gray_image.height(),
-            |x, y| Luma([f32::from(gray_image[(x, y)][0]) / 255f32]),
-        ))
+        Self(match input_image.grayscale() {
+            DynamicImage::ImageLuma8(gray_image) => {
+                ImageBuffer::from_fn(gray_image.width(), gray_image.height(), |x, y| {
+                    Luma([f32::from(gray_image[(x, y)][0]) / 255f32])
+                })
+            }
+            DynamicImage::ImageLuma16(gray_image) => {
+                ImageBuffer::from_fn(gray_image.width(), gray_image.height(), |x, y| {
+                    Luma([f32::from(gray_image[(x, y)][0]) / 65535f32])
+                })
+            }
+            _ => unreachable!(),
+        })
     }
 
     pub fn from_array2(arr: Array2<f32>) -> Self {
