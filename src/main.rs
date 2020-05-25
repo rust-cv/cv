@@ -31,7 +31,7 @@ struct Opt {
     #[structopt(short = "z", long, default_value = "0.001")]
     akaze_threshold: f64,
     /// The threshold for reprojection error in pixels.
-    #[structopt(short = "z", long, default_value = "2.5")]
+    #[structopt(long, default_value = "2.5")]
     reprojection_threshold: f64,
     /// The x focal length
     #[structopt(long, default_value = "984.2439")]
