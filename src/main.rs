@@ -1,7 +1,8 @@
+mod export;
 mod slam;
 
 use arrsac::{Arrsac, Config as ArrsacConfig};
-use cv_core::nalgebra::{Point2, Vector2};
+use cv_core::nalgebra::{Point2, Point3, Vector2};
 use cv_core::sample_consensus::{Consensus, Model};
 use cv_core::{CameraModel, FeatureMatch};
 use cv_pinhole::{CameraIntrinsics, CameraIntrinsicsK1Distortion};
@@ -51,6 +52,9 @@ struct Opt {
     /// The K1 radial distortion
     #[structopt(long, default_value = "0.0")]
     radial_distortion: f64,
+    /// Output PLY file to deposit point cloud
+    #[structopt(short, long)]
+    output: Option<PathBuf>,
     /// List of image files
     ///
     /// Default vales are for Kitti 2011_09_26 camera 0
@@ -170,6 +174,18 @@ fn main() {
             "mean reprojection error after reprojection error filtering: {}",
             mean_reprojection_error
         );
+        if let Some(outpath) = opt.output.as_ref() {
+            let points: Vec<Point3<f64>> = inliers
+                .iter()
+                .copied()
+                .map(|m| {
+                    let triangulator = cv_core::geom::make_one_pose_dlt_triangulator(1e-6, 100);
+                    let FeatureMatch(a, b) = m;
+                    triangulator(pose, a, b).unwrap()
+                })
+                .collect();
+            export::export(std::fs::File::create(outpath).unwrap(), points);
+        }
         info!("rotation: {:?}", pose.rotation.angle());
         prev = next;
         info!("end frame");
