@@ -1,10 +1,12 @@
+mod slam;
+
 use arrsac::{Arrsac, Config as ArrsacConfig};
 use cv_core::nalgebra::{Point2, Vector2};
-use cv_core::pinhole::CameraIntrinsics;
 use cv_core::sample_consensus::{Consensus, Model};
 use cv_core::{CameraModel, FeatureMatch};
+use cv_pinhole::{CameraIntrinsics, CameraIntrinsicsK1Distortion};
 use eight_point::EightPoint;
-use log::info;
+use log::*;
 use rand::SeedableRng;
 use rand_pcg::Pcg64;
 use space::{Bits512, Hamming, MetricPoint};
@@ -15,11 +17,7 @@ use structopt::StructOpt;
 type Descriptor = Hamming<Bits512>;
 
 #[derive(StructOpt, Clone)]
-#[structopt(
-    name = "vslam-sandbox",
-    about = "A tool for testing vslam algorithms.",
-    rename_all = "kebab-case"
-)]
+#[structopt(name = "vslam-sandbox", about = "A tool for testing vslam algorithms.")]
 struct Opt {
     /// The threshold in bits for matching.
     ///
@@ -32,9 +30,30 @@ struct Opt {
     /// The threshold for AKAZE.
     #[structopt(short = "z", long, default_value = "0.001")]
     akaze_threshold: f64,
+    /// The threshold for reprojection error in pixels.
+    #[structopt(short = "z", long, default_value = "2.5")]
+    reprojection_threshold: f64,
+    /// The x focal length
+    #[structopt(long, default_value = "984.2439")]
+    x_focal: f64,
+    /// The y focal length
+    #[structopt(long, default_value = "980.8141")]
+    y_focal: f64,
+    /// The x optical center coordinate
+    #[structopt(long, default_value = "690.0")]
+    x_center: f64,
+    /// The y optical center coordinate
+    #[structopt(long, default_value = "233.1966")]
+    y_center: f64,
+    /// The skew
+    #[structopt(long, default_value = "0.0")]
+    skew: f64,
+    /// The K1 radial distortion
+    #[structopt(long, default_value = "0.0")]
+    radial_distortion: f64,
     /// List of image files
     ///
-    /// Must be Kitti 2011_09_26 camera 0
+    /// Default vales are for Kitti 2011_09_26 camera 0
     #[structopt(parse(from_os_str))]
     images: Vec<PathBuf>,
 }
@@ -43,11 +62,16 @@ fn main() {
     pretty_env_logger::init_timed();
     let opt = Opt::from_args();
     // Intrinsics retrieved from calib_cam_to_cam.txt K_00.
-    let intrinsics = CameraIntrinsics {
-        focals: Vector2::new(9.842_439e2, 9.808_141e2),
-        principal_point: Point2::new(6.9e2, 2.331_966e2),
-        skew: 0.0,
-    };
+    let intrinsics = CameraIntrinsicsK1Distortion::new(
+        CameraIntrinsics {
+            focals: Vector2::new(opt.x_focal, opt.y_focal),
+            principal_point: Point2::new(opt.x_center, opt.y_center),
+            skew: opt.skew,
+        },
+        opt.radial_distortion,
+    );
+
+    let net_focal = (opt.x_focal.powi(2) + opt.y_focal.powi(2)).sqrt();
 
     // Create a channel that will produce features in another parallel thread.
     let features = features_stream(&opt);
@@ -83,13 +107,16 @@ fn main() {
             .model_inliers(&eight_point, matches.iter().copied())
             .unwrap();
         let inliers = inliers.iter().map(|&ix| matches[ix]);
-        info!("inliers: {}", inliers.clone().len());
+        info!("inliers after sample consensus: {}", inliers.clone().len());
         let residual_average = inliers
             .clone()
             .map(|m| essential.residual(&m).abs())
             .sum::<f32>()
             / inliers.len() as f32;
-        info!("inlier residual average: {}", residual_average);
+        info!(
+            "inlier residual average after sample consensus: {}",
+            residual_average
+        );
         let pose = essential
             .solve_unscaled_pose(
                 1e-6,
@@ -99,6 +126,50 @@ fn main() {
                 inliers.clone().take(8),
             )
             .unwrap();
+        // Filter outlier matches based on reprojection error.
+        let inliers: Vec<_> = inliers
+            .clone()
+            .filter(|m| {
+                // Get the reprojection error in focal length.
+                let error_in_focal_length = cv_pinhole::average_pose_reprojection_error(
+                    *pose,
+                    *m,
+                    cv_core::geom::make_one_pose_dlt_triangulator(1e-6, 100),
+                )
+                .unwrap();
+                // Then convert it to pixels.
+                let error_in_pixels = error_in_focal_length * net_focal;
+
+                debug!("error in pixels: {}", error_in_pixels);
+
+                error_in_pixels < opt.reprojection_threshold
+            })
+            .collect();
+        info!(
+            "inliers after reprojection error filtering: {}",
+            inliers.clone().len()
+        );
+        let mean_reprojection_error = inliers
+            .iter()
+            .copied()
+            .map(|m| {
+                // Get the reprojection error in focal length.
+                let error_in_focal_length = cv_pinhole::average_pose_reprojection_error(
+                    *pose,
+                    m,
+                    cv_core::geom::make_one_pose_dlt_triangulator(1e-6, 100),
+                )
+                .unwrap();
+                // Then convert it to pixels.
+                let error_in_pixels = error_in_focal_length * net_focal;
+                error_in_pixels
+            })
+            .sum::<f64>()
+            / inliers.len() as f64;
+        info!(
+            "mean reprojection error after reprojection error filtering: {}",
+            mean_reprojection_error
+        );
         info!("rotation: {:?}", pose.rotation.angle());
         prev = next;
         info!("end frame");
@@ -120,7 +191,9 @@ fn features_stream(opt: &Opt) -> Receiver<(Vec<akaze::KeyPoint>, Vec<Descriptor>
 }
 
 fn kps_descriptors(path: impl AsRef<Path>, opt: &Opt) -> (Vec<akaze::KeyPoint>, Vec<Descriptor>) {
-    akaze::extract_path(path, akaze::Config::new(opt.akaze_threshold)).unwrap()
+    akaze::Akaze::new(opt.akaze_threshold)
+        .extract_path(path)
+        .unwrap()
 }
 
 fn matching(a_descriptors: &[Descriptor], b_descriptors: &[Descriptor]) -> Vec<(usize, u32)> {

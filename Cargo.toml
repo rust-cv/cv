@@ -5,18 +5,21 @@ authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-cv-core = "0.9.1"
-eight-point = "0.3.0"
-structopt = "0.3.13"
-serde = { version = "1.0.106", features = ["derive"] }
-image = "0.23.3"
+cv-core = "0.10.0"
+eight-point = "0.4.0"
+structopt = "0.3.14"
+serde = { version = "1.0.110", features = ["derive"] }
+image = "0.23.4"
 arrsac = "0.3.0"
 rand = "0.7.3"
 rand_pcg = "0.2.1"
 log = "0.4.8"
 space = { version = "0.10.3", features = ["simd-hamming"] }
 pretty_env_logger = "0.4.0"
-akaze = "0.2.0"
+akaze = "0.3.1"
+evmap = "10.0.2"
+sharded-slab = "0.0.9"
+cv-pinhole = "0.1.1"
 
 [profile.release]
 lto = true
