@@ -1,5 +1,6 @@
 mod export;
 mod slam;
+mod triangulate;
 
 use arrsac::{Arrsac, Config as ArrsacConfig};
 use cv_core::nalgebra::{Point2, Point3, Vector2};
@@ -126,19 +127,20 @@ fn main() {
                 1e-6,
                 100,
                 0.5,
-                cv_core::geom::make_one_pose_dlt_triangulator(1e-6, 100),
+                triangulate::triangulator,
                 inliers.clone().take(8),
             )
             .unwrap();
         // Filter outlier matches based on reprojection error.
-        let inliers: Vec<_> = inliers
-            .clone()
+        let inliers: Vec<_> = matches
+            .iter()
+            .cloned()
             .filter(|m| {
                 // Get the reprojection error in focal length.
                 let error_in_focal_length = cv_pinhole::average_pose_reprojection_error(
                     *pose,
                     *m,
-                    cv_core::geom::make_one_pose_dlt_triangulator(1e-6, 100),
+                    triangulate::triangulator,
                 )
                 .unwrap();
                 // Then convert it to pixels.
@@ -161,7 +163,7 @@ fn main() {
                 let error_in_focal_length = cv_pinhole::average_pose_reprojection_error(
                     *pose,
                     m,
-                    cv_core::geom::make_one_pose_dlt_triangulator(1e-6, 100),
+                    triangulate::triangulator,
                 )
                 .unwrap();
                 // Then convert it to pixels.
@@ -178,11 +180,7 @@ fn main() {
             let points: Vec<Point3<f64>> = inliers
                 .iter()
                 .copied()
-                .map(|m| {
-                    let triangulator = cv_core::geom::make_one_pose_dlt_triangulator(1e-6, 100);
-                    let FeatureMatch(a, b) = m;
-                    triangulator(pose, a, b).unwrap()
-                })
+                .map(|FeatureMatch(a, b)| triangulate::triangulator(pose, a, b).unwrap())
                 .collect();
             export::export(std::fs::File::create(outpath).unwrap(), points);
         }

@@ -1344,6 +1344,7 @@ dependencies = [
  "cv-pinhole",
  "eight-point",
  "evmap",
+ "float-ord",
  "image",
  "log",
  "ply-rs",

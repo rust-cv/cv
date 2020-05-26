@@ -21,6 +21,7 @@ evmap = "10.0.2"
 sharded-slab = "0.0.9"
 cv-pinhole = "0.1.1"
 ply-rs = "0.1.2"
+float-ord = "0.2.0"
 
 [profile.release]
 lto = true
