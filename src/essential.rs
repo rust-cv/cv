@@ -57,7 +57,8 @@ use sample_consensus::Model;
 /// With a `EssentialMatrix`, you can retrieve the rotation and translation given
 /// one normalized image coordinate and one bearing that is scaled to the depth
 /// of the point relative to the current reconstruction. This kind of point can be computed
-/// using [`WorldPose::transform`] to convert a [`WorldPoint`] to a [`CameraPoint`].
+/// using [`WorldPose::transform`](crate::WorldPose::transform) to convert a
+/// [`WorldPoint`](crate::WorldPoint) to a [`CameraPoint`].
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
 pub struct EssentialMatrix(pub Matrix3<f64>);
 

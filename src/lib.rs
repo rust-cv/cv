@@ -8,10 +8,15 @@
 //! The core concept is that all CV crates can work together with each other by using the
 //! abstractions and types specified in this crate.
 //!
-//! The crate is designed to work with `#![no_std]`, even without an allocator. [`libm`] is used
-//! for all math algorithms that aren't present in `std`. Any code that doesn't need to be shared
-//! across all CV crates should not belong in this repository. If there is a good reason to put
-//! code that some crates may need into `cv-core`, it should be gated behind a feature.
+//! The crate is designed to work with `#![no_std]`, even without an allocator. `libm` is used
+//! (indirectly through [`num-traits`]) for all math algorithms that aren't present in `std`. Any
+//! code that doesn't need to be shared across all CV crates should not belong in this repository.
+//! If there is a good reason to put code that some crates may need into `cv-core`, it should be
+//! gated behind a feature.
+//!
+//! ## Features
+//!
+//! * `alloc` - Enables APIs which require an allocator
 //!
 //! ## Triangulation
 //!
