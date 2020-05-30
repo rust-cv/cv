@@ -4,6 +4,8 @@ use nalgebra::{Point3, Unit, Vector3};
 
 /// Describes the direction that the projection onto the camera's optical center
 /// came from. It is implemented on projection items from different camera models.
+/// It is also implemented for `Unit<Vector3<f64>>` if you want to pre-compute the
+/// normalized bearings for efficiency or to turn all camera models into a unified type.
 pub trait Bearing {
     /// Returns a unit vector of the direction that the projection
     /// created by the feature projects out of the
@@ -18,6 +20,36 @@ pub trait Bearing {
     /// is unknown. Use this if you are sure that you do not need a normalized
     /// bearing. This may be faster.
     fn bearing_unnormalized(&self) -> Vector3<f64>;
+
+    /// Converts a bearing vector back into this bearing type.
+    ///
+    /// This is useful if you would like to go backwards from reconstruction space to image space.
+    /// See [`CameraModel::uncalibrate`] for how to then convert the camera bearing into image coordinates.
+    fn from_bearing_vector(bearing: Vector3<f64>) -> Self;
+
+    /// Converts a bearing unit vector back into this bearing type.
+    ///
+    /// This is useful if you would like to go backwards from reconstruction space to image space.
+    /// See [`CameraModel::uncalibrate`] for how to then convert the camera bearing into image coordinates.
+    fn from_bearing_unit_vector(bearing: Unit<Vector3<f64>>) -> Self;
+}
+
+impl Bearing for Unit<Vector3<f64>> {
+    fn bearing(&self) -> Unit<Vector3<f64>> {
+        *self
+    }
+
+    fn bearing_unnormalized(&self) -> Vector3<f64> {
+        self.into_inner()
+    }
+
+    fn from_bearing_vector(bearing: Vector3<f64>) -> Self {
+        Unit::new_normalize(bearing)
+    }
+
+    fn from_bearing_unit_vector(bearing: Unit<Vector3<f64>>) -> Self {
+        bearing
+    }
 }
 
 /// A 3d point which is relative to the camera's optical center and orientation where
