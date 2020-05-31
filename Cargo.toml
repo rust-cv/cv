@@ -1,0 +1,9 @@
+[package]
+name = "cv-geom"
+version = "0.1.0"
+authors = ["Geordon Worley <vadixidav@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+cv-core = { git = "https://github.com/rust-cv/cv-core.git" }
+float-ord = "0.2.0"
