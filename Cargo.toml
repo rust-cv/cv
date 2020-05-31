@@ -1,6 +1,6 @@
 [package]
 name = "cv-pinhole"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 description = "Pinhole camera model for comptuer vision"
@@ -12,10 +12,9 @@ license = "MIT"
 readme = "README.md"
 
 [dependencies]
-#cv-core = "0.10.0"
-cv-core = { git = "https://github.com/rust-cv/cv-core.git" }
-derive_more = "0.99.5"
+cv-core = "0.11.0"
+derive_more = "0.99.7"
 num-traits = { version = "0.2.11", default-features = false }
 
 [dev-dependencies]
-cv-geom = { git = "https://github.com/rust-cv/cv-geom.git" }
+cv-geom = "0.1.0"
