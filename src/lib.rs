@@ -10,12 +10,12 @@ mod scale_space_extrema;
 
 use crate::image::{gaussian_blur, GrayFloatImage};
 use ::image::{DynamicImage, GenericImageView, ImageResult};
+use bitarray::BitArray;
 use cv_core::nalgebra::Point2;
 use cv_core::ImagePoint;
 use evolution::*;
 use log::*;
 use nonlinear_diffusion::pm_g2;
-use space::{Bits512, Hamming};
 use std::path::Path;
 
 /// A point of interest in an image.
@@ -228,7 +228,7 @@ impl Akaze {
     /// let (keypoints, descriptors) = akaze.extract(&image::open("res/0000000000.png").unwrap());
     /// ```
     ///
-    pub fn extract(&self, image: &DynamicImage) -> (Vec<KeyPoint>, Vec<Hamming<Bits512>>) {
+    pub fn extract(&self, image: &DynamicImage) -> (Vec<KeyPoint>, Vec<BitArray<64>>) {
         let float_image = GrayFloatImage::from_dynamic(&image);
         info!("Loaded a {} x {} image", image.width(), image.height());
         let mut evolutions = self.allocate_evolutions(image.width(), image.height());
@@ -262,7 +262,7 @@ impl Akaze {
     pub fn extract_path(
         &self,
         path: impl AsRef<Path>,
-    ) -> ImageResult<(Vec<KeyPoint>, Vec<Hamming<Bits512>>)> {
+    ) -> ImageResult<(Vec<KeyPoint>, Vec<BitArray<64>>)> {
         Ok(self.extract(&::image::open(path)?))
     }
 }

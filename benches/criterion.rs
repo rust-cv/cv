@@ -1,11 +1,9 @@
 use akaze::Akaze;
+use bitarray::BitArray;
 use criterion::{criterion_group, criterion_main, Criterion};
-use space::{Bits512, Hamming};
 use std::path::Path;
 
-type Descriptor = Hamming<Bits512>;
-
-fn image_to_kps(path: impl AsRef<Path>) -> (Vec<akaze::KeyPoint>, Vec<Descriptor>) {
+fn image_to_kps(path: impl AsRef<Path>) -> (Vec<akaze::KeyPoint>, Vec<BitArray<64>>) {
     Akaze::sparse().extract_path(path).unwrap()
 }
 

@@ -1,17 +1,17 @@
 use akaze::Akaze;
-use arrsac::{Arrsac, Config as ArrsacConfig};
+use arrsac::Arrsac;
+use bitarray::BitArray;
 use cv_core::nalgebra::{Point2, Vector2};
 use cv_core::sample_consensus::Consensus;
 use cv_core::{CameraModel, FeatureMatch};
 use log::*;
 use rand::SeedableRng;
 use rand_pcg::Pcg64;
-use space::{Bits512, Hamming};
 use std::path::Path;
 
 const LOWES_RATIO: f32 = 0.5;
 
-type Descriptor = Hamming<Bits512>;
+type Descriptor = BitArray<64>;
 type Match = FeatureMatch<cv_pinhole::NormalizedKeyPoint>;
 
 fn image_to_kps(path: impl AsRef<Path>) -> (Vec<akaze::KeyPoint>, Vec<Descriptor>) {
@@ -57,7 +57,7 @@ fn estimate_pose() {
 
     // Run ARRSAC with the eight-point algorithm.
     info!("Running ARRSAC");
-    let mut arrsac = Arrsac::new(ArrsacConfig::new(0.001), Pcg64::from_seed([1; 32]));
+    let mut arrsac = Arrsac::new(0.001, Pcg64::from_seed([1; 32]));
     let eight_point = eight_point::EightPoint::new();
     let (_, inliers) = arrsac
         .model_inliers(&eight_point, matches.iter().copied())

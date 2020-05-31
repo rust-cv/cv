@@ -1,7 +1,5 @@
-use crate::{Akaze, EvolutionStep};
-
-use crate::KeyPoint;
-use space::{Bits512, Hamming};
+use crate::{Akaze, EvolutionStep, KeyPoint};
+use bitarray::BitArray;
 
 impl Akaze {
     /// Extract descriptors from keypoints/an evolution
@@ -16,7 +14,7 @@ impl Akaze {
         &self,
         evolutions: &[EvolutionStep],
         keypoints: &[KeyPoint],
-    ) -> Vec<Hamming<Bits512>> {
+    ) -> Vec<BitArray<64>> {
         keypoints
             .iter()
             .map(|keypoint| self.get_mldb_descriptor(keypoint, evolutions))
@@ -35,8 +33,8 @@ impl Akaze {
         &self,
         keypoint: &KeyPoint,
         evolutions: &[EvolutionStep],
-    ) -> Hamming<Bits512> {
-        let mut output = Hamming(Bits512([0; 64]));
+    ) -> BitArray<64> {
+        let mut output = BitArray::zeros();
         let max_channels = 3usize;
         debug_assert!(self.descriptor_channels <= max_channels);
         let mut values: Vec<f32> = vec![0f32; (16 * max_channels) as usize];
@@ -65,7 +63,7 @@ impl Akaze {
             );
             mldb_binary_comparisons(
                 &values,
-                &mut (output.0).0,
+                output.bytes_mut(),
                 val_count,
                 &mut dpos,
                 self.descriptor_channels,
