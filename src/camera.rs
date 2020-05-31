@@ -31,7 +31,12 @@ pub trait Bearing {
     ///
     /// This is useful if you would like to go backwards from reconstruction space to image space.
     /// See [`CameraModel::uncalibrate`] for how to then convert the camera bearing into image coordinates.
-    fn from_bearing_unit_vector(bearing: Unit<Vector3<f64>>) -> Self;
+    fn from_bearing_unit_vector(bearing: Unit<Vector3<f64>>) -> Self
+    where
+        Self: Sized,
+    {
+        Self::from_bearing_vector(bearing.into_inner())
+    }
 }
 
 impl Bearing for Unit<Vector3<f64>> {
