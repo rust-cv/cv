@@ -1,6 +1,6 @@
 [package]
 name = "eight-point"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 description = "Eight-point algorithm for essential matrix estimation"
@@ -12,14 +12,13 @@ license = "MIT"
 readme = "README.md"
 
 [dependencies]
-# cv-core = "0.10.0"
-cv-core = { git = "https://github.com/rust-cv/cv-core.git" }
-cv-pinhole = { git = "https://github.com/rust-cv/cv-pinhole.git" }
 float-ord = "0.2.0"
+cv-core = "0.11.0"
+cv-pinhole = "0.2.0"
 
 [dev-dependencies]
 nalgebra = "0.21.0"
-cv-geom = { git = "https://github.com/rust-cv/cv-geom.git" }
+cv-geom = "0.1.0"
 
 [profile.dev]
 # The tests take a very long time without optimization.
