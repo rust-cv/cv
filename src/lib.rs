@@ -21,6 +21,7 @@
 
 #![no_std]
 
+pub use cv_core::sample_consensus::*;
 pub use cv_core::*;
 
 #[cfg(feature = "space")]
