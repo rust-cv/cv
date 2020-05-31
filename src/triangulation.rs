@@ -84,7 +84,7 @@ where
         let eye = from.0;
         let target = eye + translation;
         let up = from.coords.cross(&translation);
-        let fake_pose = RelativeCameraPose(IsometryMatrix3::face_towards(&eye, &target, &up));
+        let fake_pose = RelativeCameraPose(IsometryMatrix3::look_at_lh(&eye, &target, &up));
         self.triangulate_relative(fake_pose, onto, Vector3::z_axis())
             .map(|point| {
                 // Get the vector representing the difference from `from`.
