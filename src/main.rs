@@ -7,7 +7,8 @@ use cv::{
     estimate::EightPoint,
     feature::akaze,
     geom::MinimalSquareReprojectionErrorTriangulator,
-    BitArray, CameraModel, Consensus, FeatureMatch, Model, TriangulatorRelative,
+    Bearing, BitArray, CameraModel, CameraPose, Consensus, FeatureMatch, Model,
+    TriangulatorRelative,
 };
 
 use cv::nalgebra::{Point2, Point3, Vector2};
@@ -15,6 +16,7 @@ use cv::nalgebra::{Point2, Point3, Vector2};
 use log::*;
 use rand::SeedableRng;
 use rand_pcg::Pcg64;
+use slam::*;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{sync_channel, Receiver};
 use structopt::StructOpt;
@@ -79,132 +81,26 @@ fn main() {
         opt.radial_distortion,
     );
 
+    let calibrate = |(kps, ds): (Vec<akaze::KeyPoint>, Vec<BitArray<64>>)| {
+        kps.into_iter()
+            .zip(ds)
+            .map(|(kp, d)| (intrinsics.calibrate(kp), d))
+            .collect()
+    };
+
     let net_focal = (opt.x_focal.powi(2) + opt.y_focal.powi(2)).sqrt();
 
     // Create a channel that will produce features in another parallel thread.
     let features = features_stream(&opt);
-    let mut prev = features.recv().unwrap();
-    for next in features {
-        info!("start frame");
-        info!("prev kps: {}", prev.0.len());
-        info!("next kps: {}", next.0.len());
 
-        // Compute best matches from previous frame to next frame and vice versa.
-        let forward_matches = matching(&prev.1, &next.1);
-        let reverse_matches = matching(&next.1, &prev.1);
+    // Initialize a new vSLAM reconstruction.
+    let mut slam = VSlam::new();
+    // Add the camera intrinsics.
+    slam.add_feed(intrinsics);
 
-        // Compute the symmetric matches (matches that were the same going forwards and backwards).
-        let matches = forward_matches
-            .iter()
-            .enumerate()
-            .filter_map(|(aix, &(bix, distance))| {
-                let is_symmetric = reverse_matches[bix].0 == aix;
-                let in_threshold = distance < opt.match_threshold;
-                if is_symmetric && in_threshold {
-                    let a = intrinsics.calibrate(prev.0[aix]);
-                    let b = intrinsics.calibrate(next.0[bix]);
-                    Some(FeatureMatch(a, b))
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-        info!("matches: {}", matches.len());
-
-        // Perform sample consensus.
-        let eight_point = EightPoint::new();
-        let mut arrsac = Arrsac::new(opt.arrsac_threshold, Pcg64::from_seed([1; 32]));
-        let (essential, inliers) = arrsac
-            .model_inliers(&eight_point, matches.iter().copied())
-            .unwrap();
-        let inliers = inliers.iter().map(|&ix| matches[ix]).collect::<Vec<_>>();
-        info!("inliers after sample consensus: {}", inliers.clone().len());
-        let residual_average = inliers
-            .iter()
-            .map(|m| essential.residual(&m).abs())
-            .sum::<f32>()
-            / inliers.len() as f32;
-        info!(
-            "inlier residual average after sample consensus: {}",
-            residual_average
-        );
-
-        // Perform chirality test to determine which essential matrix is correct.
-        let (pose, inlier_indices) = essential
-            .pose_solver()
-            .solve_unscaled_inliers(
-                MinimalSquareReprojectionErrorTriangulator::new(),
-                inliers.clone().into_iter(),
-            )
-            .unwrap();
-        let inliers = inlier_indices
-            .into_iter()
-            .map(|inlier| inliers[inlier])
-            .collect::<Vec<_>>();
-        info!("inliers after chirality test: {}", inliers.len());
-
-        // Filter outlier matches based on reprojection error.
-        let inliers: Vec<_> = inliers
-            .iter()
-            .cloned()
-            .filter(|m| {
-                // Get the reprojection error in focal length.
-                let error_in_focal_length = pinhole::average_pose_reprojection_error(
-                    *pose,
-                    *m,
-                    MinimalSquareReprojectionErrorTriangulator::new(),
-                )
-                .unwrap();
-                // Then convert it to pixels.
-                let error_in_pixels = error_in_focal_length * net_focal;
-
-                debug!("error in pixels: {}", error_in_pixels);
-
-                error_in_pixels < opt.reprojection_threshold
-            })
-            .collect();
-        info!(
-            "inliers after reprojection error filtering: {}",
-            inliers.clone().len()
-        );
-        let mean_reprojection_error = inliers
-            .iter()
-            .copied()
-            .map(|m| {
-                // Get the reprojection error in focal length.
-                let error_in_focal_length = pinhole::average_pose_reprojection_error(
-                    *pose,
-                    m,
-                    MinimalSquareReprojectionErrorTriangulator::new(),
-                )
-                .unwrap();
-                // Then convert it to pixels.
-                error_in_focal_length * net_focal
-            })
-            .sum::<f64>()
-            / inliers.len() as f64;
-        info!(
-            "mean reprojection error after reprojection error filtering: {}",
-            mean_reprojection_error
-        );
-
-        // Output point cloud.
-        if let Some(outpath) = opt.output.as_ref() {
-            let points: Vec<Point3<f64>> = inliers
-                .iter()
-                .copied()
-                .map(|FeatureMatch(a, b)| {
-                    MinimalSquareReprojectionErrorTriangulator::new()
-                        .triangulate_relative(pose.0, a, b)
-                        .unwrap()
-                        .0
-                })
-                .collect();
-            export::export(std::fs::File::create(outpath).unwrap(), points);
-        }
-        info!("rotation: {:?}", pose.rotation.angle());
-        prev = next;
-        info!("end frame");
+    // Add all of the frames.
+    for features in features.into_iter().map(calibrate) {
+        slam.add_frame(Frame { feed: 0, features });
     }
 }
 
