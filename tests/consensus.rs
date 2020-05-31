@@ -1,6 +1,6 @@
 use approx::assert_relative_eq;
 use arraymap::ArrayMap;
-use arrsac::{Arrsac, Config};
+use arrsac::Arrsac;
 use cv_core::nalgebra::{IsometryMatrix3, Point2, Point3, Rotation3, Translation, Vector3};
 use cv_core::sample_consensus::Consensus;
 use cv_core::{FeatureWorldMatch, WorldPoint};
@@ -12,7 +12,7 @@ const EPSILON_APPROX: f64 = 1e-6;
 
 #[test]
 fn arrsac_manual() {
-    let mut arrsac = Arrsac::new(Config::new(0.01), SmallRng::from_seed([0; 16]));
+    let mut arrsac = Arrsac::new(0.01, SmallRng::from_seed([0; 16]));
 
     // Define some points in camera coordinates (with z > 0).
     let camera_depth_points = [
@@ -54,7 +54,7 @@ fn arrsac_manual() {
 
 #[test]
 fn endless_loop_case() {
-    let mut arrsac = Arrsac::new(Config::new(0.01), SmallRng::from_seed([0; 16]));
+    let mut arrsac = Arrsac::new(0.01, SmallRng::from_seed([0; 16]));
 
     let samples = [
         FeatureWorldMatch(
