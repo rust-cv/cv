@@ -13,6 +13,7 @@
 //! ## Modules
 //! * [`camera`] - camera models to convert image coordinates into bearings (and back)
 //! * [`consensus`] - finding the best estimated model from noisy data
+//! * [`geom`] - computational geometry algorithms used in computer vision
 //! * [`estimate`] - estimation of models from data
 //! * [`feature`] - feature extraction and description
 //! * [`knn`] - searching for nearest neighbors in small or large datasets
@@ -20,51 +21,60 @@
 
 #![no_std]
 
-pub use cv_core::{
-    nalgebra,
-    sample_consensus::{Consensus, Estimator, Model, MultiConsensus},
-    Bearing, CameraModel, CameraPoint, CameraPose, EssentialMatrix, FeatureMatch,
-    FeatureWorldMatch, ImagePoint, KeyPoint, RelativeCameraPose, UnscaledRelativeCameraPose,
-    WorldPoint, WorldPose,
-};
+pub use cv_core::*;
 
-pub use space::{self, MetricPoint};
+#[cfg(feature = "space")]
+pub use space::MetricPoint;
 
 /// Camera models
 pub mod camera {
     /// The pinhole camera model
-    #[cfg(feature = "pinhole")]
-    pub use cv_core::pinhole;
+    #[cfg(feature = "cv-pinhole")]
+    pub use cv_pinhole as pinhole;
 }
 
 /// Consensus algorithms
 pub mod consensus {
     #[cfg(feature = "arrsac")]
-    pub use arrsac::{Arrsac, Config as ArrsacConfig};
+    pub use arrsac::Arrsac;
+}
+
+/// Computational geometry algorithms
+pub mod geom {
+    #[cfg(feature = "cv-geom")]
+    pub use cv_geom::*;
 }
 
 /// Estimation algorithms
 pub mod estimate {
     #[cfg(feature = "eight-point")]
     pub use eight_point::EightPoint;
+    #[cfg(feature = "lambda-twist")]
+    pub use lambda_twist::LambdaTwist;
 }
 
 /// Feature detection and description algorithms
 pub mod feature {
     #[cfg(feature = "akaze")]
-    pub use akaze;
+    pub use akaze::Akaze;
 }
 
 /// Algorithms for performing k-NN searches
 pub mod knn {
     #[cfg(feature = "hnsw")]
-    pub use hnsw;
+    pub mod hnsw {
+        pub use hnsw::*;
+    }
 
+    #[cfg(feature = "space")]
     pub use space::linear_knn;
 }
 
 /// Optimization algorithms
 pub mod optimize {
+    /// Levenberg-Marquardt
     #[cfg(feature = "levenberg-marquardt")]
-    pub use levenberg_marquardt::{optimize as lm, Config as LMConfig};
+    pub mod lm {
+        pub use levenberg_marquardt::*;
+    }
 }

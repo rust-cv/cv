@@ -13,20 +13,27 @@ readme = "README.md"
 
 [features]
 default = [
-    "pinhole",
-    "akaze",
+    "cv-pinhole",
+    "cv-geom",
     "eight-point",
+    "lambda-twist",
+    "akaze",
+    "space",
+    "hnsw",
     "levenberg-marquardt",
     "arrsac",
-    "hnsw"
+    "bitarray",
 ]
-pinhole = ["cv-core/pinhole"]
 
 [dependencies]
-cv-core = "0.9.1"
-space = "0.10.3"
-akaze = { version = "0.2.0", optional = true }
-eight-point = { version = "0.3.0", optional = true }
-levenberg-marquardt = { version = "0.4.0", optional = true }
-arrsac = { version = "0.3.0", optional = true }
+cv-core = { git = "https://github.com/rust-cv/cv-core.git" }
+cv-pinhole = { git = "https://github.com/rust-cv/cv-pinhole.git", optional = true }
+cv-geom = { git = "https://github.com/rust-cv/cv-geom.git", optional = true }
+eight-point = { git = "https://github.com/rust-cv/eight-point.git", optional = true }
+lambda-twist = { git = "https://github.com/rust-cv/lambda-twist.git", optional = true }
+akaze = { git = "https://github.com/rust-cv/akaze.git", optional = true }
+space = { version = "0.10.3", optional = true }
 hnsw = { version = "0.6.1", optional = true }
+levenberg-marquardt = { version = "0.5.0", optional = true }
+arrsac = { version = "0.4.0", optional = true }
+bitarray = { version = "0.2.2", features = ["space"], optional = true }
