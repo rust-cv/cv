@@ -1,5 +1,3 @@
-#![no_std]
-
 //! This module contains functions to perform various geometric algorithms.
 //!
 //! ## Triangulation of a point with a given camera transformation
@@ -76,47 +74,54 @@
 //!
 //! * [`triangulate_least_square_reprojection_error`]
 
+#![no_std]
+
 use cv_core::nalgebra::{zero, Matrix3x4, Matrix4, Vector3};
-use cv_core::{Bearing, CameraPoint, CameraPose, TriangulatorObservances, WorldPoint};
+use cv_core::{
+    Bearing, CameraPoint, CameraPose, TriangulatorObservances, TriangulatorProject, WorldPoint,
+};
 
 /// This solves the translation along a bearing triangulation assuming that there is
 /// a perfect intersection.
-pub fn triangulate_bearing_intersection<B>(
-    bearing: Vector3<f64>,
-    from: CameraPoint,
-    to: B,
-) -> Option<f64>
-where
-    B: Bearing,
-{
-    let from = from.0.coords;
-    let to = to.bearing_unnormalized();
+pub struct BearingIntersectionTriangulator;
 
-    let hv = to.cross(&-from);
-    let h = hv.norm();
-    let kv = to.cross(&bearing);
-    let k = kv.norm();
+impl TriangulatorProject for BearingIntersectionTriangulator {
+    fn triangulate_project<B: Bearing>(
+        &self,
+        from: CameraPoint,
+        onto: B,
+        translation: Vector3<f64>,
+    ) -> Option<f64> {
+        let from = from.0.coords;
+        let to = onto.bearing_unnormalized();
 
-    let l = h / k;
+        let hv = to.cross(&-from);
+        let h = hv.norm();
+        let kv = to.cross(&translation);
+        let k = kv.norm();
 
-    Some(if hv.dot(&kv) > 0.0 { l } else { -l })
+        let l = h / k;
+
+        Some(if hv.dot(&kv) > 0.0 { l } else { -l })
+    }
 }
 
 /// This solves the translation along a bearing triangulation by minimizing the reprojection error.
-pub fn triangulate_bearing_reproject<B>(
-    bearing: Vector3<f64>,
-    from: CameraPoint,
-    to: B,
-) -> Option<f64>
-where
-    B: Bearing,
-{
-    let a = to.bearing_unnormalized();
-    let b = from;
-    let t = bearing;
-    Some((a.y * b.x - a.x * b.y) / (a.x * t.y - a.y * t.x))
-}
+pub struct BearingMinimizeReprojectionErrorTriangulator;
 
+impl TriangulatorProject for BearingMinimizeReprojectionErrorTriangulator {
+    fn triangulate_project<B: Bearing>(
+        &self,
+        from: CameraPoint,
+        onto: B,
+        translation: Vector3<f64>,
+    ) -> Option<f64> {
+        let a = onto.bearing_unnormalized();
+        let b = from;
+        let t = translation;
+        Some((a.y * b.x - a.x * b.y) / (a.x * t.y - a.y * t.x))
+    }
+}
 /// This solves triangulation problems by simply minimizing the squared reprojection error of all observances.
 ///
 /// This is a quick triangulator to execute and is fairly robust.
