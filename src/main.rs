@@ -117,10 +117,10 @@ fn main() {
         let (essential, inliers) = arrsac
             .model_inliers(&eight_point, matches.iter().copied())
             .unwrap();
-        let inliers = inliers.iter().map(|&ix| matches[ix]);
+        let inliers = inliers.iter().map(|&ix| matches[ix]).collect::<Vec<_>>();
         info!("inliers after sample consensus: {}", inliers.clone().len());
         let residual_average = inliers
-            .clone()
+            .iter()
             .map(|m| essential.residual(&m).abs())
             .sum::<f32>()
             / inliers.len() as f32;
@@ -130,17 +130,21 @@ fn main() {
         );
 
         // Perform chirality test to determine which essential matrix is correct.
-        let (pose, inliers) = essential
+        let (pose, inlier_indices) = essential
             .pose_solver()
             .solve_unscaled_inliers(
                 MinimalSquareReprojectionErrorTriangulator::new(),
-                inliers.clone().take(8),
+                inliers.clone().into_iter(),
             )
             .unwrap();
+        let inliers = inlier_indices
+            .into_iter()
+            .map(|inlier| inliers[inlier])
+            .collect::<Vec<_>>();
         info!("inliers after chirality test: {}", inliers.len());
 
         // Filter outlier matches based on reprojection error.
-        let inliers: Vec<_> = matches
+        let inliers: Vec<_> = inliers
             .iter()
             .cloned()
             .filter(|m| {
@@ -183,6 +187,8 @@ fn main() {
             "mean reprojection error after reprojection error filtering: {}",
             mean_reprojection_error
         );
+
+        // Output point cloud.
         if let Some(outpath) = opt.output.as_ref() {
             let points: Vec<Point3<f64>> = inliers
                 .iter()
