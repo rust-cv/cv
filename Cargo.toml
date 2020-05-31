@@ -1,6 +1,6 @@
 [package]
 name = "cv-core"
-version = "0.10.0"
+version = "0.11.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 description = "Contains core primitives used in computer vision applications"
