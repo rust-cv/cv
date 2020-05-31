@@ -13,6 +13,7 @@ readme = "README.md"
 
 [features]
 default = [
+    "alloc",
     "cv-pinhole",
     "cv-geom",
     "eight-point",
@@ -23,6 +24,9 @@ default = [
     "levenberg-marquardt",
     "arrsac",
     "bitarray",
+]
+alloc = [
+    "cv-core/alloc"
 ]
 
 [dependencies]
