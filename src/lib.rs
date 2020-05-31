@@ -26,6 +26,9 @@ pub use cv_core::*;
 #[cfg(feature = "space")]
 pub use space::MetricPoint;
 
+#[cfg(feature = "bitarray")]
+pub use bitarray::BitArray;
+
 /// Camera models
 pub mod camera {
     /// The pinhole camera model
