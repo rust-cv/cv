@@ -59,12 +59,16 @@ pub mod estimate {
 
 /// Feature detection and description algorithms
 pub mod feature {
+    /// A robust and fast feature detector
     #[cfg(feature = "akaze")]
-    pub use akaze::Akaze;
+    pub mod akaze {
+        pub use akaze::*;
+    }
 }
 
 /// Algorithms for performing k-NN searches
 pub mod knn {
+    /// An approximate nearest neighbor index search data structure
     #[cfg(feature = "hnsw")]
     pub mod hnsw {
         pub use hnsw::*;
