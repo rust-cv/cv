@@ -291,10 +291,7 @@ impl EssentialMatrix {
     /// Creates a solver that allows you to solve for the pose using correspondences.
     /// The pose may be scaled or unscaled, and if the `alloc` feature is enabled, you
     /// can retrieve the inliers as well.
-    pub fn pose_solver<P>(&self) -> PoseSolver<'_>
-    where
-        P: Bearing + Copy,
-    {
+    pub fn pose_solver(&self) -> PoseSolver<'_> {
         PoseSolver {
             essential: self,
             epsilon: 1e-9,
