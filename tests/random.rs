@@ -1,6 +1,7 @@
 use cv_core::nalgebra::{IsometryMatrix3, Rotation3, Vector2, Vector3};
 use cv_core::sample_consensus::{Estimator, Model};
-use cv_core::{geom, CameraPoint, FeatureMatch, RelativeCameraPose};
+use cv_core::{CameraPoint, FeatureMatch, RelativeCameraPose};
+use cv_geom::MinimalSquareReprojectionErrorTriangulator;
 use cv_pinhole::NormalizedKeyPoint;
 
 const SAMPLE_POINTS: usize = 16;
@@ -33,11 +34,8 @@ fn run_round() -> bool {
     }
 
     // Get the possible poses for the essential matrix created from `pose`.
-    let estimate_pose = match essential.solve_pose(
-        1e-6,
-        50,
-        0.1,
-        geom::triangulate_bearing_reproject,
+    let estimate_pose = match essential.pose_solver().solve(
+        MinimalSquareReprojectionErrorTriangulator::new(),
         matches
             .zip(depths)
             .map(|(FeatureMatch(a, b), depth)| (a.with_depth(depth), b)),

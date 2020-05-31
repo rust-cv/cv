@@ -12,10 +12,16 @@ license = "MIT"
 readme = "README.md"
 
 [dependencies]
-cv-core = "0.10.0"
-cv-pinhole = "0.1.0"
+# cv-core = "0.10.0"
+cv-core = { git = "https://github.com/rust-cv/cv-core.git" }
+cv-pinhole = { git = "https://github.com/rust-cv/cv-pinhole.git" }
 float-ord = "0.2.0"
 
 [dev-dependencies]
 nalgebra = "0.21.0"
+cv-geom = { git = "https://github.com/rust-cv/cv-geom.git" }
+
+[profile.dev]
+# The tests take a very long time without optimization.
+opt-level = 3
 
