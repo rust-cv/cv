@@ -1,4 +1,4 @@
-use cv_core::nalgebra::Point3;
+use cv::nalgebra::Point3;
 use ply_rs::ply::{
     Addable, DefaultElement, ElementDef, Encoding, Ply, Property, PropertyDef, PropertyType,
     ScalarType,

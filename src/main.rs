@@ -1,22 +1,25 @@
 mod export;
 mod slam;
-mod triangulate;
 
-use arrsac::{Arrsac, Config as ArrsacConfig};
-use cv_core::nalgebra::{Point2, Point3, Vector2};
-use cv_core::sample_consensus::{Consensus, Model};
-use cv_core::{CameraModel, FeatureMatch};
-use cv_pinhole::{CameraIntrinsics, CameraIntrinsicsK1Distortion};
-use eight_point::EightPoint;
+use cv::{
+    camera::pinhole::{self, CameraIntrinsics, CameraIntrinsicsK1Distortion},
+    consensus::Arrsac,
+    estimate::EightPoint,
+    feature::akaze,
+    geom::MinimalSquareReprojectionErrorTriangulator,
+    BitArray, CameraModel, Consensus, FeatureMatch, Model, TriangulatorRelative,
+};
+
+use cv::nalgebra::{Point2, Point3, Vector2};
+
 use log::*;
 use rand::SeedableRng;
 use rand_pcg::Pcg64;
-use space::{Bits512, Hamming, MetricPoint};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{sync_channel, Receiver};
 use structopt::StructOpt;
 
-type Descriptor = Hamming<Bits512>;
+type Descriptor = BitArray<64>;
 
 #[derive(StructOpt, Clone)]
 #[structopt(name = "vslam-sandbox", about = "A tool for testing vslam algorithms.")]
@@ -25,7 +28,7 @@ struct Opt {
     ///
     /// Setting this to a high number disables it.
     #[structopt(short, long, default_value = "64")]
-    match_threshold: u32,
+    match_threshold: usize,
     /// The threshold for ARRSAC.
     #[structopt(short, long, default_value = "0.001")]
     arrsac_threshold: f32,
@@ -85,8 +88,12 @@ fn main() {
         info!("start frame");
         info!("prev kps: {}", prev.0.len());
         info!("next kps: {}", next.0.len());
+
+        // Compute best matches from previous frame to next frame and vice versa.
         let forward_matches = matching(&prev.1, &next.1);
         let reverse_matches = matching(&next.1, &prev.1);
+
+        // Compute the symmetric matches (matches that were the same going forwards and backwards).
         let matches = forward_matches
             .iter()
             .enumerate()
@@ -103,11 +110,10 @@ fn main() {
             })
             .collect::<Vec<_>>();
         info!("matches: {}", matches.len());
+
+        // Perform sample consensus.
         let eight_point = EightPoint::new();
-        let mut arrsac = Arrsac::new(
-            ArrsacConfig::new(opt.arrsac_threshold),
-            Pcg64::from_seed([1; 32]),
-        );
+        let mut arrsac = Arrsac::new(opt.arrsac_threshold, Pcg64::from_seed([1; 32]));
         let (essential, inliers) = arrsac
             .model_inliers(&eight_point, matches.iter().copied())
             .unwrap();
@@ -122,25 +128,27 @@ fn main() {
             "inlier residual average after sample consensus: {}",
             residual_average
         );
-        let pose = essential
-            .solve_unscaled_pose(
-                1e-6,
-                100,
-                0.5,
-                triangulate::triangulator,
+
+        // Perform chirality test to determine which essential matrix is correct.
+        let (pose, inliers) = essential
+            .pose_solver()
+            .solve_unscaled_inliers(
+                MinimalSquareReprojectionErrorTriangulator::new(),
                 inliers.clone().take(8),
             )
             .unwrap();
+        info!("inliers after chirality test: {}", inliers.len());
+
         // Filter outlier matches based on reprojection error.
         let inliers: Vec<_> = matches
             .iter()
             .cloned()
             .filter(|m| {
                 // Get the reprojection error in focal length.
-                let error_in_focal_length = cv_pinhole::average_pose_reprojection_error(
+                let error_in_focal_length = pinhole::average_pose_reprojection_error(
                     *pose,
                     *m,
-                    triangulate::triangulator,
+                    MinimalSquareReprojectionErrorTriangulator::new(),
                 )
                 .unwrap();
                 // Then convert it to pixels.
@@ -160,15 +168,14 @@ fn main() {
             .copied()
             .map(|m| {
                 // Get the reprojection error in focal length.
-                let error_in_focal_length = cv_pinhole::average_pose_reprojection_error(
+                let error_in_focal_length = pinhole::average_pose_reprojection_error(
                     *pose,
                     m,
-                    triangulate::triangulator,
+                    MinimalSquareReprojectionErrorTriangulator::new(),
                 )
                 .unwrap();
                 // Then convert it to pixels.
-                let error_in_pixels = error_in_focal_length * net_focal;
-                error_in_pixels
+                error_in_focal_length * net_focal
             })
             .sum::<f64>()
             / inliers.len() as f64;
@@ -180,7 +187,12 @@ fn main() {
             let points: Vec<Point3<f64>> = inliers
                 .iter()
                 .copied()
-                .map(|FeatureMatch(a, b)| triangulate::triangulator(pose, a, b).unwrap())
+                .map(|FeatureMatch(a, b)| {
+                    MinimalSquareReprojectionErrorTriangulator::new()
+                        .triangulate_relative(pose.0, a, b)
+                        .unwrap()
+                        .0
+                })
                 .collect();
             export::export(std::fs::File::create(outpath).unwrap(), points);
         }
@@ -210,7 +222,7 @@ fn kps_descriptors(path: impl AsRef<Path>, opt: &Opt) -> (Vec<akaze::KeyPoint>, 
         .unwrap()
 }
 
-fn matching(a_descriptors: &[Descriptor], b_descriptors: &[Descriptor]) -> Vec<(usize, u32)> {
+fn matching(a_descriptors: &[Descriptor], b_descriptors: &[Descriptor]) -> Vec<(usize, usize)> {
     a_descriptors
         .iter()
         .map(|a| {
