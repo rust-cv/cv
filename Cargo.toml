@@ -12,7 +12,8 @@ license = "MIT"
 readme = "README.md"
 
 [dependencies]
-cv-core = { version = "0.10.0", default-features = false }
+#cv-core = { version = "0.10.0", default-features = false }
+cv-core = { git = "https://github.com/rust-cv/cv-core.git" }
 image = { version = "0.23.4", default-features = false }
 log = { version = "0.4.8", default-features = false }
 primal = { version = "0.2.3", default-features = false }
@@ -25,8 +26,8 @@ bitarray = "0.2.1"
 
 
 [dev-dependencies]
-eight-point = "0.4.0"
-cv-pinhole = "0.1.1"
+eight-point = { git = "https://github.com/rust-cv/eight-point.git" }
+cv-pinhole = { git = "https://github.com/rust-cv/cv-pinhole.git" }
 arrsac = "0.4.0"
 space = "0.10.3"
 rand = "0.7.3"
