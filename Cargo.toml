@@ -3,6 +3,13 @@ name = "cv-geom"
 version = "0.1.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
+description = "Contains computational geometry algorithms used in computer vision"
+documentation = "https://docs.rs/cv-geom/"
+repository = "https://github.com/rust-cv/cv-geom"
+keywords = ["computer", "vision", "computational", "geometry", "triangulation"]
+categories = ["computer-vision", "no-std", "science::robotics"]
+license = "MIT"
+readme = "README.md"
 
 [dependencies]
 float-ord = "0.2.0"
