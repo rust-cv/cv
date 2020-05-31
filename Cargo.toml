@@ -12,6 +12,10 @@ license = "MIT"
 readme = "README.md"
 
 [dependencies]
-cv-core = "0.10.0"
+#cv-core = "0.10.0"
+cv-core = { git = "https://github.com/rust-cv/cv-core.git" }
 derive_more = "0.99.5"
 num-traits = { version = "0.2.11", default-features = false }
+
+[dev-dependencies]
+cv-geom = { git = "https://github.com/rust-cv/cv-geom.git" }

@@ -5,10 +5,10 @@
 
 #![no_std]
 
-use cv_core::nalgebra::{Matrix3, Point2, Point3, Vector2, Vector3};
+use cv_core::nalgebra::{Matrix3, Point2, Vector2, Vector3};
 use cv_core::{
     Bearing, CameraModel, CameraPoint, FeatureMatch, ImagePoint, KeyPoint, RelativeCameraPose,
-    UnscaledRelativeCameraPose,
+    TriangulatorRelative,
 };
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use num_traits::Float;
@@ -57,6 +57,10 @@ impl NormalizedKeyPoint {
 impl Bearing for NormalizedKeyPoint {
     fn bearing_unnormalized(&self) -> Vector3<f64> {
         self.0.coords.push(1.0)
+    }
+
+    fn from_bearing_vector(bearing: Vector3<f64>) -> Self {
+        Self((bearing.xy() / bearing.z).into())
     }
 }
 
@@ -336,7 +340,7 @@ impl CameraSpecification {
 /// let nkpb = NormalizedKeyPoint(point_b.xy() / point_b.z);
 ///
 /// // Create a triangulator.
-/// let triangulator = cv_core::geom::make_one_pose_dlt_triangulator(1e-6, 100);
+/// let triangulator = cv_geom::MinimalSquareReprojectionErrorTriangulator::new();
 ///
 /// // Since the normalized keypoints were computed exactly, there should be no reprojection error.
 /// let errors = cv_pinhole::pose_reprojection_error(pose, FeatureMatch(nkpa, nkpb), triangulator).unwrap();
@@ -346,16 +350,12 @@ impl CameraSpecification {
 pub fn pose_reprojection_error(
     pose: RelativeCameraPose,
     m: FeatureMatch<NormalizedKeyPoint>,
-    triangulator: impl Fn(
-        UnscaledRelativeCameraPose,
-        NormalizedKeyPoint,
-        NormalizedKeyPoint,
-    ) -> Option<Point3<f64>>,
+    triangulator: impl TriangulatorRelative,
 ) -> Option<[Vector2<f64>; 2]> {
     let FeatureMatch(a, b) = m;
-    triangulator(UnscaledRelativeCameraPose(pose), a, b).map(|point| {
+    triangulator.triangulate_relative(pose, a, b).map(|point| {
         let reproject_a = point.xy() / point.z;
-        let transform_b = pose.transform(CameraPoint(point));
+        let transform_b = pose.transform(point);
         let reproject_b = transform_b.xy() / transform_b.z;
         [a.0 - reproject_a, b.0 - reproject_b]
     })
@@ -381,7 +381,7 @@ pub fn pose_reprojection_error(
 /// let nkpb = NormalizedKeyPoint(point_b.xy() / point_b.z);
 ///
 /// // Create a triangulator.
-/// let triangulator = cv_core::geom::make_one_pose_dlt_triangulator(1e-6, 100);
+/// let triangulator = cv_geom::MinimalSquareReprojectionErrorTriangulator::new();
 ///
 /// // Since the normalized keypoints were computed exactly, there should be no reprojection error.
 /// let average_error = cv_pinhole::average_pose_reprojection_error(pose, FeatureMatch(nkpa, nkpb), triangulator).unwrap();
@@ -390,11 +390,7 @@ pub fn pose_reprojection_error(
 pub fn average_pose_reprojection_error(
     pose: RelativeCameraPose,
     m: FeatureMatch<NormalizedKeyPoint>,
-    triangulator: impl Fn(
-        UnscaledRelativeCameraPose,
-        NormalizedKeyPoint,
-        NormalizedKeyPoint,
-    ) -> Option<Point3<f64>>,
+    triangulator: impl TriangulatorRelative,
 ) -> Option<f64> {
     pose_reprojection_error(pose, m, triangulator)
         .map(|errors| errors.iter().map(|v| v.norm()).sum::<f64>() * 0.5)
