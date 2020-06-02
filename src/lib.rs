@@ -76,9 +76,10 @@
 
 #![no_std]
 
-use cv_core::nalgebra::{zero, Matrix3x4, Matrix4, Vector3};
+use cv_core::nalgebra::{zero, Matrix3x4, Matrix4, RowVector4, Vector3};
 use cv_core::{
-    Bearing, CameraPoint, CameraPose, TriangulatorObservances, TriangulatorProject, WorldPoint,
+    Bearing, CameraPoint, CameraPose, RelativeCameraPose, TriangulatorObservances,
+    TriangulatorProject, TriangulatorRelative, WorldPoint,
 };
 
 /// This solves the translation along a bearing triangulation assuming that there is
@@ -122,6 +123,7 @@ impl TriangulatorProject for BearingMinimizeReprojectionErrorTriangulator {
         Some((a.y * b.x - a.x * b.y) / (a.x * t.y - a.y * t.x))
     }
 }
+
 /// This solves triangulation problems by simply minimizing the squared reprojection error of all observances.
 ///
 /// This is a quick triangulator to execute and is fairly robust.
@@ -198,5 +200,84 @@ impl TriangulatorObservances for MinimalSquareReprojectionErrorTriangulator {
             .map(|(ix, _)| se.eigenvectors.column(ix).into_owned())
             .map(|h| (h.xyz() / h.w).into())
             .map(WorldPoint)
+    }
+}
+
+/// Based on algorithm 12 from "Multiple View Geometry in Computer Vision, Second Edition"
+pub struct RelativeDltTriangulator {
+    epsilon: f64,
+    max_iterations: usize,
+}
+
+impl RelativeDltTriangulator {
+    /// Creates a `RelativeDltTriangulator` with default values.
+    ///
+    /// Same as [`RelativeDltTriangulator::default`].
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Set the epsilon used in the SVD solver.
+    ///
+    /// Default is `1e-9`.
+    pub fn epsilon(self, epsilon: f64) -> Self {
+        Self { epsilon, ..self }
+    }
+
+    /// Set the maximum number of iterations for the SVD solver.
+    ///
+    /// Default is `100`.
+    pub fn max_iterations(self, max_iterations: usize) -> Self {
+        Self {
+            max_iterations,
+            ..self
+        }
+    }
+}
+
+impl Default for RelativeDltTriangulator {
+    fn default() -> Self {
+        Self {
+            epsilon: 1e-9,
+            max_iterations: 100,
+        }
+    }
+}
+
+impl TriangulatorRelative for RelativeDltTriangulator {
+    fn triangulate_relative<A: Bearing, B: Bearing>(
+        &self,
+        relative_pose: RelativeCameraPose,
+        a: A,
+        b: B,
+    ) -> Option<CameraPoint> {
+        let pose = relative_pose.to_homogeneous();
+        let a = a.bearing_unnormalized();
+        let b = b.bearing_unnormalized();
+        let mut design = Matrix4::zeros();
+        design
+            .row_mut(0)
+            .copy_from(&RowVector4::new(-a.z, 0.0, a.x, 0.0));
+        design
+            .row_mut(1)
+            .copy_from(&RowVector4::new(0.0, -a.z, a.y, 0.0));
+        design
+            .row_mut(2)
+            .copy_from(&(b.x * pose.row(2) - b.z * pose.row(0)));
+        design
+            .row_mut(3)
+            .copy_from(&(b.y * pose.row(2) - b.z * pose.row(1)));
+
+        let svd = design.try_svd(false, true, self.epsilon, self.max_iterations)?;
+
+        // Extract the null-space vector from V* corresponding to the smallest
+        // singular value and then normalize it back from heterogeneous coordinates.
+        svd.singular_values
+            .iter()
+            .enumerate()
+            .min_by_key(|&(_, &n)| float_ord::FloatOrd(n))
+            .map(|(ix, _)| svd.v_t.unwrap().row(ix).transpose().into_owned())
+            .map(|h| (h.xyz() / h.w).into())
+            .map(CameraPoint)
     }
 }
