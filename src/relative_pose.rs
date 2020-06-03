@@ -1,7 +1,7 @@
 use cv_core::nalgebra::{
     dimension::{Dynamic, U1, U6},
     storage::Owned,
-    DVector, MatrixMN, VecStorage, Vector3, Vector6,
+    DVector, MatrixMN, Unit, VecStorage, Vector3, Vector6,
 };
 use cv_core::{Bearing, FeatureMatch, Pose, RelativeCameraPose, Skew3, TriangulatorRelative};
 use levenberg_marquardt::{differentiate_numerically, LeastSquaresProblem};
@@ -9,7 +9,7 @@ use levenberg_marquardt::{differentiate_numerically, LeastSquaresProblem};
 #[derive(Clone)]
 pub struct TwoViewOptimizer<I, T> {
     matches: I,
-    pose: RelativeCameraPose,
+    pub pose: RelativeCameraPose,
     triangulator: T,
 }
 
@@ -82,4 +82,37 @@ where
         let mut clone = self.clone();
         differentiate_numerically(&mut clone)
     }
+
+    // /// Compute the Jacobian of the pose.
+    // fn jacobian(&self) -> Option<MatrixMN<f64, Dynamic, U6>> {
+    //     // Initialize the jacobian with all zeros.
+    //     let mut jacobian = MatrixMN::zeros_generic(Dynamic::new(self.matches.clone().count()), U6);
+
+    //     // Loop through every match and row zipped together.
+    //     for (mut row, FeatureMatch(a, b)) in jacobian.row_iter_mut().zip(self.matches.clone()) {
+    //         let a = a.bearing();
+    //         let b = b.bearing();
+    //         let point = if let Some(point) = self.triangulator.triangulate_relative(self.pose, a, b)
+    //         {
+    //             point
+    //         } else {
+    //             continue;
+    //         };
+    //         let (cam_b_point, pose_jacobian) = self.pose.transform_jacobian_pose(point);
+    //         let b_hat = Unit::new_normalize(cam_b_point.coords);
+    //         let a_hat = Unit::new_normalize(point.coords);
+
+    //         // Compute an approximate partial derivative.
+    //         let d_res_b = b.into_inner() - b_hat.into_inner();
+    //         let d_res_a = self
+    //             .pose
+    //             .transform_vector(&(a.into_inner() - a_hat.into_inner()));
+
+    //         // Convert that into pose deltas.
+    //         let pose_delta = pose_jacobian * (d_res_b + d_res_a);
+    //         row.copy_from(&pose_delta.transpose());
+    //     }
+
+    //     Some(jacobian)
+    // }
 }
