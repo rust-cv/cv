@@ -1,6 +1,6 @@
 [package]
 name = "eight-point"
-version = "0.5.0"
+version = "0.6.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 description = "Eight-point algorithm for essential matrix estimation"
@@ -13,12 +13,12 @@ readme = "README.md"
 
 [dependencies]
 float-ord = "0.2.0"
-cv-core = "0.11.0"
-cv-pinhole = "0.2.0"
+cv-core = "0.12.0"
+cv-pinhole = "0.3.0"
 
 [dev-dependencies]
 nalgebra = "0.21.0"
-cv-geom = "0.1.0"
+cv-geom = "0.2.0"
 
 [profile.dev]
 # The tests take a very long time without optimization.

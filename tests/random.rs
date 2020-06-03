@@ -1,6 +1,6 @@
 use cv_core::nalgebra::{IsometryMatrix3, Rotation3, Vector2, Vector3};
 use cv_core::sample_consensus::{Estimator, Model};
-use cv_core::{CameraPoint, FeatureMatch, RelativeCameraPose};
+use cv_core::{CameraPoint, FeatureMatch, Pose, RelativeCameraPose};
 use cv_geom::MinimalSquareReprojectionErrorTriangulator;
 use cv_pinhole::NormalizedKeyPoint;
 
