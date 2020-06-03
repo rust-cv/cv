@@ -2,7 +2,6 @@
 
 extern crate alloc;
 
-// pub mod relative_pose;
+pub mod relative_pose;
 
-/// Optimizers for [`cv_core::WorldPose`]
-pub mod world_pose;
+// pub mod world_pose;

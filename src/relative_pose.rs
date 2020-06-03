@@ -1,32 +1,38 @@
 use cv_core::nalgebra::{
     dimension::{Dynamic, U1, U6},
     storage::Owned,
-    DVector, IsometryMatrix3, MatrixMN, VecStorage, Vector3, Vector6,
+    DVector, MatrixMN, VecStorage, Vector3, Vector6,
 };
-use cv_core::{Bearing, FeatureMatch, RelativeCameraPose, Skew3};
-use levenberg_marquardt::LeastSquaresProblem;
+use cv_core::{Bearing, FeatureMatch, Pose, RelativeCameraPose, Skew3, TriangulatorRelative};
+use levenberg_marquardt::{differentiate_numerically, LeastSquaresProblem};
 
 #[derive(Clone)]
-pub struct TwoViewMatchesOptimizer<I> {
+pub struct TwoViewOptimizer<I, T> {
     matches: I,
-    translation: Vector3<f64>,
-    rotation: Skew3,
+    pose: RelativeCameraPose,
+    triangulator: T,
 }
 
-impl<I> TwoViewMatchesOptimizer<I> {
-    pub fn new(matches: I, pose: RelativeCameraPose) -> Self {
+impl<I, P, T> TwoViewOptimizer<I, T>
+where
+    I: Iterator<Item = FeatureMatch<P>> + Clone,
+    P: Bearing,
+    T: TriangulatorRelative,
+{
+    pub fn new(matches: I, pose: RelativeCameraPose, triangulator: T) -> Self {
         Self {
             matches,
-            translation: pose.translation.vector,
-            rotation: pose.rotation.into(),
+            pose,
+            triangulator,
         }
     }
 }
 
-impl<I, P> LeastSquaresProblem<f64, Dynamic, U6> for TwoViewMatchesOptimizer<I>
+impl<I, P, T> LeastSquaresProblem<f64, Dynamic, U6> for TwoViewOptimizer<I, T>
 where
     I: Iterator<Item = FeatureMatch<P>> + Clone,
     P: Bearing,
+    T: TriangulatorRelative + Clone,
 {
     /// Storage type used for the residuals. Use `nalgebra::storage::Owned<F, M>`
     /// if you want to use `VectorN` or `MatrixMN`.
@@ -36,15 +42,16 @@ where
 
     /// Set the stored parameters `$\vec{x}$`.
     fn set_params(&mut self, x: &Vector6<f64>) {
-        self.translation = x.xyz();
+        self.pose.translation.vector = x.xyz();
         let x = x.as_slice();
-        self.rotation = Skew3(Vector3::new(x[3], x[4], x[5]));
+        self.pose.rotation = Skew3(Vector3::new(x[3], x[4], x[5])).into();
     }
 
     /// Get the stored parameters `$\vec{x}$`.
     fn params(&self) -> Vector6<f64> {
-        if let [x, y, z] = *self.rotation.0.as_slice() {
-            self.translation.push(x).push(y).push(z)
+        let skew: Skew3 = self.pose.rotation.into();
+        if let [x, y, z] = *skew.as_slice() {
+            self.pose.translation.vector.push(x).push(y).push(z)
         } else {
             unreachable!()
         }
@@ -52,20 +59,27 @@ where
 
     /// Compute the residual vector.
     fn residuals(&self) -> Option<DVector<f64>> {
-        let pose = IsometryMatrix3::new(self.translation, self.rotation.0);
-        DVector::from_iterator(
+        Some(DVector::from_iterator(
             self.matches.clone().count(),
             self.matches.clone().map(|FeatureMatch(a, b)| {
-                let a = pose * a.bearing();
+                let a = a.bearing();
                 let b = b.bearing();
-                a.dot(&b)
+                self.triangulator
+                    .triangulate_relative(self.pose, a, b)
+                    .map(|point| {
+                        let a_hat = point.coords.normalize();
+                        let b_hat = self.pose.transform(point).coords.normalize();
+
+                        1.0 - a.dot(&a_hat) + 1.0 - b.dot(&b_hat)
+                    })
+                    .unwrap_or(0.0)
             }),
-        );
-        unimplemented!()
+        ))
     }
 
     /// Compute the Jacobian of the residual vector.
     fn jacobian(&self) -> Option<MatrixMN<f64, Dynamic, U6>> {
-        unimplemented!()
+        let mut clone = self.clone();
+        differentiate_numerically(&mut clone)
     }
 }
