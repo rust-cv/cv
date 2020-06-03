@@ -84,6 +84,7 @@ use cv_core::{
 
 /// This solves the translation along a bearing triangulation assuming that there is
 /// a perfect intersection.
+#[derive(Copy, Clone, Debug)]
 pub struct BearingIntersectionTriangulator;
 
 impl TriangulatorProject for BearingIntersectionTriangulator {
@@ -108,6 +109,7 @@ impl TriangulatorProject for BearingIntersectionTriangulator {
 }
 
 /// This solves the translation along a bearing triangulation by minimizing the reprojection error.
+#[derive(Copy, Clone, Debug)]
 pub struct BearingMinimizeReprojectionErrorTriangulator;
 
 impl TriangulatorProject for BearingMinimizeReprojectionErrorTriangulator {
@@ -127,6 +129,7 @@ impl TriangulatorProject for BearingMinimizeReprojectionErrorTriangulator {
 /// This solves triangulation problems by simply minimizing the squared reprojection error of all observances.
 ///
 /// This is a quick triangulator to execute and is fairly robust.
+#[derive(Copy, Clone, Debug)]
 pub struct MinimalSquareReprojectionErrorTriangulator {
     epsilon: f64,
     max_iterations: usize,
@@ -204,6 +207,7 @@ impl TriangulatorObservances for MinimalSquareReprojectionErrorTriangulator {
 }
 
 /// Based on algorithm 12 from "Multiple View Geometry in Computer Vision, Second Edition"
+#[derive(Copy, Clone, Debug)]
 pub struct RelativeDltTriangulator {
     epsilon: f64,
     max_iterations: usize,
