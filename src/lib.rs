@@ -7,8 +7,8 @@
 
 use cv_core::nalgebra::{Matrix3, Point2, Vector2, Vector3};
 use cv_core::{
-    Bearing, CameraModel, CameraPoint, FeatureMatch, ImagePoint, KeyPoint, RelativeCameraPose,
-    TriangulatorRelative,
+    Bearing, CameraModel, CameraPoint, FeatureMatch, ImagePoint, KeyPoint, Pose,
+    RelativeCameraPose, TriangulatorRelative,
 };
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use num_traits::Float;
@@ -325,7 +325,7 @@ impl CameraSpecification {
 /// You can use [`cv_core::geom::make_one_pose_dlt_triangulator`] to create the triangulator.
 ///
 /// ```
-/// # use cv_core::{RelativeCameraPose, CameraPoint, FeatureMatch};
+/// # use cv_core::{RelativeCameraPose, CameraPoint, FeatureMatch, Pose};
 /// # use cv_core::nalgebra::{Point3, IsometryMatrix3, Vector3, Rotation3};
 /// # use cv_pinhole::NormalizedKeyPoint;
 /// // Create an arbitrary point in the space of camera A.
@@ -366,7 +366,7 @@ pub fn pose_reprojection_error(
 /// This is a convenience function that simply finds the average reprojection error rather than all components.
 ///
 /// ```
-/// # use cv_core::{RelativeCameraPose, CameraPoint, FeatureMatch};
+/// # use cv_core::{RelativeCameraPose, CameraPoint, FeatureMatch, Pose};
 /// # use cv_core::nalgebra::{Point3, IsometryMatrix3, Vector3, Rotation3};
 /// # use cv_pinhole::NormalizedKeyPoint;
 /// // Create an arbitrary point in the space of camera A.
