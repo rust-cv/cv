@@ -1,13 +1,145 @@
 use crate::{Bearing, CameraPoint, EssentialMatrix, FeatureWorldMatch, Skew3, WorldPoint};
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
-use nalgebra::{IsometryMatrix3, Matrix3, Matrix3x2, Matrix6x2, Matrix6x3, Rotation3, Vector3};
+use nalgebra::{IsometryMatrix3, Matrix3, Matrix6x3, Point3, Rotation3, Vector3, Vector6};
 use sample_consensus::Model;
+
+pub trait Pose {
+    type InputPoint;
+    type OutputPoint;
+
+    /// Transform the given point to an output point, while also retrieving both Jacobians.
+    ///
+    /// The following things are returned in this order:
+    ///
+    /// * The output point of the transformation
+    /// * The Jacobian of the output in respect to the input point
+    /// * The Jacobian of the output in respect to the pose in se(3) (with translation components before so(3) components)
+    fn transform_jacobians(
+        &self,
+        input: Self::InputPoint,
+    ) -> (Self::OutputPoint, Matrix3<f64>, Matrix6x3<f64>);
+
+    /// Transform the given point to an output point, while also retrieving the input Jacobian.
+    ///
+    /// The following things are returned in this order:
+    ///
+    /// * The output point of the transformation
+    /// * The Jacobian of the output in respect to the input point
+    fn transform_jacobian_input(
+        &self,
+        input: Self::InputPoint,
+    ) -> (Self::OutputPoint, Matrix3<f64>) {
+        let (output, input_jacobian, _) = self.transform_jacobians(input);
+        (output, input_jacobian)
+    }
+
+    /// Transform the given point to an output point, while also retrieving the transform Jacobian.
+    ///
+    /// The following things are returned in this order:
+    ///
+    /// * The output point of the transformation
+    /// * The Jacobian of the output in respect to the pose in se(3) (with translation components before so(3) components)
+    fn transform_jacobian_pose(
+        &self,
+        input: Self::InputPoint,
+    ) -> (Self::OutputPoint, Matrix6x3<f64>) {
+        let (output, _, pose_jacobian) = self.transform_jacobians(input);
+        (output, pose_jacobian)
+    }
+
+    /// Transform the given point to an output point, while also retrieving the transform Jacobian.
+    ///
+    /// The following things are returned in this order:
+    ///
+    /// * The output point of the transformation
+    /// * The Jacobian of the output in respect to the pose in se(3) (with translation components before so(3) components)
+    fn transform(&self, input: Self::InputPoint) -> Self::OutputPoint {
+        let (output, _, _) = self.transform_jacobians(input);
+        output
+    }
+
+    /// Updates the pose by applying a delta to its se(3) representation.
+    fn update(&mut self, delta: Vector6<f64>);
+}
+
+/// Transform the given point while also retrieving both Jacobians.
+///
+/// The following things are returned in this order:
+///
+/// * The output point of the transformation
+/// * The Jacobian of the output in respect to the input point
+/// * The Jacobian of the output in respect to the pose in se(3) (with translation components before so(3) components)
+#[inline]
+fn isometry_point_outputs(
+    isometry: &IsometryMatrix3<f64>,
+    input: Point3<f64>,
+) -> (Point3<f64>, Matrix3<f64>, Matrix6x3<f64>) {
+    // Rotated point (intermediate output)
+    let rotated = isometry.rotation * input;
+    // Totally transfored output
+    let output = rotated + isometry.translation.vector;
+
+    // dP/dT (Jacobian of camera point in respect to translation component)
+    let dp_dt = Matrix3::<f64>::identity();
+
+    // dP/ds (Jacobian of output point in respect to skew component)
+    let dp_ds = Skew3::jacobian_self(rotated.coords);
+
+    // dP/dT,s (Jacobian of 3d camera point in respect to translation and skew)
+    let dp_dts = Matrix6x3::<f64>::from_rows(&[
+        dp_dt.row(0),
+        dp_dt.row(1),
+        dp_dt.row(2),
+        dp_ds.row(0),
+        dp_ds.row(1),
+        dp_ds.row(2),
+    ]);
+
+    // Turn the rotation into a skew to extract the input jacobian.
+    let skew: Skew3 = isometry.rotation.into();
+    let dp_di = skew.jacobian_input();
+
+    (output, dp_di, dp_dts)
+}
 
 /// This contains a world pose, which is a pose of the world relative to the camera.
 /// This maps [`WorldPoint`] into [`CameraPoint`], changing an absolute position into
 /// a vector relative to the camera.
 #[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, Deref, DerefMut, From, Into)]
 pub struct WorldPose(pub IsometryMatrix3<f64>);
+
+impl WorldPose {
+    /// Create the pose from rotation and translation.
+    pub fn from_parts(rotation: Rotation3<f64>, translation: Vector3<f64>) -> Self {
+        Self(IsometryMatrix3::from_parts(translation.into(), rotation))
+    }
+
+    pub fn identity() -> Self {
+        Self(IsometryMatrix3::identity())
+    }
+}
+
+impl Pose for WorldPose {
+    type InputPoint = WorldPoint;
+    type OutputPoint = CameraPoint;
+
+    #[inline]
+    fn transform_jacobians(
+        &self,
+        input: Self::InputPoint,
+    ) -> (Self::OutputPoint, Matrix3<f64>, Matrix6x3<f64>) {
+        let (output, jacobian_input, jacobian_pose) = isometry_point_outputs(&self.0, input.0);
+        (CameraPoint(output), jacobian_input, jacobian_pose)
+    }
+
+    #[inline]
+    fn update(&mut self, delta: Vector6<f64>) {
+        self.translation.vector += Vector3::new(delta[0], delta[1], delta[2]);
+        let mut skew: Skew3 = self.rotation.into();
+        skew.0 += Vector3::new(delta[3], delta[4], delta[5]);
+        self.rotation = skew.into();
+    }
+}
 
 impl<P> Model<FeatureWorldMatch<P>> for WorldPose
 where
@@ -20,66 +152,6 @@ where
         let new_bearing = (iso * world.coords).normalize();
         let bearing_vector = feature.bearing();
         (1.0 - bearing_vector.dot(&new_bearing)) as f32
-    }
-}
-
-impl WorldPose {
-    /// Projects the [`WorldPoint`] into camera space as a [`CameraPoint`].
-    pub fn transform(&self, WorldPoint(point): WorldPoint) -> CameraPoint {
-        let WorldPose(iso) = *self;
-        CameraPoint(iso * point)
-    }
-
-    /// Computes the Jacobian of the projection in respect to the `WorldPose`.
-    ///
-    /// The Jacobian is in the format:
-    /// ```no_build,no_run
-    /// | dx/dtx dy/dPx |
-    /// | dx/dty dy/dPy |
-    /// | dx/dtz dy/dPz |
-    /// | dx/dwx dy/dwx |
-    /// | dx/dwy dy/dwy |
-    /// | dx/dwz dy/dwz |
-    /// ```
-    ///
-    /// Where `t` refers to the translation vector and
-    /// `w` refers to the log map of the rotation in so(3).
-    #[rustfmt::skip]
-    pub fn projection_pose_jacobian(&self, point: WorldPoint) -> Matrix6x2<f64> {
-        // Rotated point (intermediate output)
-        let pr = (self.0.rotation * point.0).coords;
-        // Camera point/rotated and translated point (intermediate output)
-        let pc = (self.0 * point.0).coords;
-
-        // dP/dT (Jacobian of camera point in respect to translation component)
-        let dp_dt = Matrix3::<f64>::identity();
-
-        // dP/dR
-        let dp_dr = Skew3::jacobian_output_to_self(pr);
-
-        // dP/dT,Q (Jacobian of 3d camera point in respect to translation and quaternion)
-        let dp_dtq = Matrix6x3::<f64>::from_rows(&[
-            dp_dt.row(0),
-            dp_dt.row(1),
-            dp_dt.row(2),
-            dp_dr.row(0),
-            dp_dr.row(1),
-            dp_dr.row(2),
-        ]);
-
-        // 1 / pz
-        let pcz = pc.z.recip();
-        // - 1 / pz^2
-        let npcz2 = -(pcz * pcz);
-
-        // dK/dp (Jacobian of normalized image coordinate in respect to 3d camera point)
-        let dk_dp = Matrix3x2::new(
-            pcz,    0.0,
-            0.0,    pcz,
-            npcz2,  npcz2,
-        );
-
-        dp_dtq * dk_dp
     }
 }
 
@@ -96,8 +168,35 @@ impl From<CameraPose> for WorldPose {
 pub struct CameraPose(pub IsometryMatrix3<f64>);
 
 impl CameraPose {
+    /// Create the pose from rotation and translation.
+    pub fn from_parts(rotation: Rotation3<f64>, translation: Vector3<f64>) -> Self {
+        Self(IsometryMatrix3::from_parts(translation.into(), rotation))
+    }
+
     pub fn identity() -> Self {
         Self(IsometryMatrix3::identity())
+    }
+}
+
+impl Pose for CameraPose {
+    type InputPoint = CameraPoint;
+    type OutputPoint = WorldPoint;
+
+    #[inline]
+    fn transform_jacobians(
+        &self,
+        input: Self::InputPoint,
+    ) -> (Self::OutputPoint, Matrix3<f64>, Matrix6x3<f64>) {
+        let (output, jacobian_input, jacobian_pose) = isometry_point_outputs(&self.0, input.0);
+        (WorldPoint(output), jacobian_input, jacobian_pose)
+    }
+
+    #[inline]
+    fn update(&mut self, delta: Vector6<f64>) {
+        self.translation.vector += Vector3::new(delta[0], delta[1], delta[2]);
+        let mut skew: Skew3 = self.rotation.into();
+        skew.0 += Vector3::new(delta[3], delta[4], delta[5]);
+        self.rotation = skew.into();
     }
 }
 
@@ -128,12 +227,6 @@ impl RelativeCameraPose {
         Self(IsometryMatrix3::from_parts(translation.into(), rotation))
     }
 
-    /// The relative pose transforms the point in camera space from camera `A` to camera `B`.
-    pub fn transform(&self, CameraPoint(point): CameraPoint) -> CameraPoint {
-        let Self(iso) = *self;
-        CameraPoint(iso * point)
-    }
-
     /// Generates an essential matrix corresponding to this relative camera pose.
     ///
     /// If a point `a` is transformed using [`RelativeCameraPose::transform`] into
@@ -144,6 +237,33 @@ impl RelativeCameraPose {
     /// See the documentation of [`EssentialMatrix`] for more information.
     pub fn essential_matrix(&self) -> EssentialMatrix {
         EssentialMatrix(self.0.translation.vector.cross_matrix() * *self.0.rotation.matrix())
+    }
+
+    /// Inverses the pose such that it now swaps which camera it is transfering from and to.
+    pub fn inverse(&self) -> Self {
+        Self(self.0.inverse())
+    }
+}
+
+impl Pose for RelativeCameraPose {
+    type InputPoint = CameraPoint;
+    type OutputPoint = CameraPoint;
+
+    #[inline]
+    fn transform_jacobians(
+        &self,
+        input: Self::InputPoint,
+    ) -> (Self::OutputPoint, Matrix3<f64>, Matrix6x3<f64>) {
+        let (output, jacobian_input, jacobian_pose) = isometry_point_outputs(&self.0, input.0);
+        (CameraPoint(output), jacobian_input, jacobian_pose)
+    }
+
+    #[inline]
+    fn update(&mut self, delta: Vector6<f64>) {
+        self.translation.vector += Vector3::new(delta[0], delta[1], delta[2]);
+        let mut skew: Skew3 = self.rotation.into();
+        skew.0 += Vector3::new(delta[3], delta[4], delta[5]);
+        self.rotation = skew.into();
     }
 }
 

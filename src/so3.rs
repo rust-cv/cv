@@ -58,7 +58,7 @@ impl Skew3 {
     ///
     /// The formula is pretty simple and is just the rotation matrix created
     /// from the exponential map of this so(3) element into SO(3).
-    pub fn jacobian_output_to_input(self) -> Matrix3<f64> {
+    pub fn jacobian_input(self) -> Matrix3<f64> {
         let rotation: Rotation3<f64> = self.into();
         rotation.into()
     }
@@ -71,7 +71,7 @@ impl Skew3 {
     /// `dy/dR = -hat(y)`
     ///
     /// The derivative is purely based on the current output vector, and thus doesn't take `self`.
-    pub fn jacobian_output_to_self(y: Vector3<f64>) -> Matrix3<f64> {
+    pub fn jacobian_self(y: Vector3<f64>) -> Matrix3<f64> {
         (-y).cross_matrix()
     }
 }

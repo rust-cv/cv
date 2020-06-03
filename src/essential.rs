@@ -1,5 +1,5 @@
 use crate::{
-    Bearing, CameraPoint, FeatureMatch, RelativeCameraPose, TriangulatorProject,
+    Bearing, CameraPoint, FeatureMatch, Pose, RelativeCameraPose, TriangulatorProject,
     TriangulatorRelative, UnscaledRelativeCameraPose,
 };
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
