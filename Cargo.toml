@@ -1,6 +1,6 @@
 [package]
 name = "cv"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 description = "Batteries-included pure-Rust computer vision crate"
@@ -30,12 +30,12 @@ alloc = [
 ]
 
 [dependencies]
-cv-core = "0.11.0"
-cv-pinhole = { optional = true, version = "0.2.0" }
-cv-geom = { optional = true, version = "0.1.0" }
-eight-point = { optional = true, version = "0.5.0" }
-lambda-twist = { optional = true, version = "0.3.0" }
-akaze = { optional = true, version = "0.4.0" }
+cv-core = "0.12.0"
+cv-pinhole = { optional = true, version = "0.3.0" }
+cv-geom = { optional = true, version = "0.2.0" }
+eight-point = { optional = true, version = "0.6.0" }
+lambda-twist = { optional = true, version = "0.4.0" }
+akaze = { optional = true, version = "0.5.0" }
 space = { version = "0.10.3", optional = true }
 hnsw = { version = "0.6.1", optional = true }
 levenberg-marquardt = { version = "0.5.0", optional = true }
