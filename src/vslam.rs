@@ -5,7 +5,7 @@ use cv::{
     Bearing, BitArray, CameraModel, Consensus, EssentialMatrix, Estimator, FeatureMatch, Pose,
     RelativeCameraPose, TriangulatorObservances, TriangulatorRelative,
 };
-use cv_optimize::TwoViewOptimizer;
+use cv_optimize::{ManyViewOptimizer, TwoViewOptimizer};
 use image::DynamicImage;
 use levenberg_marquardt::LevenbergMarquardt;
 use log::*;
@@ -22,7 +22,7 @@ struct Frame {
     feed: usize,
     /// The keypoints and corresponding descriptors observed on this frame
     features: Features,
-    /// A map from VSlam::landmarks indices to Frame::features indices
+    /// A map from Frame::features indices to VSlam::landmarks indices
     landmarks: HashMap<usize, usize>,
     /// A list of outgoing (first in pair) covisibilities
     covisibilities: HashSet<Pair>,
@@ -47,6 +47,7 @@ impl Frame {
 }
 
 /// The observance of a landmark on a particular frame.
+#[derive(Copy, Clone, Debug)]
 struct Observance {
     /// A VSlam::frames index
     frame: usize,
@@ -236,8 +237,86 @@ where
         success
     }
 
+    /// Joins two landmarks together.
+    ///
+    /// Returns the VSlam::landmarks index of the combined landmark.
+    fn join_landmarks(&mut self, lm_aix: usize, lm_bix: usize) -> usize {
+        // We will move each observance from b to a.
+        let lm_b = self.landmarks.remove(lm_bix);
+        for (_, &observance) in &lm_b.observances {
+            // Point the landmark referenced in the frame to landmark a.
+            *self.frames[observance.frame]
+                .landmarks
+                .get_mut(&observance.feature)
+                .expect("observance from landmark b in join_landmarks was invalid") = lm_aix;
+            // Insert the observance into landmark a.
+            self.landmarks[lm_aix].observances.insert(observance);
+        }
+        lm_aix
+    }
+
+    /// Adds a new landmark from a match and a frame pair.
+    ///
+    /// Returns the VSlam::landmarks index.
+    fn add_landmark(&mut self, pair: Pair, FeatureMatch(aix, bix): FeatureMatch<usize>) -> usize {
+        let mut observances = Slab::new();
+        observances.insert(Observance {
+            frame: pair.0,
+            feature: aix,
+        });
+        observances.insert(Observance {
+            frame: pair.1,
+            feature: bix,
+        });
+        self.landmarks.insert(Landmark { observances })
+    }
+
+    /// Adds an observance to the frame and the landmark.
+    ///
+    /// Returns the VSlam::landmarks index.
+    fn add_landmark_observance(&mut self, lmix: usize, frame: usize, feature: usize) -> usize {
+        self.frames[frame].landmarks.insert(feature, lmix);
+        self.landmarks[lmix]
+            .observances
+            .insert(Observance { frame, feature });
+        lmix
+    }
+
+    /// Takes a match and, if it is not already known, adds the observances to the landmark and frame,
+    /// combining landmarks as needed.
+    ///
+    /// Returns the VSlam::landmarks index.
+    fn add_match_to_landmarks(
+        &mut self,
+        pair: Pair,
+        FeatureMatch(aix, bix): FeatureMatch<usize>,
+    ) -> usize {
+        let lm_a = self.frames[pair.0].landmarks.get(&aix).copied();
+        let lm_b = self.frames[pair.1].landmarks.get(&bix).copied();
+
+        match (lm_a, lm_b) {
+            (Some(lm_aix), Some(lm_bix)) => {
+                // If the landmarks are the same, we have found that both frames already share
+                // the same landmark, and in this case there is no need to add the observances.
+                // However, if the landmarks are different, we must join them together.
+                if lm_aix != lm_bix {
+                    self.join_landmarks(lm_aix, lm_bix)
+                } else {
+                    lm_aix
+                }
+            }
+            (Some(lmix), None) => self.add_landmark_observance(lmix, pair.1, bix),
+            (None, Some(lmix)) => self.add_landmark_observance(lmix, pair.0, aix),
+            (None, None) => self.add_landmark(pair, FeatureMatch(aix, bix)),
+        }
+    }
+
     fn add_covisibility_outcome(&mut self, pair: Pair, covisibility: Option<Covisibility>) {
         if let Some(covisibility) = covisibility {
+            // First handle updating all the landmarks and frame landmarks.
+            for &m in &covisibility.matches {
+                self.add_match_to_landmarks(pair, m);
+            }
             // Add it to the covisibility map.
             self.covisibilities.insert(pair, Some(covisibility));
             // Add the covisibility to the first frame.
@@ -381,6 +460,28 @@ where
             .collect();
         crate::export::export(std::fs::File::create(path).unwrap(), points);
     }
+
+    // /// Optimizes the entire reconstruction
+    // pub fn bundle_adjust(&mut self) {
+    //     // Get all
+    //     // Select a random sample of 32 points to use for optimization.
+    //     let opti_matches: Vec<FeatureMatch<NormalizedKeyPoint>> = matches
+    //         .choose_multiple(&mut *self.rng.borrow_mut(), self.optimization_points)
+    //         .map(match_ix_kps)
+    //         .collect();
+
+    //     info!("performing Levenberg-Marquardt");
+
+    //     let lm = LevenbergMarquardt::new();
+    //     let pose = lm
+    //         .minimize(TwoViewOptimizer::new(
+    //             opti_matches.iter().copied(),
+    //             pose.0,
+    //             self.triangulator.clone(),
+    //         ))
+    //         .0
+    //         .pose;
+    // }
 }
 
 fn matching(
