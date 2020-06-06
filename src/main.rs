@@ -52,7 +52,7 @@ struct Opt {
     #[structopt(long, default_value = "0.0")]
     skew: f64,
     /// The K1 radial distortion
-    #[structopt(long, default_value = "0.0")]
+    #[structopt(long, default_value = "-0.3728755")]
     radial_distortion: f64,
     /// Output PLY file to deposit point cloud
     #[structopt(short, long)]
@@ -67,7 +67,8 @@ struct Opt {
 fn main() {
     pretty_env_logger::init_timed();
     let opt = Opt::from_args();
-    // Intrinsics retrieved from calib_cam_to_cam.txt K_00.
+
+    // Fill intrinsics from args.
     let intrinsics = CameraIntrinsicsK1Distortion::new(
         CameraIntrinsics {
             focals: Vector2::new(opt.x_focal, opt.y_focal),

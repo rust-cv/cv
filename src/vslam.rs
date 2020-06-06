@@ -8,6 +8,7 @@ use cv::{
 use cv_optimize::TwoViewOptimizer;
 use image::DynamicImage;
 use levenberg_marquardt::LevenbergMarquardt;
+use log::*;
 use rand::{seq::SliceRandom, Rng};
 use slab::Slab;
 use std::cell::RefCell;
@@ -249,13 +250,15 @@ where
 
     fn create_covisibility(&self, a: &Frame, b: &Frame) -> Option<Covisibility> {
         // A helper to convert an index match to a keypoint match given frame a and b.
-        let match_ix_kps = |&FeatureMatch(aix, bix)| FeatureMatch(a.keypoint(aix), a.keypoint(bix));
+        let match_ix_kps = |&FeatureMatch(aix, bix)| FeatureMatch(a.keypoint(aix), b.keypoint(bix));
 
         // Retrieve the matches which agree with each other from each frame and filter out ones that aren't within the match threshold.
         let matches: Vec<FeatureMatch<usize>> = symmetric_matching(a, b)
             .filter(|&(_, distance)| distance < self.match_threshold)
             .map(|(m, _)| m)
             .collect();
+
+        info!("estimate essential");
 
         // Estimate the essential matrix and retrieve the inliers
         let (essential, inliers) = self.consensus.borrow_mut().model_inliers(
@@ -270,6 +273,8 @@ where
         // Reconstitute only the inlier matches into a matches vector.
         let matches: Vec<FeatureMatch<usize>> = inliers.into_iter().map(|ix| matches[ix]).collect();
 
+        info!("perform chirality test");
+
         // Perform a chirality test to retain only the points in front of both cameras.
         let (pose, inliers) = essential
             .pose_solver()
@@ -279,11 +284,15 @@ where
             .map(|&inlier| matches[inlier])
             .collect::<Vec<_>>();
 
+        info!("get optimization matches");
+
         // Select a random sample of 32 points to use for optimization.
         let opti_matches: Vec<FeatureMatch<NormalizedKeyPoint>> = matches
             .choose_multiple(&mut *self.rng.borrow_mut(), self.optimization_points)
             .map(match_ix_kps)
             .collect();
+
+        info!("performing Levenberg-Marquardt");
 
         let lm = LevenbergMarquardt::new();
         let pose = lm
@@ -295,7 +304,9 @@ where
             .0
             .pose;
 
-        // Filter outlier matches based on reprojection error.
+        info!("filtering matches using cosine distance");
+
+        // Filter outlier matches based on cosine distance.
         let matches: Vec<FeatureMatch<usize>> = matches
             .iter()
             .filter_map(|m| {
