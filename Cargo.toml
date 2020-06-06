@@ -13,14 +13,11 @@ rand = "0.7.3"
 rand_pcg = "0.2.1"
 log = "0.4.8"
 pretty_env_logger = "0.4.0"
-evmap = "10.0.2"
-sharded-slab = "0.0.9"
 ply-rs = "0.1.2"
 float-ord = "0.2.0"
-actix = "0.10.0-alpha.3"
-actix-rt = "1.1.1"
-cv-optimize = { path = "../cv-optimize" }
+cv-optimize = { git = "https://github.com/rust-cv/cv-optimize.git" }
 levenberg-marquardt = "0.5.0"
+slab = "0.4.2"
 
 [profile.release]
 lto = true
