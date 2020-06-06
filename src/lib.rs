@@ -2,6 +2,8 @@
 
 extern crate alloc;
 
-mod relative_pose;
+mod many_view_optimizer;
+mod two_view_optimizer;
 
-pub use relative_pose::*;
+pub use many_view_optimizer::*;
+pub use two_view_optimizer::*;
