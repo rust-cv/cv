@@ -5,7 +5,7 @@ authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-cv = "0.2.0"
+cv = "0.3.0"
 structopt = "0.3.14"
 serde = { version = "1.0.111", features = ["derive"] }
 image = "0.23.4"
@@ -17,6 +17,10 @@ evmap = "10.0.2"
 sharded-slab = "0.0.9"
 ply-rs = "0.1.2"
 float-ord = "0.2.0"
+actix = "0.10.0-alpha.3"
+actix-rt = "1.1.1"
+cv-optimize = { path = "../cv-optimize" }
+levenberg-marquardt = "0.5.0"
 
 [profile.release]
 lto = true

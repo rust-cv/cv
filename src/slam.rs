@@ -6,6 +6,8 @@ use cv::{
 use evmap::{ReadHandle, WriteHandle};
 use log::*;
 use sharded_slab::Slab;
+use std::collections::hash_map::RandomState;
+use std::sync::{Arc, Mutex};
 
 pub type Features = Vec<(NormalizedKeyPoint, BitArray<64>)>;
 
@@ -28,7 +30,6 @@ struct Landmark {
 
 struct Feed {
     intrinsics: CameraIntrinsicsK1Distortion,
-    current_frame: Option<usize>,
 }
 
 struct Covisibility {
@@ -36,25 +37,24 @@ struct Covisibility {
     matches: Vec<FeatureMatch<usize>>,
 }
 
-#[derive(Default)]
+/// This can be shared among threads via cloning.
+#[derive(Clone)]
 pub struct VSlam {
     /// Contains the camera intrinsics for each feed
-    feeds: Slab<Feed>,
+    feeds: Arc<Slab<Feed>>,
+    /// Contains a map from feeds to their frames (in order)
+    feed_frames_writer: Arc<Mutex<WriteHandle<usize, usize, (), RandomState>>>,
+    feed_frames_reader: ReadHandle<usize, usize, (), RandomState>,
     /// Contains all the landmarks
-    landmarks: Slab<Landmark>,
+    landmarks: Arc<Slab<Landmark>>,
     /// Contains all the frames
-    frames: Slab<Frame>,
+    frames: Arc<Slab<Frame>>,
 }
 
 impl VSlam {
     /// Adds a new feed with the given intrinsics.
     pub fn add_feed(&self, intrinsics: CameraIntrinsicsK1Distortion) -> usize {
-        self.feeds
-            .insert(Feed {
-                intrinsics,
-                current_frame: None,
-            })
-            .unwrap()
+        self.feeds.insert(Feed { intrinsics }).unwrap()
     }
 
     /// Add frame.
@@ -67,6 +67,19 @@ impl VSlam {
     /// Creates an empty vSLAM reconstruction.
     pub fn new() -> Self {
         Self::default()
+    }
+}
+
+impl Default for VSlam {
+    fn default() -> Self {
+        let (feed_frames_reader, feed_frames_writer) = evmap::new();
+        Self {
+            feeds: Arc::new(Slab::new()),
+            feed_frames_writer: Arc::new(Mutex::new(feed_frames_writer)),
+            feed_frames_reader,
+            landmarks: Arc::new(Slab::new()),
+            frames: Arc::new(Slab::new()),
+        }
     }
 }
 
