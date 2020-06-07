@@ -4,7 +4,7 @@ mod vslam;
 use cv::{
     camera::pinhole::{CameraIntrinsics, CameraIntrinsicsK1Distortion},
     consensus::Arrsac,
-    estimate::EightPoint,
+    estimate::{EightPoint, LambdaTwist},
     geom::MinimalSquareReprojectionErrorTriangulator,
 };
 
@@ -88,6 +88,7 @@ fn main() {
     let mut vslam = VSlam::new(
         Arrsac::new(opt.arrsac_threshold, Pcg64::from_seed([5; 32])),
         EightPoint::new(),
+        LambdaTwist::new(),
         MinimalSquareReprojectionErrorTriangulator::new(),
         Pcg64::from_seed([5; 32]),
     )

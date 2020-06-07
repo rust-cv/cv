@@ -2,8 +2,9 @@ use cv::nalgebra::Point3;
 use cv::{
     camera::pinhole::{CameraIntrinsicsK1Distortion, NormalizedKeyPoint},
     feature::akaze,
-    Bearing, BitArray, CameraModel, Consensus, EssentialMatrix, Estimator, FeatureMatch, Pose,
-    RelativeCameraPose, TriangulatorObservances, TriangulatorRelative, WorldPoint, WorldPose,
+    Bearing, BitArray, CameraModel, Consensus, EssentialMatrix, Estimator, FeatureMatch,
+    FeatureWorldMatch, Pose, RelativeCameraPose, TriangulatorObservances, TriangulatorRelative,
+    WorldPoint, WorldPose,
 };
 use cv_optimize::{ManyViewOptimizer, TwoViewOptimizer};
 use image::DynamicImage;
@@ -81,7 +82,7 @@ pub struct BundleAdjust {
     pairs: Vec<Pair>,
 }
 
-pub struct VSlam<C, EE, T, R> {
+pub struct VSlam<C, EE, PE, T, R> {
     /// Contains the camera intrinsics for each feed
     feeds: Slab<Feed>,
     /// Contains all the landmarks
@@ -102,21 +103,30 @@ pub struct VSlam<C, EE, T, R> {
     consensus: RefCell<C>,
     /// The essential matrix estimator
     essential_estimator: EE,
+    /// The PnP estimator
+    pose_estimator: PE,
     /// The triangulation algorithm
     triangulator: T,
     /// The random number generator
     rng: RefCell<R>,
 }
 
-impl<C, EE, T, R> VSlam<C, EE, T, R>
+impl<C, EE, PE, T, R> VSlam<C, EE, PE, T, R>
 where
-    EE: Estimator<FeatureMatch<NormalizedKeyPoint>, Model = EssentialMatrix>,
     C: Consensus<EE, FeatureMatch<NormalizedKeyPoint>>,
+    EE: Estimator<FeatureMatch<NormalizedKeyPoint>, Model = EssentialMatrix>,
+    PE: Estimator<FeatureWorldMatch<NormalizedKeyPoint>, Model = WorldPose>,
     T: TriangulatorObservances + Clone,
     R: Rng,
 {
     /// Creates an empty vSLAM reconstruction.
-    pub fn new(consensus: C, essential_estimator: EE, triangulator: T, rng: R) -> Self {
+    pub fn new(
+        consensus: C,
+        essential_estimator: EE,
+        pose_estimator: PE,
+        triangulator: T,
+        rng: R,
+    ) -> Self {
         Self {
             feeds: Default::default(),
             landmarks: Default::default(),
@@ -128,6 +138,7 @@ where
             optimization_points: 16,
             consensus: RefCell::new(consensus),
             essential_estimator,
+            pose_estimator,
             triangulator,
             rng: RefCell::new(rng),
         }
@@ -224,7 +235,7 @@ where
         let (a, b) = self.get_pair(pair).expect("tried to get an invalid pair");
 
         // Generate the outcome.
-        let outcome = self.create_covisibility(a, b);
+        let outcome = self.create_init_covisibility(a, b);
         let success = outcome.is_some();
 
         // Add the outcome.
@@ -258,7 +269,10 @@ where
         let mut observances = HashMap::new();
         observances.insert(pair.0, aix);
         observances.insert(pair.1, bix);
-        self.landmarks.insert(Landmark { observances })
+        let lmix = self.landmarks.insert(Landmark { observances });
+        self.frames[pair.0].landmarks.insert(aix, lmix);
+        self.frames[pair.1].landmarks.insert(bix, lmix);
+        lmix
     }
 
     /// Adds an observance to the frame and the landmark.
@@ -315,7 +329,10 @@ where
         }
     }
 
-    fn create_covisibility(&self, a: &Frame, b: &Frame) -> Option<Covisibility> {
+    /// This creates a covisibility between frames `a` and `b` using the essential matrix estimator.
+    ///
+    /// This method resolves to an undefined scale, and thus is only appropriate for initialization.
+    fn create_init_covisibility(&self, a: &Frame, b: &Frame) -> Option<Covisibility> {
         // A helper to convert an index match to a keypoint match given frame a and b.
         let match_ix_kps = |&FeatureMatch(aix, bix)| FeatureMatch(a.keypoint(aix), b.keypoint(bix));
 
@@ -507,12 +524,14 @@ where
                     .unwrap_or(false)
             }) {
                 // Get the relative pose transforming the previous camera pose to this camera.
-                let pose = self.covisibilities[&Pair::new(prev_frame, frame)]
+                let relative_pose = self.covisibilities[&Pair::new(prev_frame, frame)]
                     .as_ref()
                     .unwrap()
-                    .pose;
+                    .pose
+                    .0;
+                let prev_pose = frame_poses[&prev_frame].0;
                 // Compute the new transformed pose of this camera.
-                let pose = WorldPose(pose.0 * frame_poses[&prev_frame].0);
+                let pose = WorldPose(prev_pose * relative_pose);
                 // Add the pose to the frame poses.
                 frame_poses.insert(frame, pose);
                 pairs.push(Pair::new(prev_frame, frame));
@@ -537,18 +556,39 @@ where
     fn compute_bundle_adjust_highest_observances(&self, num_landmarks: usize) -> BundleAdjust {
         // At least one landmark exists or the unwraps below will fail.
         if !self.landmarks.is_empty() {
+            info!(
+                "attempting to extract {} landmarks from a total of {}",
+                num_landmarks,
+                self.landmarks.len(),
+            );
+
             // First, we want to find the landmarks with the most observances to optimize the reconstruction.
             // Start by putting all the landmark indices into a BTreeMap with the key as their observances and the value the index.
-            let landmarks_by_observances: BTreeMap<usize, usize> = self
+            let mut landmarks_by_observances: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+            for (observance_num, lmix) in self
                 .landmarks
                 .iter()
                 .map(|(ix, lm)| (lm.observances.len(), ix))
-                .collect();
+            {
+                landmarks_by_observances
+                    .entry(observance_num)
+                    .or_default()
+                    .push(lmix);
+            }
+
+            info!(
+                "found landmarks with (observances, num) of {:?}",
+                landmarks_by_observances
+                    .iter()
+                    .map(|(ob, v)| (ob, v.len()))
+                    .collect::<Vec<_>>()
+            );
+
             // Now the BTreeMap is sorted from smallest number of observances to largest, so take the last indices.
             let opti_landmarks: Vec<usize> = landmarks_by_observances
                 .values()
-                .copied()
                 .rev()
+                .flat_map(|v| v.iter().copied())
                 .take(num_landmarks)
                 .collect();
 
@@ -562,8 +602,9 @@ where
                 }));
 
             info!(
-                "performing Levenberg-Marquardt on best {} landmarks",
-                num_landmarks
+                "performing Levenberg-Marquardt on best {} landmarks and {} frames",
+                opti_landmarks.len(),
+                frame_poses.len(),
             );
 
             let levenberg_marquardt = LevenbergMarquardt::new();
@@ -609,7 +650,7 @@ where
                     .unwrap()
                     .as_mut()
                     .unwrap()
-                    .pose = RelativeCameraPose(poses[&pair.1].0 * poses[&pair.0].0.inverse());
+                    .pose = RelativeCameraPose(poses[&pair.0].0.inverse() * poses[&pair.1].0);
             }
         }
     }
