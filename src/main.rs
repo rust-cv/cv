@@ -27,6 +27,12 @@ struct Opt {
     /// The number of points to use in optimization.
     #[structopt(long, default_value = "16")]
     optimization_points: usize,
+    /// The number of observances required to export a landmark to PLY.
+    #[structopt(long, default_value = "3")]
+    minimum_observances: usize,
+    /// The number of landmarks to use in bundle adjust.
+    #[structopt(long, default_value = "128")]
+    bundle_adjust_landmarks: usize,
     /// The threshold for ARRSAC.
     #[structopt(short, long, default_value = "0.001")]
     arrsac_threshold: f32,
@@ -99,8 +105,10 @@ fn main() {
         vslam.insert_frame(feed, &image);
     }
 
+    vslam.bundle_adjust_highest_observances(opt.bundle_adjust_landmarks);
+
     // Export the first match
     if let Some(path) = opt.output {
-        vslam.export_covisibility(Pair::new(0, 1), path);
+        vslam.export_reconstruction_at(0, opt.minimum_observances, path);
     }
 }
