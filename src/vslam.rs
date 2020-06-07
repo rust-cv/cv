@@ -2,9 +2,9 @@ use cv::nalgebra::Point3;
 use cv::{
     camera::pinhole::{CameraIntrinsicsK1Distortion, NormalizedKeyPoint},
     feature::akaze,
-    Bearing, BitArray, CameraModel, Consensus, EssentialMatrix, Estimator, FeatureMatch,
-    FeatureWorldMatch, Pose, RelativeCameraPose, TriangulatorObservances, TriangulatorRelative,
-    WorldPoint, WorldPose,
+    Bearing, BitArray, CameraModel, CameraPoint, Consensus, EssentialMatrix, Estimator,
+    FeatureMatch, FeatureWorldMatch, Pose, RelativeCameraPose, TriangulatorObservances,
+    TriangulatorRelative, WorldPoint, WorldPose,
 };
 use cv_optimize::{ManyViewOptimizer, TwoViewOptimizer};
 use image::DynamicImage;
@@ -113,7 +113,8 @@ pub struct VSlam<C, EE, PE, T, R> {
 
 impl<C, EE, PE, T, R> VSlam<C, EE, PE, T, R>
 where
-    C: Consensus<EE, FeatureMatch<NormalizedKeyPoint>>,
+    C: Consensus<EE, FeatureMatch<NormalizedKeyPoint>>
+        + Consensus<PE, FeatureWorldMatch<NormalizedKeyPoint>>,
     EE: Estimator<FeatureMatch<NormalizedKeyPoint>, Model = EssentialMatrix>,
     PE: Estimator<FeatureWorldMatch<NormalizedKeyPoint>, Model = WorldPose>,
     T: TriangulatorObservances + Clone,
@@ -206,10 +207,15 @@ where
         });
         self.feeds[feed].frames.push(next_id);
         let feed_frames = &self.feeds[feed].frames[..];
-        if feed_frames.len() >= 2 {
+        if feed_frames.len() == 2 {
             let a = feed_frames[feed_frames.len() - 2];
             let b = feed_frames[feed_frames.len() - 1];
             self.try_match(Pair::new(a, b));
+        } else if feed_frames.len() >= 3 {
+            let old = feed_frames[feed_frames.len() - 3];
+            let a = feed_frames[feed_frames.len() - 2];
+            let b = feed_frames[feed_frames.len() - 1];
+            self.try_match_track(old, a, b);
         }
         next_id
     }
@@ -240,6 +246,23 @@ where
 
         // Add the outcome.
         self.add_covisibility_outcome(pair, outcome);
+
+        success
+    }
+
+    /// Attempts to track the camera.
+    ///
+    /// Returns `true` if successful.
+    fn try_match_track(&mut self, old: usize, a: usize, b: usize) -> bool {
+        // Get the b frame.
+        let b_frame = &self.frames[b];
+
+        // Generate the outcome.
+        let outcome = self.create_track_covisibility(old, a, b_frame);
+        let success = outcome.is_some();
+
+        // Add the outcome.
+        self.add_covisibility_outcome(Pair::new(a, b), outcome);
 
         success
     }
@@ -390,6 +413,116 @@ where
             "Levenberg-Marquardt terminated with reason {:?}",
             termination
         );
+
+        info!("filtering matches using cosine distance");
+
+        // Filter outlier matches based on cosine distance.
+        let matches: Vec<FeatureMatch<usize>> = matches
+            .iter()
+            .filter_map(|m| {
+                let FeatureMatch(a, b) = match_ix_kps(m);
+                self.triangulator
+                    .triangulate_relative(pose, a, b)
+                    .map(|point_a| {
+                        let point_b = pose.transform(point_a);
+                        1.0 - point_a.coords.normalize().dot(&a.bearing()) + 1.0
+                            - point_b.coords.normalize().dot(&b.bearing())
+                    })
+                    .and_then(|residual| {
+                        if residual < self.cosine_distance_threshold {
+                            Some(*m)
+                        } else {
+                            None
+                        }
+                    })
+            })
+            .collect();
+
+        // Add the new covisibility.
+        Some(Covisibility { pose, matches })
+    }
+
+    /// Triangulates a landmark by ID using only two frames.
+    fn triangulate_landmark_covisibility(
+        &self,
+        lmid: usize,
+        origin_frame: usize,
+        secondary_frame: usize,
+    ) -> Option<WorldPoint> {
+        let pair = Pair::new(origin_frame, secondary_frame);
+        let pose = self.covisibilities.get(&pair)?.as_ref()?.pose;
+        let pose = if pair.0 == origin_frame {
+            pose
+        } else {
+            pose.inverse()
+        };
+        let landmark = self.landmarks.get(lmid)?;
+        let feature_a = *landmark.observances.get(&origin_frame)?;
+        let kp_a = self.frames[origin_frame].features[feature_a].0;
+        let feature_b = *landmark.observances.get(&secondary_frame)?;
+        let kp_b = self.frames[secondary_frame].features[feature_b].0;
+        self.triangulator
+            .triangulate_relative(pose, kp_a, kp_b)
+            .map(|CameraPoint(p)| WorldPoint(p))
+    }
+
+    /// This creates a covisibility between frames `a` and `b` using PnP. `a` must already be part of the reconstruction,
+    /// and `b` must be a new frame. The scale is preserved. `old` is the frame preceeding `a`.
+    fn create_track_covisibility(
+        &self,
+        old: usize,
+        frame_a_ix: usize,
+        b: &Frame,
+    ) -> Option<Covisibility> {
+        let a = &self.frames[frame_a_ix];
+        // A helper to convert an index match to a keypoint match given frame a and b.
+        let match_ix_kps = |&FeatureMatch(aix, bix)| FeatureMatch(a.keypoint(aix), b.keypoint(bix));
+
+        // Retrieve the matches which agree with each other from each frame and filter out ones that aren't within the match threshold.
+        let matches: Vec<FeatureMatch<usize>> = symmetric_matching(a, b)
+            .filter(|&(_, distance)| distance < self.match_threshold)
+            .map(|(m, _)| m)
+            .collect();
+
+        info!("triangulate existing landmarks to track camera");
+
+        // Find all the landmarks in frame `a` which we will use to triangulate points for tracking.
+        let matches_3d: Vec<(FeatureMatch<usize>, FeatureWorldMatch<NormalizedKeyPoint>)> = matches
+            .iter()
+            .filter_map(|&FeatureMatch(aix, bix)| {
+                a.landmarks.get(&aix).and_then(move |&lmix| {
+                    self.landmarks[lmix].observances.get(&old).and_then(|_| {
+                        self.triangulate_landmark_covisibility(lmix, frame_a_ix, old)
+                            .map(|p| {
+                                (
+                                    FeatureMatch(aix, bix),
+                                    FeatureWorldMatch(b.features[bix].0, p),
+                                )
+                            })
+                    })
+                })
+            })
+            .collect();
+
+        info!(
+            "estimate the pose of the camera using {} existing landmarks",
+            matches_3d.len()
+        );
+
+        // Estimate the essential matrix and retrieve the inliers
+        let (pose, inliers) = self.consensus.borrow_mut().model_inliers(
+            &self.pose_estimator,
+            matches_3d
+                .iter()
+                .map(|&(_, m3d)| m3d)
+                .collect::<Vec<_>>()
+                .iter()
+                .copied(),
+        )?;
+        let pose = RelativeCameraPose(pose.0);
+        // Reconstitute only the inlier matches into a matches vector.
+        let matches_3d: Vec<(FeatureMatch<usize>, FeatureWorldMatch<NormalizedKeyPoint>)> =
+            inliers.into_iter().map(|ix| matches_3d[ix]).collect();
 
         info!("filtering matches using cosine distance");
 
