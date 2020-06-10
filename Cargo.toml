@@ -18,6 +18,7 @@ float-ord = "0.2.0"
 cv-optimize = { git = "https://github.com/rust-cv/cv-optimize.git" }
 levenberg-marquardt = "0.5.0"
 slab = "0.4.2"
+ahash = "=0.3.6"
 
 [profile.release]
 lto = true

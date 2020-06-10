@@ -2,7 +2,7 @@ use cv::nalgebra::Point3;
 use cv::{
     camera::pinhole::{CameraIntrinsicsK1Distortion, NormalizedKeyPoint},
     feature::akaze,
-    Bearing, BitArray, CameraModel, CameraPoint, Consensus, EssentialMatrix, Estimator,
+    Bearing, BitArray, CameraModel, CameraPoint, CameraPose, Consensus, EssentialMatrix, Estimator,
     FeatureMatch, FeatureWorldMatch, Pose, RelativeCameraPose, TriangulatorObservances,
     TriangulatorRelative, WorldPoint, WorldPose,
 };
@@ -438,6 +438,53 @@ where
             })
             .collect();
 
+        info!("get optimization matches after filtering");
+
+        // Select a random sample of 32 points to use for optimization.
+        let opti_matches: Vec<FeatureMatch<NormalizedKeyPoint>> = matches
+            .choose_multiple(&mut *self.rng.borrow_mut(), self.optimization_points)
+            .map(match_ix_kps)
+            .collect();
+
+        info!("performing Levenberg-Marquardt after filtering");
+
+        let lm = LevenbergMarquardt::new();
+        let (tvo, termination) = lm.minimize(TwoViewOptimizer::new(
+            opti_matches.iter().copied(),
+            pose,
+            self.triangulator.clone(),
+        ));
+        let pose = tvo.pose;
+
+        info!(
+            "Levenberg-Marquardt terminated with reason {:?}",
+            termination
+        );
+
+        info!("filtering matches using cosine distance");
+
+        // Filter outlier matches based on cosine distance.
+        let matches: Vec<FeatureMatch<usize>> = matches
+            .iter()
+            .filter_map(|m| {
+                let FeatureMatch(a, b) = match_ix_kps(m);
+                self.triangulator
+                    .triangulate_relative(pose, a, b)
+                    .map(|point_a| {
+                        let point_b = pose.transform(point_a);
+                        1.0 - point_a.coords.normalize().dot(&a.bearing()) + 1.0
+                            - point_b.coords.normalize().dot(&b.bearing())
+                    })
+                    .and_then(|residual| {
+                        if residual < self.cosine_distance_threshold {
+                            Some(*m)
+                        } else {
+                            None
+                        }
+                    })
+            })
+            .collect();
+
         // Add the new covisibility.
         Some(Covisibility { pose, matches })
     }
@@ -509,7 +556,7 @@ where
             matches_3d.len()
         );
 
-        // Estimate the essential matrix and retrieve the inliers
+        // Estimate the pose matrix and retrieve the inliers
         let (pose, inliers) = self.consensus.borrow_mut().model_inliers(
             &self.pose_estimator,
             matches_3d
@@ -547,6 +594,109 @@ where
                     })
             })
             .collect();
+
+        info!("get optimization matches");
+
+        // Select a random sample of 32 points to use for optimization.
+        let opti_matches: Vec<FeatureMatch<NormalizedKeyPoint>> = matches
+            .choose_multiple(&mut *self.rng.borrow_mut(), self.optimization_points)
+            .map(match_ix_kps)
+            .collect();
+
+        info!("performing Levenberg-Marquardt");
+
+        let lm = LevenbergMarquardt::new();
+        let (tvo, termination) = lm.minimize(TwoViewOptimizer::new(
+            opti_matches.iter().copied(),
+            pose,
+            self.triangulator.clone(),
+        ));
+        let mut pose = tvo.pose;
+
+        info!(
+            "Levenberg-Marquardt terminated with reason {:?}",
+            termination
+        );
+
+        info!("filtering matches using cosine distance");
+
+        // Filter outlier matches based on cosine distance.
+        let matches: Vec<FeatureMatch<usize>> = matches
+            .iter()
+            .filter_map(|m| {
+                let FeatureMatch(a, b) = match_ix_kps(m);
+                self.triangulator
+                    .triangulate_relative(pose, a, b)
+                    .map(|point_a| {
+                        let point_b = pose.transform(point_a);
+                        1.0 - point_a.coords.normalize().dot(&a.bearing()) + 1.0
+                            - point_b.coords.normalize().dot(&b.bearing())
+                    })
+                    .and_then(|residual| {
+                        if residual < self.cosine_distance_threshold {
+                            Some(*m)
+                        } else {
+                            None
+                        }
+                    })
+            })
+            .collect();
+
+        // Find landmarks that existed before this frame to scale the translation based on.
+        let scale_landmark_feature_index: Vec<(
+            FeatureMatch<usize>,
+            FeatureWorldMatch<NormalizedKeyPoint>,
+        )> = matches
+            .iter()
+            .filter_map(|&FeatureMatch(_, bix)| {
+                matches_3d
+                    .iter()
+                    .copied()
+                    .find(|&(FeatureMatch(_, obix), _)| obix == bix)
+            })
+            .collect();
+
+        // Get the camera points based on current pose vs world points from previous poses.
+        let current_pose_old_pose_points: Vec<(CameraPoint, WorldPoint)> =
+            scale_landmark_feature_index
+                .iter()
+                .map(|&(m, FeatureWorldMatch(_, w))| (m, w))
+                .filter_map(|(FeatureMatch(aix, bix), w)| {
+                    let a = a.keypoint(aix);
+                    let b = b.keypoint(bix);
+                    self.triangulator
+                        .triangulate_relative(pose, a, b)
+                        .map(|point_a| (pose.transform(point_a), w))
+                })
+                .collect();
+
+        // Compute the distance between each consecutive set of points and sum it.
+        let current_pose_distance = current_pose_old_pose_points
+            .iter()
+            .map(|(p, _)| p.coords)
+            .zip(
+                current_pose_old_pose_points
+                    .iter()
+                    .map(|(p, _)| p.coords)
+                    .skip(1),
+            )
+            .map(|(a, b)| (a - b).norm())
+            .sum::<f64>();
+
+        // Compute the distance between each consecutive set of points and sum it.
+        let world_pose_distance = current_pose_old_pose_points
+            .iter()
+            .map(|(_, w)| w.coords)
+            .zip(
+                current_pose_old_pose_points
+                    .iter()
+                    .map(|(_, w)| w.coords)
+                    .skip(1),
+            )
+            .map(|(a, b)| (a - b).norm())
+            .sum::<f64>();
+
+        pose.translation.vector *= world_pose_distance / current_pose_distance;
 
         // Add the new covisibility.
         Some(Covisibility { pose, matches })
@@ -620,7 +770,7 @@ where
                         .triangulate_observances(lm.observances.iter().filter_map(
                             |(&frame, &feature)| {
                                 frame_poses.get(&frame).map(|&pose| {
-                                    (pose.into(), self.frames[frame].features[feature].0)
+                                    (CameraPose(pose.0), self.frames[frame].features[feature].0)
                                 })
                             },
                         ))
@@ -718,12 +868,22 @@ where
             );
 
             // Now the BTreeMap is sorted from smallest number of observances to largest, so take the last indices.
-            let opti_landmarks: Vec<usize> = landmarks_by_observances
-                .values()
-                .rev()
-                .flat_map(|v| v.iter().copied())
-                .take(num_landmarks)
-                .collect();
+            let mut opti_landmarks: Vec<usize> = vec![];
+            for bucket in landmarks_by_observances.values().rev() {
+                if opti_landmarks.len() + bucket.len() >= num_landmarks {
+                    // Add what we need to randomly (to prevent patterns in data that throw off optimization).
+                    let num_to_add = num_landmarks - opti_landmarks.len();
+                    opti_landmarks.extend(
+                        bucket
+                            .choose_multiple(&mut *self.rng.borrow_mut(), num_landmarks)
+                            .copied(),
+                    );
+                    break;
+                } else {
+                    // Add everything from the bucket.
+                    opti_landmarks.extend(bucket.iter().copied());
+                }
+            }
 
             // Find all the frame IDs corresponding to the landmarks and convert them to a graph.
             let (frame_poses, pairs) =
