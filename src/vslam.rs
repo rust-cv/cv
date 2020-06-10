@@ -414,7 +414,7 @@ where
             termination
         );
 
-        info!("filtering matches using cosine distance");
+        info!("filtering matches using cosine distance and chirality");
 
         // Filter outlier matches based on cosine distance.
         let matches: Vec<FeatureMatch<usize>> = matches
@@ -423,13 +423,14 @@ where
                 let FeatureMatch(a, b) = match_ix_kps(m);
                 self.triangulator
                     .triangulate_relative(pose, a, b)
-                    .map(|point_a| {
+                    .and_then(|point_a| {
                         let point_b = pose.transform(point_a);
-                        1.0 - point_a.coords.normalize().dot(&a.bearing()) + 1.0
-                            - point_b.coords.normalize().dot(&b.bearing())
-                    })
-                    .and_then(|residual| {
-                        if residual < self.cosine_distance_threshold {
+                        let residual = 1.0 - point_a.coords.normalize().dot(&a.bearing()) + 1.0
+                            - point_b.coords.normalize().dot(&b.bearing());
+                        if residual < self.cosine_distance_threshold
+                            && point_a.z.is_sign_positive()
+                            && point_b.z.is_sign_positive()
+                        {
                             Some(*m)
                         } else {
                             None
@@ -461,7 +462,7 @@ where
             termination
         );
 
-        info!("filtering matches using cosine distance");
+        info!("filtering matches using cosine distance and chirality");
 
         // Filter outlier matches based on cosine distance.
         let matches: Vec<FeatureMatch<usize>> = matches
@@ -470,13 +471,54 @@ where
                 let FeatureMatch(a, b) = match_ix_kps(m);
                 self.triangulator
                     .triangulate_relative(pose, a, b)
-                    .map(|point_a| {
+                    .and_then(|point_a| {
                         let point_b = pose.transform(point_a);
-                        1.0 - point_a.coords.normalize().dot(&a.bearing()) + 1.0
-                            - point_b.coords.normalize().dot(&b.bearing())
+                        let residual = 1.0 - point_a.coords.normalize().dot(&a.bearing()) + 1.0
+                            - point_b.coords.normalize().dot(&b.bearing());
+                        if residual < self.cosine_distance_threshold
+                            && point_a.z.is_sign_positive()
+                            && point_b.z.is_sign_positive()
+                        {
+                            Some(*m)
+                        } else {
+                            None
+                        }
                     })
-                    .and_then(|residual| {
-                        if residual < self.cosine_distance_threshold {
+            })
+            .collect();
+
+        info!("performing Levenberg-Marquardt after filtering");
+
+        let lm = LevenbergMarquardt::new();
+        let (tvo, termination) = lm.minimize(TwoViewOptimizer::new(
+            opti_matches.iter().copied(),
+            pose,
+            self.triangulator.clone(),
+        ));
+        let pose = tvo.pose;
+
+        info!(
+            "Levenberg-Marquardt terminated with reason {:?}",
+            termination
+        );
+
+        info!("filtering matches using cosine distance and chirality");
+
+        // Filter outlier matches based on cosine distance.
+        let matches: Vec<FeatureMatch<usize>> = matches
+            .iter()
+            .filter_map(|m| {
+                let FeatureMatch(a, b) = match_ix_kps(m);
+                self.triangulator
+                    .triangulate_relative(pose, a, b)
+                    .and_then(|point_a| {
+                        let point_b = pose.transform(point_a);
+                        let residual = 1.0 - point_a.coords.normalize().dot(&a.bearing()) + 1.0
+                            - point_b.coords.normalize().dot(&b.bearing());
+                        if residual < self.cosine_distance_threshold
+                            && point_a.z.is_sign_positive()
+                            && point_b.z.is_sign_positive()
+                        {
                             Some(*m)
                         } else {
                             None
@@ -571,7 +613,7 @@ where
         let matches_3d: Vec<(FeatureMatch<usize>, FeatureWorldMatch<NormalizedKeyPoint>)> =
             inliers.into_iter().map(|ix| matches_3d[ix]).collect();
 
-        info!("filtering matches using cosine distance");
+        info!("filtering matches using cosine distance and chirality");
 
         // Filter outlier matches based on cosine distance.
         let matches: Vec<FeatureMatch<usize>> = matches
@@ -580,13 +622,14 @@ where
                 let FeatureMatch(a, b) = match_ix_kps(m);
                 self.triangulator
                     .triangulate_relative(pose, a, b)
-                    .map(|point_a| {
+                    .and_then(|point_a| {
                         let point_b = pose.transform(point_a);
-                        1.0 - point_a.coords.normalize().dot(&a.bearing()) + 1.0
-                            - point_b.coords.normalize().dot(&b.bearing())
-                    })
-                    .and_then(|residual| {
-                        if residual < self.cosine_distance_threshold {
+                        let residual = 1.0 - point_a.coords.normalize().dot(&a.bearing()) + 1.0
+                            - point_b.coords.normalize().dot(&b.bearing());
+                        if residual < self.cosine_distance_threshold
+                            && point_a.z.is_sign_positive()
+                            && point_b.z.is_sign_positive()
+                        {
                             Some(*m)
                         } else {
                             None
@@ -611,14 +654,14 @@ where
             pose,
             self.triangulator.clone(),
         ));
-        let mut pose = tvo.pose;
+        let pose = tvo.pose;
 
         info!(
             "Levenberg-Marquardt terminated with reason {:?}",
             termination
         );
 
-        info!("filtering matches using cosine distance");
+        info!("filtering matches using cosine distance and chirality");
 
         // Filter outlier matches based on cosine distance.
         let matches: Vec<FeatureMatch<usize>> = matches
@@ -627,13 +670,54 @@ where
                 let FeatureMatch(a, b) = match_ix_kps(m);
                 self.triangulator
                     .triangulate_relative(pose, a, b)
-                    .map(|point_a| {
+                    .and_then(|point_a| {
                         let point_b = pose.transform(point_a);
-                        1.0 - point_a.coords.normalize().dot(&a.bearing()) + 1.0
-                            - point_b.coords.normalize().dot(&b.bearing())
+                        let residual = 1.0 - point_a.coords.normalize().dot(&a.bearing()) + 1.0
+                            - point_b.coords.normalize().dot(&b.bearing());
+                        if residual < self.cosine_distance_threshold
+                            && point_a.z.is_sign_positive()
+                            && point_b.z.is_sign_positive()
+                        {
+                            Some(*m)
+                        } else {
+                            None
+                        }
                     })
-                    .and_then(|residual| {
-                        if residual < self.cosine_distance_threshold {
+            })
+            .collect();
+
+        info!("performing Levenberg-Marquardt");
+
+        let lm = LevenbergMarquardt::new();
+        let (tvo, termination) = lm.minimize(TwoViewOptimizer::new(
+            opti_matches.iter().copied(),
+            pose,
+            self.triangulator.clone(),
+        ));
+        let mut pose = tvo.pose;
+
+        info!(
+            "Levenberg-Marquardt terminated with reason {:?}",
+            termination
+        );
+
+        info!("filtering matches using cosine distance and chirality");
+
+        // Filter outlier matches based on cosine distance.
+        let matches: Vec<FeatureMatch<usize>> = matches
+            .iter()
+            .filter_map(|m| {
+                let FeatureMatch(a, b) = match_ix_kps(m);
+                self.triangulator
+                    .triangulate_relative(pose, a, b)
+                    .and_then(|point_a| {
+                        let point_b = pose.transform(point_a);
+                        let residual = 1.0 - point_a.coords.normalize().dot(&a.bearing()) + 1.0
+                            - point_b.coords.normalize().dot(&b.bearing());
+                        if residual < self.cosine_distance_threshold
+                            && point_a.z.is_sign_positive()
+                            && point_b.z.is_sign_positive()
+                        {
                             Some(*m)
                         } else {
                             None
