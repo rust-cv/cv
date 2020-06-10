@@ -4,7 +4,7 @@ use cv_core::nalgebra::{
     dimension::{Dynamic, U1, U6},
     DVector, MatrixMN, VecStorage, Vector3,
 };
-use cv_core::{Bearing, Pose, Skew3, TriangulatorObservances, WorldPose};
+use cv_core::{Bearing, CameraPose, Pose, Skew3, TriangulatorObservances, WorldPose};
 use levenberg_marquardt::{differentiate_numerically, LeastSquaresProblem};
 
 #[derive(Clone)]
@@ -101,7 +101,7 @@ where
                             .zip(observances.clone())
                             .filter_map(|(pose, observance)| {
                                 // Create a tuple of the pose with its corresponding observance.
-                                observance.map(move |observance| (pose.into(), observance))
+                                observance.map(move |observance| (CameraPose(pose.0), observance))
                             }),
                     )
                     .map(|point| {
