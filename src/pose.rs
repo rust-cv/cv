@@ -58,8 +58,11 @@ pub trait Pose {
         output
     }
 
-    /// Updates the pose by applying a delta to its se(3) representation.
-    fn update(&mut self, delta: Vector6<f64>);
+    /// Retrieve the se(3) representation of the pose.
+    fn se3(&self) -> Vector6<f64>;
+
+    /// Set the se(3) representation of the pose.
+    fn set_se3(&mut self, se3: Vector6<f64>);
 }
 
 /// Transform the given point while also retrieving both Jacobians.
@@ -133,11 +136,16 @@ impl Pose for WorldPose {
     }
 
     #[inline]
-    fn update(&mut self, delta: Vector6<f64>) {
-        self.translation.vector += Vector3::new(delta[0], delta[1], delta[2]);
-        let mut skew: Skew3 = self.rotation.into();
-        skew.0 += Vector3::new(delta[3], delta[4], delta[5]);
-        self.rotation = skew.into();
+    fn se3(&self) -> Vector6<f64> {
+        let t = self.translation.vector;
+        let r: Skew3 = self.rotation.into();
+        Vector6::new(t.x, t.y, t.z, r.x, r.y, r.z)
+    }
+
+    #[inline]
+    fn set_se3(&mut self, se3: Vector6<f64>) {
+        self.translation.vector = se3.xyz();
+        self.rotation = Skew3(Vector3::new(se3[3], se3[4], se3[5])).into();
     }
 }
 
@@ -192,11 +200,16 @@ impl Pose for CameraPose {
     }
 
     #[inline]
-    fn update(&mut self, delta: Vector6<f64>) {
-        self.translation.vector += Vector3::new(delta[0], delta[1], delta[2]);
-        let mut skew: Skew3 = self.rotation.into();
-        skew.0 += Vector3::new(delta[3], delta[4], delta[5]);
-        self.rotation = skew.into();
+    fn se3(&self) -> Vector6<f64> {
+        let t = self.translation.vector;
+        let r: Skew3 = self.rotation.into();
+        Vector6::new(t.x, t.y, t.z, r.x, r.y, r.z)
+    }
+
+    #[inline]
+    fn set_se3(&mut self, se3: Vector6<f64>) {
+        self.translation.vector = se3.xyz();
+        self.rotation = Skew3(Vector3::new(se3[3], se3[4], se3[5])).into();
     }
 }
 
@@ -259,11 +272,16 @@ impl Pose for RelativeCameraPose {
     }
 
     #[inline]
-    fn update(&mut self, delta: Vector6<f64>) {
-        self.translation.vector += Vector3::new(delta[0], delta[1], delta[2]);
-        let mut skew: Skew3 = self.rotation.into();
-        skew.0 += Vector3::new(delta[3], delta[4], delta[5]);
-        self.rotation = skew.into();
+    fn se3(&self) -> Vector6<f64> {
+        let t = self.translation.vector;
+        let r: Skew3 = self.rotation.into();
+        Vector6::new(t.x, t.y, t.z, r.x, r.y, r.z)
+    }
+
+    #[inline]
+    fn set_se3(&mut self, se3: Vector6<f64>) {
+        self.translation.vector = se3.xyz();
+        self.rotation = Skew3(Vector3::new(se3[3], se3[4], se3[5])).into();
     }
 }
 
