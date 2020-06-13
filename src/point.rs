@@ -1,6 +1,13 @@
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use nalgebra::Point3;
 
+/// A 3d point which is relative to the camera's optical center and orientation where
+/// the positive X axis is right, positive Y axis is down, and positive Z axis is forwards
+/// from the optical center of the camera. The unit of distance of a `CameraPoint` is
+/// unspecified and relative to the current reconstruction.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
+pub struct CameraPoint(pub Point3<f64>);
+
 /// A point in "world" coordinates.
 /// This means that the real-world units of the pose are unknown, but the
 /// unit of distance and orientation are the same as the current reconstruction.

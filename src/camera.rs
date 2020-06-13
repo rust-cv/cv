@@ -1,6 +1,5 @@
 use crate::{ImagePoint, KeyPoint};
-use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
-use nalgebra::{Point3, Unit, Vector3};
+use nalgebra::{Unit, Vector3};
 
 /// Describes the direction that the projection onto the camera's optical center
 /// came from. It is implemented on projection items from different camera models.
@@ -56,13 +55,6 @@ impl Bearing for Unit<Vector3<f64>> {
         bearing
     }
 }
-
-/// A 3d point which is relative to the camera's optical center and orientation where
-/// the positive X axis is right, positive Y axis is down, and positive Z axis is forwards
-/// from the optical center of the camera. The unit of distance of a `CameraPoint` is
-/// unspecified and relative to the current reconstruction.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
-pub struct CameraPoint(pub Point3<f64>);
 
 /// Allows conversion between the point on an image and the internal projection
 /// which can describe the bearing of the projection out of the camera.
