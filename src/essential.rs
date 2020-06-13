@@ -352,7 +352,7 @@ impl<'a> PoseSolver<'a> {
     /// Solve the pose given correspondences.
     pub fn solve_unscaled<P>(
         &self,
-        triangulator: impl TriangulatorRelative,
+        triangulator: &impl TriangulatorRelative,
         correspondences: impl Iterator<Item = FeatureMatch<P>>,
     ) -> Option<UnscaledRelativeCameraPose>
     where
@@ -417,7 +417,7 @@ impl<'a> PoseSolver<'a> {
     #[cfg(feature = "alloc")]
     pub fn solve_unscaled_inliers<P>(
         &self,
-        triangulator: impl TriangulatorRelative,
+        triangulator: &impl TriangulatorRelative,
         correspondences: impl Iterator<Item = FeatureMatch<P>>,
     ) -> Option<(UnscaledRelativeCameraPose, alloc::vec::Vec<usize>)>
     where
@@ -534,7 +534,7 @@ impl<'a> PoseSolver<'a> {
     /// This does not communicate which points were outliers to each model.
     pub fn solve<P>(
         &self,
-        triangulator: impl TriangulatorProject,
+        triangulator: &impl TriangulatorProject,
         correspondences: impl Iterator<Item = (CameraPoint, P)> + Clone,
     ) -> Option<RelativeCameraPose>
     where
@@ -609,7 +609,7 @@ impl<'a> PoseSolver<'a> {
     #[cfg(feature = "alloc")]
     pub fn solve_inliers<P>(
         &self,
-        triangulator: impl TriangulatorProject,
+        triangulator: &impl TriangulatorProject,
         correspondences: impl Iterator<Item = (CameraPoint, P)> + Clone,
     ) -> Option<(RelativeCameraPose, alloc::vec::Vec<usize>)>
     where
