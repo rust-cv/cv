@@ -1,12 +1,12 @@
-use crate::{Bearing, CameraPoint, CameraPose, RelativeCameraPose, WorldPoint};
+use crate::{Bearing, CameraPoint, RelativeCameraPose, WorldPoint, WorldPose};
 use nalgebra::{IsometryMatrix3, Vector3};
 
 /// This trait is for algorithms which allow you to triangulate a point from two or more observances.
-/// Each observance is a [`CameraPose`] and a [`Bearing`].
+/// Each observance is a [`WorldPose`] and a [`Bearing`].
 pub trait TriangulatorObservances {
     fn triangulate_observances<B: Bearing>(
         &self,
-        pairs: impl IntoIterator<Item = (CameraPose, B)>,
+        pairs: impl IntoIterator<Item = (WorldPose, B)>,
     ) -> Option<WorldPoint>;
 }
 
@@ -34,8 +34,7 @@ where
         use core::iter::once;
 
         self.triangulate_observances(
-            once((CameraPose::identity(), a.bearing()))
-                .chain(once((CameraPose(pose), b.bearing()))),
+            once((WorldPose::identity(), a.bearing())).chain(once((WorldPose(pose), b.bearing()))),
         )
         .map(|p| CameraPoint(p.0))
     }
