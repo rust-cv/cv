@@ -1,12 +1,12 @@
-use crate::{Bearing, CameraPoint, RelativeCameraPose, WorldPoint, WorldPose};
+use crate::{Bearing, CameraPoint, CameraToCamera, Pose, WorldPoint, WorldToCamera};
 use nalgebra::{IsometryMatrix3, Vector3};
 
 /// This trait is for algorithms which allow you to triangulate a point from two or more observances.
-/// Each observance is a [`WorldPose`] and a [`Bearing`].
+/// Each observance is a [`WorldToCamera`] and a [`Bearing`].
 pub trait TriangulatorObservances {
     fn triangulate_observances<B: Bearing>(
         &self,
-        pairs: impl IntoIterator<Item = (WorldPose, B)>,
+        pairs: impl IntoIterator<Item = (WorldToCamera, B)>,
     ) -> Option<WorldPoint>;
 }
 
@@ -15,7 +15,7 @@ pub trait TriangulatorObservances {
 pub trait TriangulatorRelative {
     fn triangulate_relative<A: Bearing, B: Bearing>(
         &self,
-        relative_pose: RelativeCameraPose,
+        relative_pose: CameraToCamera,
         a: A,
         b: B,
     ) -> Option<CameraPoint>;
@@ -27,14 +27,15 @@ where
 {
     fn triangulate_relative<A: Bearing, B: Bearing>(
         &self,
-        RelativeCameraPose(pose): RelativeCameraPose,
+        CameraToCamera(pose): CameraToCamera,
         a: A,
         b: B,
     ) -> Option<CameraPoint> {
         use core::iter::once;
 
         self.triangulate_observances(
-            once((WorldPose::identity(), a.bearing())).chain(once((WorldPose(pose), b.bearing()))),
+            once((WorldToCamera::identity(), a.bearing()))
+                .chain(once((WorldToCamera(pose), b.bearing()))),
         )
         .map(|p| CameraPoint(p.0))
     }
@@ -83,7 +84,7 @@ where
         let eye = from.0;
         let target = eye + translation;
         let up = from.coords.cross(&translation);
-        let fake_pose = RelativeCameraPose(IsometryMatrix3::look_at_lh(&eye, &target, &up));
+        let fake_pose = CameraToCamera(IsometryMatrix3::look_at_lh(&eye, &target, &up));
         self.triangulate_relative(fake_pose, onto, Vector3::z_axis())
             .map(|point| {
                 // Get the vector representing the difference from `from`.

@@ -7,6 +7,12 @@ pub trait Pose {
     type InputPoint;
     type OutputPoint;
 
+    /// Creates a pose with no change in position or orientation.
+    fn identity() -> Self;
+
+    /// Create the pose from rotation and translation.
+    fn from_parts(translation: Vector3<f64>, rotation: Rotation3<f64>) -> Self;
+
     /// Transform the given point to an output point, while also retrieving both Jacobians.
     ///
     /// The following things are returned in this order:
@@ -109,22 +115,19 @@ fn isometry_point_outputs(
 /// This maps [`WorldPoint`] into [`CameraPoint`], changing an absolute position into
 /// a vector relative to the camera.
 #[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, Deref, DerefMut, From, Into)]
-pub struct WorldPose(pub IsometryMatrix3<f64>);
+pub struct WorldToCamera(pub IsometryMatrix3<f64>);
 
-impl WorldPose {
-    /// Create the pose from rotation and translation.
-    pub fn from_parts(rotation: Rotation3<f64>, translation: Vector3<f64>) -> Self {
-        Self(IsometryMatrix3::from_parts(translation.into(), rotation))
-    }
-
-    pub fn identity() -> Self {
-        Self(IsometryMatrix3::identity())
-    }
-}
-
-impl Pose for WorldPose {
+impl Pose for WorldToCamera {
     type InputPoint = WorldPoint;
     type OutputPoint = CameraPoint;
+
+    fn identity() -> Self {
+        Self(IsometryMatrix3::identity())
+    }
+
+    fn from_parts(translation: Vector3<f64>, rotation: Rotation3<f64>) -> Self {
+        Self(IsometryMatrix3::from_parts(translation.into(), rotation))
+    }
 
     #[inline]
     fn transform_jacobians(
@@ -149,12 +152,12 @@ impl Pose for WorldPose {
     }
 }
 
-impl<P> Model<FeatureWorldMatch<P>> for WorldPose
+impl<P> Model<FeatureWorldMatch<P>> for WorldToCamera
 where
     P: Bearing,
 {
     fn residual(&self, data: &FeatureWorldMatch<P>) -> f32 {
-        let WorldPose(iso) = *self;
+        let WorldToCamera(iso) = *self;
         let FeatureWorldMatch(feature, world) = data;
 
         let new_bearing = (iso * world.coords).normalize();
@@ -163,8 +166,8 @@ where
     }
 }
 
-impl From<CameraPose> for WorldPose {
-    fn from(camera: CameraPose) -> Self {
+impl From<CameraToWorld> for WorldToCamera {
+    fn from(camera: CameraToWorld) -> Self {
         Self(camera.inverse())
     }
 }
@@ -173,22 +176,19 @@ impl From<CameraPose> for WorldPose {
 /// This transforms camera points (with depth as `z`) into world coordinates.
 /// This also tells you where the camera is located and oriented in the world.
 #[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, Deref, DerefMut, From, Into)]
-pub struct CameraPose(pub IsometryMatrix3<f64>);
+pub struct CameraToWorld(pub IsometryMatrix3<f64>);
 
-impl CameraPose {
-    /// Create the pose from rotation and translation.
-    pub fn from_parts(rotation: Rotation3<f64>, translation: Vector3<f64>) -> Self {
-        Self(IsometryMatrix3::from_parts(translation.into(), rotation))
-    }
-
-    pub fn identity() -> Self {
-        Self(IsometryMatrix3::identity())
-    }
-}
-
-impl Pose for CameraPose {
+impl Pose for CameraToWorld {
     type InputPoint = CameraPoint;
     type OutputPoint = WorldPoint;
+
+    fn identity() -> Self {
+        Self(IsometryMatrix3::identity())
+    }
+
+    fn from_parts(translation: Vector3<f64>, rotation: Rotation3<f64>) -> Self {
+        Self(IsometryMatrix3::from_parts(translation.into(), rotation))
+    }
 
     #[inline]
     fn transform_jacobians(
@@ -213,8 +213,8 @@ impl Pose for CameraPose {
     }
 }
 
-impl From<WorldPose> for CameraPose {
-    fn from(world: WorldPose) -> Self {
+impl From<WorldToCamera> for CameraToWorld {
+    fn from(world: WorldToCamera) -> Self {
         Self(world.inverse())
     }
 }
@@ -232,17 +232,12 @@ impl From<WorldPose> for CameraPose {
 ///
 /// Note that this is a left-handed coordinate space.
 #[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, Deref, DerefMut, From, Into)]
-pub struct RelativeCameraPose(pub IsometryMatrix3<f64>);
+pub struct CameraToCamera(pub IsometryMatrix3<f64>);
 
-impl RelativeCameraPose {
-    /// Create the pose from rotation and translation.
-    pub fn from_parts(rotation: Rotation3<f64>, translation: Vector3<f64>) -> Self {
-        Self(IsometryMatrix3::from_parts(translation.into(), rotation))
-    }
-
+impl CameraToCamera {
     /// Generates an essential matrix corresponding to this relative camera pose.
     ///
-    /// If a point `a` is transformed using [`RelativeCameraPose::transform`] into
+    /// If a point `a` is transformed using [`Pose::transform`] into
     /// a point `b`, then the essential matrix returned by this method will
     /// give a residual of approximately `0.0` when you call
     /// `essential.residual(&FeatureMatch(a, b))`.
@@ -251,16 +246,19 @@ impl RelativeCameraPose {
     pub fn essential_matrix(&self) -> EssentialMatrix {
         EssentialMatrix(self.0.translation.vector.cross_matrix() * *self.0.rotation.matrix())
     }
-
-    /// Inverses the pose such that it now swaps which camera it is transfering from and to.
-    pub fn inverse(&self) -> Self {
-        Self(self.0.inverse())
-    }
 }
 
-impl Pose for RelativeCameraPose {
+impl Pose for CameraToCamera {
     type InputPoint = CameraPoint;
     type OutputPoint = CameraPoint;
+
+    fn identity() -> Self {
+        Self(IsometryMatrix3::identity())
+    }
+
+    fn from_parts(translation: Vector3<f64>, rotation: Rotation3<f64>) -> Self {
+        Self(IsometryMatrix3::from_parts(translation.into(), rotation))
+    }
 
     #[inline]
     fn transform_jacobians(
@@ -285,11 +283,34 @@ impl Pose for RelativeCameraPose {
     }
 }
 
-/// This stores a [`RelativeCameraPose`] that has not had its translation scaled.
+/// This stores a [`CameraToCamera`] that has not had its translation scaled.
 ///
-/// The translation for an unscaled relative camera pose should allow the
+/// The translation for an unscaled camera-to-camera pose should allow the
 /// triangulation of correspondences to lie in front of both cameras.
 /// Aside from that case, the relative pose contained inside should only
 /// be used to initialize a reconstruction with unknown scale.
 #[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, Deref, DerefMut, From, Into)]
-pub struct UnscaledRelativeCameraPose(pub RelativeCameraPose);
+pub struct UnscaledCameraToCamera(pub IsometryMatrix3<f64>);
+
+impl UnscaledCameraToCamera {
+    /// Creates an identity pose with no rotation or translation.
+    pub fn identity() -> Self {
+        Self(IsometryMatrix3::identity())
+    }
+
+    /// Applies the scaling to the unscaled pose
+    pub fn scale(mut self, scale: f64) -> CameraToCamera {
+        self.translation.vector *= scale;
+        CameraToCamera(self.0)
+    }
+
+    /// Assume the pose is scaled
+    pub fn assume_scaled(self) -> CameraToCamera {
+        CameraToCamera(self.0)
+    }
+
+    /// Creates the UnscaledCameraToCamera pose from translation and rotation components.
+    pub fn from_parts(translation: Vector3<f64>, rotation: Rotation3<f64>) -> Self {
+        Self(IsometryMatrix3::from_parts(translation.into(), rotation))
+    }
+}

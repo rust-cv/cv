@@ -1,6 +1,6 @@
 use crate::{
-    Bearing, CameraPoint, FeatureMatch, Pose, RelativeCameraPose, TriangulatorProject,
-    TriangulatorRelative, UnscaledRelativeCameraPose,
+    Bearing, CameraPoint, CameraToCamera, FeatureMatch, Pose, TriangulatorProject,
+    TriangulatorRelative, UnscaledCameraToCamera,
 };
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use nalgebra::{Matrix3, Rotation3, Vector3, SVD};
@@ -57,8 +57,7 @@ use sample_consensus::Model;
 /// With a `EssentialMatrix`, you can retrieve the rotation and translation given
 /// one normalized image coordinate and one bearing that is scaled to the depth
 /// of the point relative to the current reconstruction. This kind of point can be computed
-/// using [`WorldPose::transform`](crate::WorldPose::transform) to convert a
-/// [`WorldPoint`](crate::WorldPoint) to a [`CameraPoint`].
+/// using [`Pose::transform`] to convert a [`WorldPoint`](crate::WorldPoint) to a [`CameraPoint`].
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
 pub struct EssentialMatrix(pub Matrix3<f64>);
 
@@ -115,9 +114,9 @@ impl EssentialMatrix {
     /// A `max_iterations` of `0` may execute indefinitely and is not recommended.
     ///
     /// ```
-    /// # use cv_core::RelativeCameraPose;
+    /// # use cv_core::CameraToCamera;
     /// # use cv_core::nalgebra::{IsometryMatrix3, Rotation3, Vector3};
-    /// let pose = RelativeCameraPose(IsometryMatrix3::from_parts(
+    /// let pose = CameraToCamera(IsometryMatrix3::from_parts(
     ///     Vector3::new(-0.8, 0.4, 0.5).into(),
     ///     Rotation3::from_euler_angles(0.2, 0.3, 0.4),
     /// ));
@@ -206,9 +205,9 @@ impl EssentialMatrix {
     /// This returns only the two rotations that are possible.
     ///
     /// ```
-    /// # use cv_core::RelativeCameraPose;
+    /// # use cv_core::CameraToCamera;
     /// # use cv_core::nalgebra::{IsometryMatrix3, Rotation3, Vector3};
-    /// let pose = RelativeCameraPose(IsometryMatrix3::from_parts(
+    /// let pose = CameraToCamera(IsometryMatrix3::from_parts(
     ///     Vector3::new(-0.8, 0.4, 0.5).into(),
     ///     Rotation3::from_euler_angles(0.2, 0.3, 0.4),
     /// ));
@@ -234,9 +233,9 @@ impl EssentialMatrix {
     /// This returns the rotations and their corresponding post-rotation translation bearing.
     ///
     /// ```
-    /// # use cv_core::RelativeCameraPose;
+    /// # use cv_core::CameraToCamera;
     /// # use cv_core::nalgebra::{IsometryMatrix3, Rotation3, Vector3};
-    /// let pose = RelativeCameraPose(IsometryMatrix3::from_parts(
+    /// let pose = CameraToCamera(IsometryMatrix3::from_parts(
     ///     Vector3::new(-0.8, 0.4, 0.5).into(),
     ///     Rotation3::from_euler_angles(0.2, 0.3, 0.4),
     /// ));
@@ -256,14 +255,14 @@ impl EssentialMatrix {
         &self,
         epsilon: f64,
         max_iterations: usize,
-    ) -> Option<[UnscaledRelativeCameraPose; 4]> {
+    ) -> Option<[UnscaledCameraToCamera; 4]> {
         self.possible_rotations_unscaled_translation(epsilon, max_iterations)
             .map(|(rot_a, rot_b, t)| {
                 [
-                    UnscaledRelativeCameraPose(RelativeCameraPose::from_parts(rot_a, t)),
-                    UnscaledRelativeCameraPose(RelativeCameraPose::from_parts(rot_b, t)),
-                    UnscaledRelativeCameraPose(RelativeCameraPose::from_parts(rot_a, -t)),
-                    UnscaledRelativeCameraPose(RelativeCameraPose::from_parts(rot_b, -t)),
+                    UnscaledCameraToCamera::from_parts(t, rot_a),
+                    UnscaledCameraToCamera::from_parts(t, rot_b),
+                    UnscaledCameraToCamera::from_parts(-t, rot_a),
+                    UnscaledCameraToCamera::from_parts(-t, rot_b),
                 ]
             })
     }
@@ -276,12 +275,12 @@ impl EssentialMatrix {
         &self,
         epsilon: f64,
         max_iterations: usize,
-    ) -> Option<[UnscaledRelativeCameraPose; 2]> {
+    ) -> Option<[UnscaledCameraToCamera; 2]> {
         self.possible_rotations_unscaled_translation(epsilon, max_iterations)
             .map(|(rot_a, rot_b, t)| {
                 [
-                    UnscaledRelativeCameraPose(RelativeCameraPose::from_parts(rot_a, t)),
-                    UnscaledRelativeCameraPose(RelativeCameraPose::from_parts(rot_b, t)),
+                    UnscaledCameraToCamera::from_parts(t, rot_a),
+                    UnscaledCameraToCamera::from_parts(t, rot_b),
                 ]
             })
     }
@@ -354,7 +353,7 @@ impl<'a> PoseSolver<'a> {
         &self,
         triangulator: &impl TriangulatorRelative,
         correspondences: impl Iterator<Item = FeatureMatch<P>>,
-    ) -> Option<UnscaledRelativeCameraPose>
+    ) -> Option<UnscaledCameraToCamera>
     where
         P: Bearing + Copy,
     {
@@ -381,8 +380,8 @@ impl<'a> PoseSolver<'a> {
                         };
 
                         // Do it for all poses.
-                        for (tn, &UnscaledRelativeCameraPose(pose)) in ts.iter_mut().zip(&poses) {
-                            if trans_and_agree(pose) {
+                        for (tn, &pose) in ts.iter_mut().zip(&poses) {
+                            if trans_and_agree(pose.assume_scaled()) {
                                 *tn += 1;
                             }
                         }
@@ -419,7 +418,7 @@ impl<'a> PoseSolver<'a> {
         &self,
         triangulator: &impl TriangulatorRelative,
         correspondences: impl Iterator<Item = FeatureMatch<P>>,
-    ) -> Option<(UnscaledRelativeCameraPose, alloc::vec::Vec<usize>)>
+    ) -> Option<(UnscaledCameraToCamera, alloc::vec::Vec<usize>)>
     where
         P: Bearing + Copy,
     {
@@ -454,10 +453,8 @@ impl<'a> PoseSolver<'a> {
                         };
 
                         // Do it for all poses.
-                        for ((tn, ti), &UnscaledRelativeCameraPose(pose)) in
-                            ts.iter_mut().zip(&poses)
-                        {
-                            if trans_and_agree(pose) {
+                        for ((tn, ti), &pose) in ts.iter_mut().zip(&poses) {
+                            if trans_and_agree(pose.assume_scaled()) {
                                 *tn += 1;
                                 ti.push(ix);
                             }
@@ -489,7 +486,7 @@ impl<'a> PoseSolver<'a> {
             })
     }
 
-    /// Return the [`RelativeCameraPose`] that transforms a [`CameraPoint`] of image
+    /// Return the [`CameraToCamera`] that transforms a [`CameraPoint`] of image
     /// `A` (source of `a`) to the corresponding [`CameraPoint`] of image B (source of `b`).
     /// This determines the average expected translation from the points themselves and
     /// if the points agree with the rotation (points must be in front of the camera).
@@ -536,7 +533,7 @@ impl<'a> PoseSolver<'a> {
         &self,
         triangulator: &impl TriangulatorProject,
         correspondences: impl Iterator<Item = (CameraPoint, P)> + Clone,
-    ) -> Option<RelativeCameraPose>
+    ) -> Option<CameraToCamera>
     where
         P: Bearing + Copy,
     {
@@ -549,7 +546,7 @@ impl<'a> PoseSolver<'a> {
                 let (ts, total) = correspondences.fold(
                     ([(0usize, 0.0); 2], 0usize),
                     |(mut ts, total), (a, b)| {
-                        let trans_and_agree = |pose: UnscaledRelativeCameraPose| {
+                        let trans_and_agree = |pose: UnscaledCameraToCamera| {
                             let untranslated = pose.rotation * a.0;
                             let t_scale = triangulator.triangulate_project(
                                 CameraPoint(untranslated),
@@ -596,9 +593,9 @@ impl<'a> PoseSolver<'a> {
                 }
                 let scale = scale_acc / best_num as f64;
 
-                Some(RelativeCameraPose::from_parts(
-                    poses[ix].rotation,
+                Some(CameraToCamera::from_parts(
                     scale * poses[ix].translation.vector,
+                    poses[ix].rotation,
                 ))
             })
     }
@@ -611,7 +608,7 @@ impl<'a> PoseSolver<'a> {
         &self,
         triangulator: &impl TriangulatorProject,
         correspondences: impl Iterator<Item = (CameraPoint, P)> + Clone,
-    ) -> Option<(RelativeCameraPose, alloc::vec::Vec<usize>)>
+    ) -> Option<(CameraToCamera, alloc::vec::Vec<usize>)>
     where
         P: Bearing + Copy,
     {
@@ -630,7 +627,7 @@ impl<'a> PoseSolver<'a> {
                         0usize,
                     ),
                     |(mut ts, total), (ix, (a, b))| {
-                        let trans_and_agree = |pose: UnscaledRelativeCameraPose| {
+                        let trans_and_agree = |pose: UnscaledCameraToCamera| {
                             let untranslated = pose.rotation * a.0;
                             let t_scale = triangulator.triangulate_project(
                                 CameraPoint(untranslated),
@@ -676,9 +673,9 @@ impl<'a> PoseSolver<'a> {
                 let scale = scale_acc / best_num as f64;
 
                 Some((
-                    RelativeCameraPose::from_parts(
-                        poses[ix].rotation,
+                    CameraToCamera::from_parts(
                         scale * poses[ix].translation.vector,
+                        poses[ix].rotation,
                     ),
                     best_inliers,
                 ))

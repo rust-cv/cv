@@ -24,8 +24,8 @@
 //! called [triangulation](https://en.wikipedia.org/wiki/Triangulation). In computer vision, this problem
 //! occurs quite often, as we often have some of the following data:
 //!
-//! * [The pose of a camera](CameraPose)
-//! * [The relative pose of a camera](RelativeCameraPose)
+//! * [The pose of a camera](WorldToCamera)
+//! * [The relative pose of a camera](CameraToCamera)
 //! * [A bearing direction at which lies a feature](Bearing)
 //!
 //! We have to take this data and produce a 3d point. Cameras have an optical center which all bearings protrude from.
