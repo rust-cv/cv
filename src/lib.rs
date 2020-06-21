@@ -37,6 +37,20 @@ use cv_core::{
 /// This solves triangulation problems by simply minimizing the squared reprojection error of all observances.
 ///
 /// This is a quick triangulator to execute and is fairly robust.
+///
+/// ```
+/// use cv_core::nalgebra::{Vector3, Point3, Rotation3, Unit};
+/// use cv_core::{TriangulatorRelative, CameraToCamera, CameraPoint, Pose, Projective};
+/// use cv_geom::MinSquaredTriangulator;
+///
+/// let point = CameraPoint::from_point(Point3::new(0.3, 0.1, 2.0));
+/// let pose = CameraToCamera::from_parts(Vector3::new(0.1, 0.1, 0.1), Rotation3::new(Vector3::new(0.1, 0.1, 0.1)));
+/// let bearing_a = point.bearing();
+/// let bearing_b = pose.transform(point).bearing();
+/// let triangulated = MinSquaredTriangulator::new().triangulate_relative(pose, bearing_a, bearing_b).unwrap();
+/// let distance = (point.point().unwrap().coords - triangulated.point().unwrap().coords).norm();
+/// assert!(distance < 1e-6);
+/// ```
 #[derive(Copy, Clone, Debug)]
 pub struct MinSquaredTriangulator {
     epsilon: f64,
