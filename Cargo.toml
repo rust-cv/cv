@@ -13,12 +13,13 @@ readme = "README.md"
 
 [dependencies]
 float-ord = "0.2.0"
-cv-core = "0.12.0"
-cv-pinhole = "0.3.0"
+cv-core = "0.14.0"
+cv-pinhole = { version = "0.5.0", default-features = false }
+derive_more = "0.99.8"
+num-traits = "0.2.12"
 
 [dev-dependencies]
-nalgebra = "0.21.0"
-cv-geom = "0.2.0"
+nalgebra = "0.21.1"
 
 [profile.dev]
 # The tests take a very long time without optimization.
