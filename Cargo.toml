@@ -12,6 +12,7 @@ license = "MIT"
 readme = "README.md"
 
 [features]
+default = ["alloc"]
 alloc = []
 
 [dependencies]
@@ -22,3 +23,6 @@ float-ord = "0.2.0"
 
 [dev-dependencies]
 cv-geom = "0.5.0"
+
+[package.metadata.docs.rs]
+all-features = true
