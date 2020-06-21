@@ -1,10 +1,14 @@
-use core::ops::{Mul, MulAssign};
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
-use nalgebra::{dimension::U3, AbstractRotation, Matrix3, Point3, Rotation3, Unit, Vector3};
+use nalgebra::{Matrix3, Matrix4, Rotation3, Unit, Vector3};
 use num_traits::Float;
 
 /// Contains a member of the lie algebra so(3), a representation of the tangent space
 /// of 3d rotation. This is also known as the lie algebra of the 3d rotation group SO(3).
+///
+/// This is only intended to be used in optimization problems where it is desirable to
+/// have unconstranied variables representing the degrees of freedom of the rotation.
+/// In all other cases, a rotation matrix should be used to store rotations, since the
+/// conversion to and from a rotation matrix is non-trivial.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
 pub struct Skew3(pub Vector3<f64>);
 
@@ -57,10 +61,17 @@ impl Skew3 {
     /// `dy/dx = R`
     ///
     /// The formula is pretty simple and is just the rotation matrix created
-    /// from the exponential map of this so(3) element into SO(3).
-    pub fn jacobian_input(self) -> Matrix3<f64> {
+    /// from the exponential map of this so(3) element into SO(3). The result is converted
+    /// to homogeneous form (by adding a new dimension with a `1` in the diagonal) so
+    /// that it is compatible with homogeneous coordinates.
+    ///
+    /// If you have the rotation matrix already, please use the rotation matrix itself
+    /// rather than calling this method. Calling this method will waste time converting
+    /// the [`Skew`] back into a [`Rotation3`], which is non-trivial.
+    pub fn jacobian_input(self) -> Matrix4<f64> {
         let rotation: Rotation3<f64> = self.into();
-        rotation.into()
+        let matrix: Matrix3<f64> = rotation.into();
+        matrix.to_homogeneous()
     }
 
     /// The jacobian of the output of a rotation in respect to the
@@ -71,6 +82,9 @@ impl Skew3 {
     /// `dy/dR = -hat(y)`
     ///
     /// The derivative is purely based on the current output vector, and thus doesn't take `self`.
+    ///
+    /// Note that when working with homogeneous projective coordinates, only the first three components
+    /// (the bearing) are relevant, hence the resulting matrix is a [`Matrix3`].
     pub fn jacobian_self(y: Vector3<f64>) -> Matrix3<f64> {
         (-y).cross_matrix()
     }
@@ -95,56 +109,5 @@ impl From<Skew3> for Rotation3<f64> {
 impl From<Rotation3<f64>> for Skew3 {
     fn from(r: Rotation3<f64>) -> Self {
         Self(r.scaled_axis())
-    }
-}
-
-impl Mul for Skew3 {
-    type Output = Self;
-
-    fn mul(self, rhs: Self) -> Self {
-        (self.rotation() * rhs.rotation()).into()
-    }
-}
-
-impl MulAssign for Skew3 {
-    fn mul_assign(&mut self, rhs: Self) {
-        *self = *self * rhs;
-    }
-}
-
-impl AbstractRotation<f64, U3> for Skew3 {
-    #[inline]
-    fn identity() -> Self {
-        Self(Vector3::zeros())
-    }
-
-    #[inline]
-    fn inverse(&self) -> Self {
-        Self(-self.0)
-    }
-
-    #[inline]
-    fn inverse_mut(&mut self) {
-        self.0 = -self.0;
-    }
-
-    #[inline]
-    fn transform_vector(&self, v: &Vector3<f64>) -> Vector3<f64> {
-        self.rotation().transform_vector(v)
-    }
-
-    #[inline]
-    fn transform_point(&self, p: &Point3<f64>) -> Point3<f64> {
-        self.rotation().transform_point(p)
-    }
-
-    #[inline]
-    fn inverse_transform_vector(&self, v: &Vector3<f64>) -> Vector3<f64> {
-        self.inverse().rotation().transform_vector(v)
-    }
-
-    #[inline]
-    fn inverse_transform_point(&self, p: &Point3<f64>) -> Point3<f64> {
-        self.inverse().rotation().inverse_transform_point(p)
     }
 }

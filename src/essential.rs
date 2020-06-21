@@ -1,7 +1,4 @@
-use crate::{
-    Bearing, CameraPoint, CameraToCamera, FeatureMatch, Pose, TriangulatorProject,
-    TriangulatorRelative, UnscaledCameraToCamera,
-};
+use crate::{Bearing, CameraToCamera, FeatureMatch, Pose, Projective, TriangulatorRelative};
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use nalgebra::{Matrix3, Rotation3, Vector3, SVD};
 use num_traits::Float;
@@ -123,14 +120,14 @@ impl EssentialMatrix {
     /// // Get the possible poses for the essential matrix created from `pose`.
     /// let (rot_a, rot_b, t) = pose.essential_matrix().possible_rotations_unscaled_translation(1e-6, 50).unwrap();
     /// // Compute residual rotations.
-    /// let a_res = rot_a.rotation_to(&pose.rotation).angle();
-    /// let b_res = rot_b.rotation_to(&pose.rotation).angle();
+    /// let a_res = rot_a.rotation_to(&pose.0.rotation).angle();
+    /// let b_res = rot_b.rotation_to(&pose.0.rotation).angle();
     /// let a_close = a_res < 1e-4;
     /// let b_close = b_res < 1e-4;
     /// // At least one rotation is correct.
     /// assert!(a_close || b_close);
     /// // The translation points in the same (or reverse) direction
-    /// let t_res = 1.0 - t.normalize().dot(&pose.translation.vector.normalize()).abs();
+    /// let t_res = 1.0 - t.normalize().dot(&pose.0.translation.vector.normalize()).abs();
     /// assert!(t_res < 1e-4);
     /// ```
     pub fn possible_rotations_unscaled_translation(
@@ -214,7 +211,7 @@ impl EssentialMatrix {
     /// // Get the possible rotations for the essential matrix created from `pose`.
     /// let rbs = pose.essential_matrix().possible_rotations(1e-6, 50).unwrap();
     /// let one_correct = rbs.iter().any(|&rot| {
-    ///     let angle_residual = rot.rotation_to(&pose.rotation).angle();
+    ///     let angle_residual = rot.rotation_to(&pose.0.rotation).angle();
     ///     angle_residual < 1e-4
     /// });
     /// assert!(one_correct);
@@ -243,10 +240,10 @@ impl EssentialMatrix {
     /// let rbs = pose.essential_matrix().possible_unscaled_poses(1e-6, 50).unwrap();
     /// let one_correct = rbs.iter().any(|&upose| {
     ///     let angle_residual =
-    ///         upose.rotation.rotation_to(&pose.rotation).angle();
+    ///         upose.0.rotation.rotation_to(&pose.0.rotation).angle();
     ///     let translation_residual =
-    ///         1.0 - upose.translation.vector.normalize()
-    ///                    .dot(&pose.translation.vector.normalize());
+    ///         1.0 - upose.0.translation.vector.normalize()
+    ///                    .dot(&pose.0.translation.vector.normalize());
     ///     angle_residual < 1e-4 && translation_residual < 1e-4
     /// });
     /// assert!(one_correct);
@@ -255,14 +252,14 @@ impl EssentialMatrix {
         &self,
         epsilon: f64,
         max_iterations: usize,
-    ) -> Option<[UnscaledCameraToCamera; 4]> {
+    ) -> Option<[CameraToCamera; 4]> {
         self.possible_rotations_unscaled_translation(epsilon, max_iterations)
             .map(|(rot_a, rot_b, t)| {
                 [
-                    UnscaledCameraToCamera::from_parts(t, rot_a),
-                    UnscaledCameraToCamera::from_parts(t, rot_b),
-                    UnscaledCameraToCamera::from_parts(-t, rot_a),
-                    UnscaledCameraToCamera::from_parts(-t, rot_b),
+                    CameraToCamera::from_parts(t, rot_a),
+                    CameraToCamera::from_parts(t, rot_b),
+                    CameraToCamera::from_parts(-t, rot_a),
+                    CameraToCamera::from_parts(-t, rot_b),
                 ]
             })
     }
@@ -275,12 +272,12 @@ impl EssentialMatrix {
         &self,
         epsilon: f64,
         max_iterations: usize,
-    ) -> Option<[UnscaledCameraToCamera; 2]> {
+    ) -> Option<[CameraToCamera; 2]> {
         self.possible_rotations_unscaled_translation(epsilon, max_iterations)
             .map(|(rot_a, rot_b, t)| {
                 [
-                    UnscaledCameraToCamera::from_parts(t, rot_a),
-                    UnscaledCameraToCamera::from_parts(t, rot_b),
+                    CameraToCamera::from_parts(t, rot_a),
+                    CameraToCamera::from_parts(t, rot_b),
                 ]
             })
     }
@@ -348,149 +345,10 @@ impl<'a> PoseSolver<'a> {
         }
     }
 
-    /// Solve the pose given correspondences.
-    pub fn solve_unscaled<P>(
-        &self,
-        triangulator: &impl TriangulatorRelative,
-        correspondences: impl Iterator<Item = FeatureMatch<P>>,
-    ) -> Option<UnscaledCameraToCamera>
-    where
-        P: Bearing + Copy,
-    {
-        // Get the possible rotations and the translation
-        self.essential
-            .possible_unscaled_poses(self.epsilon, self.max_iterations)
-            .and_then(|poses| {
-                // Get the net translation scale of points that agree with a and b
-                // in addition to the number of points that agree with a and b.
-                let (ts, total) = correspondences.fold(
-                    ([0usize; 4], 0usize),
-                    |(mut ts, total), FeatureMatch(a, b)| {
-                        let trans_and_agree = |pose| {
-                            triangulator
-                                .triangulate_relative(pose, a, b)
-                                .map(|p| {
-                                    // Transform the point to camera B to get `tp`.
-                                    let tp = pose.transform(p);
-                                    // The points must lie in the same direction as their bearings (positive dot product).
-                                    p.coords.normalize().dot(&a.bearing()) > 0.0
-                                        && tp.coords.normalize().dot(&b.bearing()) > 0.0
-                                })
-                                .unwrap_or(false)
-                        };
-
-                        // Do it for all poses.
-                        for (tn, &pose) in ts.iter_mut().zip(&poses) {
-                            if trans_and_agree(pose.assume_scaled()) {
-                                *tn += 1;
-                            }
-                        }
-
-                        (ts, total + 1)
-                    },
-                );
-
-                // Ensure that there is at least one point.
-                if total == 0 {
-                    return None;
-                }
-
-                // Ensure that the best one exceeds the consensus ratio.
-                let (ix, best) = ts
-                    .iter()
-                    .copied()
-                    .enumerate()
-                    .max_by_key(|&(_, t)| t)
-                    .unwrap();
-                if (best as f64) < self.consensus_ratio * total as f64 && best != 0 {
-                    return None;
-                }
-
-                Some(poses[ix])
-            })
-    }
-
-    /// Same as [`PoseSolver::solve_unscaled`], but also communicates the inliers.
-    ///
-    /// The `alloc` feature must be enabled to use this method.
-    #[cfg(feature = "alloc")]
-    pub fn solve_unscaled_inliers<P>(
-        &self,
-        triangulator: &impl TriangulatorRelative,
-        correspondences: impl Iterator<Item = FeatureMatch<P>>,
-    ) -> Option<(UnscaledCameraToCamera, alloc::vec::Vec<usize>)>
-    where
-        P: Bearing + Copy,
-    {
-        // Get the possible rotations and the translation
-        self.essential
-            .possible_unscaled_poses(self.epsilon, self.max_iterations)
-            .and_then(|poses| {
-                // Get the net translation scale of points that agree with a and b
-                // in addition to the number of points that agree with a and b.
-                let (mut ts, total) = correspondences.enumerate().fold(
-                    (
-                        [
-                            (0usize, alloc::vec::Vec::new()),
-                            (0usize, alloc::vec::Vec::new()),
-                            (0usize, alloc::vec::Vec::new()),
-                            (0usize, alloc::vec::Vec::new()),
-                        ],
-                        0usize,
-                    ),
-                    |(mut ts, total), (ix, FeatureMatch(a, b))| {
-                        let trans_and_agree = |pose| {
-                            triangulator
-                                .triangulate_relative(pose, a, b)
-                                .map(|p| {
-                                    // Transform the point to camera B to get `tp`.
-                                    let tp = pose.transform(p);
-                                    // The points must lie in the same direction as their bearings (positive dot product).
-                                    p.coords.normalize().dot(&a.bearing()) > 0.0
-                                        && tp.coords.normalize().dot(&b.bearing()) > 0.0
-                                })
-                                .unwrap_or(false)
-                        };
-
-                        // Do it for all poses.
-                        for ((tn, ti), &pose) in ts.iter_mut().zip(&poses) {
-                            if trans_and_agree(pose.assume_scaled()) {
-                                *tn += 1;
-                                ti.push(ix);
-                            }
-                        }
-
-                        (ts, total + 1)
-                    },
-                );
-
-                // Ensure that there is at least one point.
-                if total == 0 {
-                    return None;
-                }
-
-                // Ensure that the best one exceeds the consensus ratio.
-                let (ix, best) = ts
-                    .iter()
-                    .map(|&(tn, _)| tn)
-                    .enumerate()
-                    .max_by_key(|&(_, t)| t)
-                    .unwrap();
-                if (best as f64) < self.consensus_ratio * total as f64 && best != 0 {
-                    return None;
-                }
-
-                let inliers = core::mem::take(&mut ts[ix].1);
-
-                Some((poses[ix], inliers))
-            })
-    }
-
     /// Return the [`CameraToCamera`] that transforms a [`CameraPoint`] of image
-    /// `A` (source of `a`) to the corresponding [`CameraPoint`] of image B (source of `b`).
-    /// This determines the average expected translation from the points themselves and
-    /// if the points agree with the rotation (points must be in front of the camera).
-    /// The function takes an iterator containing tuples in the form `(depth, a, b)`:
+    /// A (source of `a`) to the corresponding [`CameraPoint`] of image B (source of `b`).
+    /// The function takes an iterator over [`FeatureMatch`] from A to B.
+    /// The translation scale is unknown of the returned pose.
     ///
     /// * `depth` - The actual depth (`z` axis, not distance) of normalized keypoint `a`
     /// * `a` - A keypoint from image `A`
@@ -529,46 +387,40 @@ impl<'a> PoseSolver<'a> {
     /// `b` from camera B.
     ///
     /// This does not communicate which points were outliers to each model.
-    pub fn solve<P>(
+    pub fn solve_unscaled<P>(
         &self,
-        triangulator: &impl TriangulatorProject,
-        correspondences: impl Iterator<Item = (CameraPoint, P)> + Clone,
+        triangulator: &impl TriangulatorRelative,
+        correspondences: impl Iterator<Item = FeatureMatch<P>>,
     ) -> Option<CameraToCamera>
     where
         P: Bearing + Copy,
     {
         // Get the possible rotations and the translation
         self.essential
-            .possible_unscaled_poses_bearing(self.epsilon, self.max_iterations)
+            .possible_unscaled_poses(self.epsilon, self.max_iterations)
             .and_then(|poses| {
                 // Get the net translation scale of points that agree with a and b
                 // in addition to the number of points that agree with a and b.
                 let (ts, total) = correspondences.fold(
-                    ([(0usize, 0.0); 2], 0usize),
-                    |(mut ts, total), (a, b)| {
-                        let trans_and_agree = |pose: UnscaledCameraToCamera| {
-                            let untranslated = pose.rotation * a.0;
-                            let t_scale = triangulator.triangulate_project(
-                                CameraPoint(untranslated),
-                                b,
-                                pose.translation.vector,
-                            )?;
-
-                            if (untranslated.coords + t_scale * pose.translation.vector)
-                                .dot(&b.bearing())
-                                > 0.0
-                            {
-                                Some(t_scale)
-                            } else {
-                                None
-                            }
+                    ([0usize; 4], 0usize),
+                    |(mut ts, total), FeatureMatch(a, b)| {
+                        let trans_and_agree = |pose| {
+                            triangulator
+                                .triangulate_relative(pose, a, b)
+                                .map(|p| {
+                                    // Transform the point to camera B to get `tp`.
+                                    let tp = pose.transform(p);
+                                    // The points must lie in the same direction as their bearings (positive dot product).
+                                    p.bearing().dot(&a.bearing()) > 0.0
+                                        && tp.bearing().dot(&b.bearing()) > 0.0
+                                })
+                                .unwrap_or(false)
                         };
 
                         // Do it for all poses.
                         for (tn, &pose) in ts.iter_mut().zip(&poses) {
-                            if let Some(scale) = trans_and_agree(pose) {
-                                tn.0 += 1;
-                                tn.1 += scale;
+                            if trans_and_agree(pose) {
+                                *tn += 1;
                             }
                         }
 
@@ -582,75 +434,67 @@ impl<'a> PoseSolver<'a> {
                 }
 
                 // Ensure that the best one exceeds the consensus ratio.
-                let (ix, (best_num, scale_acc)) = ts
+                let (ix, best) = ts
                     .iter()
                     .copied()
                     .enumerate()
-                    .max_by_key(|&(_, (t, _))| t)
+                    .max_by_key(|&(_, t)| t)
                     .unwrap();
-                if (best_num as f64) < self.consensus_ratio * total as f64 && best_num != 0 {
+                if (best as f64) < self.consensus_ratio * total as f64 && best != 0 {
                     return None;
                 }
-                let scale = scale_acc / best_num as f64;
 
-                Some(CameraToCamera::from_parts(
-                    scale * poses[ix].translation.vector,
-                    poses[ix].rotation,
-                ))
+                Some(poses[ix])
             })
     }
 
-    /// Same as [`PoseSolver::solve`], but it also communicates the inliers.
+    /// Same as [`PoseSolver::solve_unscaled`], but also communicates the inliers.
     ///
     /// The `alloc` feature must be enabled to use this method.
     #[cfg(feature = "alloc")]
-    pub fn solve_inliers<P>(
+    pub fn solve_unscaled_inliers<P>(
         &self,
-        triangulator: &impl TriangulatorProject,
-        correspondences: impl Iterator<Item = (CameraPoint, P)> + Clone,
+        triangulator: &impl TriangulatorRelative,
+        correspondences: impl Iterator<Item = FeatureMatch<P>>,
     ) -> Option<(CameraToCamera, alloc::vec::Vec<usize>)>
     where
         P: Bearing + Copy,
     {
         // Get the possible rotations and the translation
         self.essential
-            .possible_unscaled_poses_bearing(self.epsilon, self.max_iterations)
+            .possible_unscaled_poses(self.epsilon, self.max_iterations)
             .and_then(|poses| {
                 // Get the net translation scale of points that agree with a and b
                 // in addition to the number of points that agree with a and b.
                 let (mut ts, total) = correspondences.enumerate().fold(
                     (
                         [
-                            (0usize, 0.0, alloc::vec::Vec::new()),
-                            (0usize, 0.0, alloc::vec::Vec::new()),
+                            (0usize, alloc::vec::Vec::new()),
+                            (0usize, alloc::vec::Vec::new()),
+                            (0usize, alloc::vec::Vec::new()),
+                            (0usize, alloc::vec::Vec::new()),
                         ],
                         0usize,
                     ),
-                    |(mut ts, total), (ix, (a, b))| {
-                        let trans_and_agree = |pose: UnscaledCameraToCamera| {
-                            let untranslated = pose.rotation * a.0;
-                            let t_scale = triangulator.triangulate_project(
-                                CameraPoint(untranslated),
-                                b,
-                                pose.translation.vector,
-                            )?;
-
-                            if (untranslated.coords + t_scale * pose.translation.vector)
-                                .dot(&b.bearing())
-                                > 0.0
-                            {
-                                Some(t_scale)
-                            } else {
-                                None
-                            }
+                    |(mut ts, total), (ix, FeatureMatch(a, b))| {
+                        let trans_and_agree = |pose| {
+                            triangulator
+                                .triangulate_relative(pose, a, b)
+                                .map(|p| {
+                                    // Transform the point to camera B to get `tp`.
+                                    let tp = pose.transform(p);
+                                    // The points must lie in the same direction as their bearings (positive dot product).
+                                    p.bearing().dot(&a.bearing()) > 0.0
+                                        && tp.bearing().dot(&b.bearing()) > 0.0
+                                })
+                                .unwrap_or(false)
                         };
 
                         // Do it for all poses.
-                        for (tn, &pose) in ts.iter_mut().zip(&poses) {
-                            if let Some(scale) = trans_and_agree(pose) {
-                                tn.0 += 1;
-                                tn.1 += scale;
-                                tn.2.push(ix);
+                        for ((tn, ti), &pose) in ts.iter_mut().zip(&poses) {
+                            if trans_and_agree(pose) {
+                                *tn += 1;
+                                ti.push(ix);
                             }
                         }
 
@@ -664,21 +508,19 @@ impl<'a> PoseSolver<'a> {
                 }
 
                 // Ensure that the best one exceeds the consensus ratio.
-                let ix = (0..ts.len()).max_by_key(|&ix| ts[ix].0).unwrap();
-                let (best_num, scale_acc, best_inliers) = core::mem::take(&mut ts[ix]);
-                if (best_num as f64) < self.consensus_ratio * total as f64 && best_num != 0 {
+                let (ix, best) = ts
+                    .iter()
+                    .map(|&(tn, _)| tn)
+                    .enumerate()
+                    .max_by_key(|&(_, t)| t)
+                    .unwrap();
+                if (best as f64) < self.consensus_ratio * total as f64 && best != 0 {
                     return None;
                 }
 
-                let scale = scale_acc / best_num as f64;
+                let inliers = core::mem::take(&mut ts[ix].1);
 
-                Some((
-                    CameraToCamera::from_parts(
-                        scale * poses[ix].translation.vector,
-                        poses[ix].rotation,
-                    ),
-                    best_inliers,
-                ))
+                Some((poses[ix], inliers))
             })
     }
 }

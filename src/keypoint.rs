@@ -7,9 +7,13 @@ pub trait ImagePoint {
     fn image_point(&self) -> Point2<f64>;
 }
 
-/// A point on an image frame. This type should only be used when
+/// A point on an image frame. This type should be used when
 /// the point location is on the image frame in pixel coordinates.
 /// This means the keypoint is neither undistorted nor normalized.
+///
+/// For calibrated coordinates, use a type that implements [`Bearing`].
+/// This can be a type from a camera model crate (like `cv-pinhole`), or
+/// it can be the `Unit<Vector3<f64>>` type, which implements bearing.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
 pub struct KeyPoint(pub Point2<f64>);
 
