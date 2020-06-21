@@ -435,7 +435,7 @@ impl<'a> PoseSolver<'a> {
                     .enumerate()
                     .max_by_key(|&(_, t)| t)
                     .unwrap();
-                if (best as f64) < self.consensus_ratio * total as f64 && best != 0 {
+                if (best as f64) < self.consensus_ratio * total as f64 || best == 0 {
                     return None;
                 }
 
@@ -509,7 +509,7 @@ impl<'a> PoseSolver<'a> {
                     .enumerate()
                     .max_by_key(|&(_, t)| t)
                     .unwrap();
-                if (best as f64) < self.consensus_ratio * total as f64 && best != 0 {
+                if (best as f64) < self.consensus_ratio * total as f64 || best == 0 {
                     return None;
                 }
 
