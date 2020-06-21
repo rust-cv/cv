@@ -1,10 +1,13 @@
-use crate::{
-    Bearing, CameraPoint, EssentialMatrix, FeatureWorldMatch, Projective, Skew3, WorldPoint,
-};
+use crate::{Bearing, CameraPoint, FeatureWorldMatch, Projective, Skew3, WorldPoint};
 use derive_more::{AsMut, AsRef, From, Into};
 use nalgebra::{IsometryMatrix3, Matrix4, Matrix6x4, Rotation3, Vector3, Vector4, Vector6};
 use sample_consensus::Model;
 
+/// This trait is implemented by all the different poses in this library:
+///
+/// * [`CameraToWorld`] - Transforms [`CameraPoint`] into [`WorldPoint`]
+/// * [`WorldToCamera`] - Transforms [`WorldPoint`] into [`CameraPoint`]
+/// * [`CameraToCamera`] - Transforms [`CameraPoint`] from one camera into [`CameraPoint`] for another camera
 pub trait Pose: From<IsometryMatrix3<f64>> + Clone + Copy {
     type InputPoint: Projective;
     type OutputPoint: Projective;
@@ -224,20 +227,6 @@ impl Pose for CameraToWorld {
 /// Note that this is a left-handed coordinate space.
 #[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, From, Into)]
 pub struct CameraToCamera(pub IsometryMatrix3<f64>);
-
-impl CameraToCamera {
-    /// Generates an essential matrix corresponding to this relative camera pose.
-    ///
-    /// If a point `a` is transformed using [`Pose::transform`] into
-    /// a point `b`, then the essential matrix returned by this method will
-    /// give a residual of approximately `0.0` when you call
-    /// `essential.residual(&FeatureMatch(a, b))`.
-    ///
-    /// See the documentation of [`EssentialMatrix`] for more information.
-    pub fn essential_matrix(&self) -> EssentialMatrix {
-        EssentialMatrix(self.0.translation.vector.cross_matrix() * *self.0.rotation.matrix())
-    }
-}
 
 impl Pose for CameraToCamera {
     type InputPoint = CameraPoint;

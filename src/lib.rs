@@ -14,10 +14,6 @@
 //! If there is a good reason to put code that some crates may need into `cv-core`, it should be
 //! gated behind a feature.
 //!
-//! ## Features
-//!
-//! * `alloc` - Enables APIs which require an allocator
-//!
 //! ## Triangulation
 //!
 //! Several of the traits with in `cv-core`, such as [`TriangulatorObservances`], must perform a process
@@ -69,11 +65,7 @@
 
 #![no_std]
 
-#[cfg(feature = "alloc")]
-extern crate alloc;
-
 mod camera;
-mod essential;
 mod keypoint;
 mod matches;
 mod point;
@@ -82,7 +74,6 @@ mod so3;
 mod triangulation;
 
 pub use camera::*;
-pub use essential::*;
 pub use keypoint::*;
 pub use matches::*;
 pub use nalgebra;

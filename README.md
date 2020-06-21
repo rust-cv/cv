@@ -19,7 +19,6 @@
 [bll]: https://github.com/rust-cv/cv-core/workflows/lints/badge.svg
 [bnl]: https://github.com/rust-cv/cv-core/workflows/no-std/badge.svg
 
-
 This library provides common abstractions and types for computer vision (CV) in Rust.
 All the crates in the rust-cv ecosystem that have or depend on CV types depend on this crate.
 This includes things like camera model traits, bearings, poses, keypoints, etc. The crate is designed to
