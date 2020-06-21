@@ -1,6 +1,6 @@
 [package]
 name = "eight-point"
-version = "0.6.0"
+version = "0.7.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 description = "Eight-point algorithm for essential matrix estimation"
