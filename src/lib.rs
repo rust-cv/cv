@@ -1,9 +1,9 @@
-//! This module contains functions to perform various geometric algorithms.
+//! This crate contains computational geometry algorithms for [Rust CV](https://github.com/rust-cv/).
 //!
-//! ## Triangulation of a point with a given camera transformation
+//! ## Triangulation
 //!
-//! In this problem we have a [`RelativeCameraPose`](crate::RelativeCameraPose) and two [`Bearing`].
-//! We want to find the point of intersection from the two cameras in camera A's space.
+//! In this problem we know the relative pose of cameras and the [`Bearing`] of the same feature
+//! observed in each camera frame. We want to find the point of intersection from all cameras.
 //!
 //! - `p` the point we are trying to triangulate
 //! - `a` the normalized keypoint on camera A
@@ -25,120 +25,28 @@
 //!       /
 //!      O
 //! ```
-//!
-//! //! Solutions to this problem:
-//!
-//! * [`make_one_pose_dlt_triangulator`]
-//!
-//! ## Translation along a bearing given one prior depth
-//!
-//! This problem consumes a direction to translate along, a `from` [`CameraPoint`],
-//! and a `to` [`Bearing`] coordinate.
-//!
-//! - `t` the `translation` bearing vector
-//! - `a` the `from` point
-//! - `b` the `to` epipolar point
-//! - `O` the optical center
-//! - `@` the virtual image plane
-//!
-//! ```text
-//!      t<---a
-//!          /
-//!         /
-//! @@@b@@@/@@@@@
-//!    |  /
-//!    | /
-//!    |/
-//!    O
-//! ```
-//!
-//! The `from` coordinate is the relative 3d coordinate in camera space before translation.
-//!
-//! The `to` coordinate is just a normalized keypoint that we wish to find the optimal translation
-//! to reproject as close as possible to.
-//!
-//! The `translation` is a vector which will be scaled (multiplied) by the return value to
-//! get the actual 3d translation to move from `from` to `to` in 3d space.
-//!
-//! Solutions to this problem:
-//!
-//! * [`triangulate_bearing_intersection`]
-//! * [`triangulate_bearing_reproject`]
-//!
-//! It is recommended to use [`triangulate_bearing_reproject`], as it is incredibly cheap to compute.
-//!
-//! ## Triangulation from variable number of camera poses
-//!
-//! In this problem you have several camera poses and bearing pairs, where each bearing is an observation
-//! on the image produced from the corresponding camera pose. The desired output is a triangulated point.
-//!
-//! * [`triangulate_least_square_reprojection_error`]
 
 #![no_std]
 
-use cv_core::nalgebra::{zero, Matrix3x4, Matrix4, RowVector4, Vector3};
+use cv_core::nalgebra::{zero, Matrix3x4, Matrix4, RowVector4};
 use cv_core::{
-    Bearing, CameraPoint, CameraPose, RelativeCameraPose, TriangulatorObservances,
-    TriangulatorProject, TriangulatorRelative, WorldPoint,
+    Bearing, CameraPoint, CameraToCamera, Pose, TriangulatorObservances, TriangulatorRelative,
+    WorldPoint, WorldToCamera,
 };
-
-/// This solves the translation along a bearing triangulation assuming that there is
-/// a perfect intersection.
-#[derive(Copy, Clone, Debug)]
-pub struct BearingIntersectionTriangulator;
-
-impl TriangulatorProject for BearingIntersectionTriangulator {
-    fn triangulate_project<B: Bearing>(
-        &self,
-        from: CameraPoint,
-        onto: B,
-        translation: Vector3<f64>,
-    ) -> Option<f64> {
-        let from = from.0.coords;
-        let to = onto.bearing_unnormalized();
-
-        let hv = to.cross(&-from);
-        let h = hv.norm();
-        let kv = to.cross(&translation);
-        let k = kv.norm();
-
-        let l = h / k;
-
-        Some(if hv.dot(&kv) > 0.0 { l } else { -l })
-    }
-}
-
-/// This solves the translation along a bearing triangulation by minimizing the reprojection error.
-#[derive(Copy, Clone, Debug)]
-pub struct BearingMinimizeReprojectionErrorTriangulator;
-
-impl TriangulatorProject for BearingMinimizeReprojectionErrorTriangulator {
-    fn triangulate_project<B: Bearing>(
-        &self,
-        from: CameraPoint,
-        onto: B,
-        translation: Vector3<f64>,
-    ) -> Option<f64> {
-        let a = onto.bearing_unnormalized();
-        let b = from;
-        let t = translation;
-        Some((a.y * b.x - a.x * b.y) / (a.x * t.y - a.y * t.x))
-    }
-}
 
 /// This solves triangulation problems by simply minimizing the squared reprojection error of all observances.
 ///
 /// This is a quick triangulator to execute and is fairly robust.
 #[derive(Copy, Clone, Debug)]
-pub struct MinimalSquareReprojectionErrorTriangulator {
+pub struct MinSquaredTriangulator {
     epsilon: f64,
     max_iterations: usize,
 }
 
-impl MinimalSquareReprojectionErrorTriangulator {
-    /// Creates a `MinimalSquareReprojectionErrorTriangulator` with default values.
+impl MinSquaredTriangulator {
+    /// Creates a `MinSquaredTriangulator` with default values.
     ///
-    /// Same as [`MinimalSquareReprojectionErrorTriangulator::default`].
+    /// Same as calling [`Default::default`].
     pub fn new() -> Self {
         Default::default()
     }
@@ -161,7 +69,7 @@ impl MinimalSquareReprojectionErrorTriangulator {
     }
 }
 
-impl Default for MinimalSquareReprojectionErrorTriangulator {
+impl Default for MinSquaredTriangulator {
     fn default() -> Self {
         Self {
             epsilon: 1e-9,
@@ -170,10 +78,10 @@ impl Default for MinimalSquareReprojectionErrorTriangulator {
     }
 }
 
-impl TriangulatorObservances for MinimalSquareReprojectionErrorTriangulator {
+impl TriangulatorObservances for MinSquaredTriangulator {
     fn triangulate_observances<B: Bearing>(
         &self,
-        pairs: impl IntoIterator<Item = (CameraPose, B)>,
+        pairs: impl IntoIterator<Item = (WorldToCamera, B)>,
     ) -> Option<WorldPoint> {
         let mut a: Matrix4<f64> = zero();
 
@@ -181,8 +89,8 @@ impl TriangulatorObservances for MinimalSquareReprojectionErrorTriangulator {
             // Get the normalized bearing.
             let bearing = bearing.bearing().into_inner();
             // Get the pose as a 3x4 matrix.
-            let rot = pose.rotation.matrix();
-            let trans = pose.translation.vector;
+            let rot = pose.0.rotation.matrix();
+            let trans = pose.0.translation.vector;
             let pose = Matrix3x4::<f64>::from_columns(&[
                 rot.column(0),
                 rot.column(1),
@@ -201,8 +109,7 @@ impl TriangulatorObservances for MinimalSquareReprojectionErrorTriangulator {
             .enumerate()
             .min_by_key(|&(_, &n)| float_ord::FloatOrd(n))
             .map(|(ix, _)| se.eigenvectors.column(ix).into_owned())
-            .map(|h| (h.xyz() / h.w).into())
-            .map(WorldPoint)
+            .map(Into::into)
     }
 }
 
@@ -216,7 +123,7 @@ pub struct RelativeDltTriangulator {
 impl RelativeDltTriangulator {
     /// Creates a `RelativeDltTriangulator` with default values.
     ///
-    /// Same as [`RelativeDltTriangulator::default`].
+    /// Same as calling [`Default::default`].
     pub fn new() -> Self {
         Default::default()
     }
@@ -251,11 +158,11 @@ impl Default for RelativeDltTriangulator {
 impl TriangulatorRelative for RelativeDltTriangulator {
     fn triangulate_relative<A: Bearing, B: Bearing>(
         &self,
-        relative_pose: RelativeCameraPose,
+        relative_pose: CameraToCamera,
         a: A,
         b: B,
     ) -> Option<CameraPoint> {
-        let pose = relative_pose.to_homogeneous();
+        let pose = relative_pose.homogeneous();
         let a = a.bearing_unnormalized();
         let b = b.bearing_unnormalized();
         let mut design = Matrix4::zeros();
@@ -281,7 +188,6 @@ impl TriangulatorRelative for RelativeDltTriangulator {
             .enumerate()
             .min_by_key(|&(_, &n)| float_ord::FloatOrd(n))
             .map(|(ix, _)| svd.v_t.unwrap().row(ix).transpose().into_owned())
-            .map(|h| (h.xyz() / h.w).into())
-            .map(CameraPoint)
+            .map(Into::into)
     }
 }
