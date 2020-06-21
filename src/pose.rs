@@ -184,13 +184,13 @@ impl<P> Model<FeatureWorldMatch<P>> for WorldToCamera
 where
     P: Bearing,
 {
-    fn residual(&self, data: &FeatureWorldMatch<P>) -> f32 {
+    fn residual(&self, data: &FeatureWorldMatch<P>) -> f64 {
         let WorldToCamera(iso) = *self;
         let FeatureWorldMatch(feature, world) = data;
 
         let new_bearing = (iso.to_homogeneous() * world.0).xyz().normalize();
         let bearing_vector = feature.bearing();
-        (1.0 - bearing_vector.dot(&new_bearing)) as f32
+        1.0 - bearing_vector.dot(&new_bearing)
     }
 }
 

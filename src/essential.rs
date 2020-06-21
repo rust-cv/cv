@@ -301,7 +301,7 @@ impl<P> Model<FeatureMatch<P>> for EssentialMatrix
 where
     P: Bearing,
 {
-    fn residual(&self, data: &FeatureMatch<P>) -> f32 {
+    fn residual(&self, data: &FeatureMatch<P>) -> f64 {
         let Self(mat) = *self;
         let FeatureMatch(a, b) = data;
         let normalized = |p: &P| {
@@ -310,7 +310,7 @@ where
         };
 
         // The result is a 1x1 matrix which we must get element 0 from.
-        Float::abs((normalized(b).transpose() * mat * normalized(a))[0] as f32)
+        Float::abs((normalized(b).transpose() * mat * normalized(a))[0])
     }
 }
 
