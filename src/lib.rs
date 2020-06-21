@@ -21,9 +21,7 @@
 #![no_std]
 #![warn(missing_docs)]
 
-extern crate alloc;
-
-use alloc::vec::Vec;
+use arrayvec::ArrayVec;
 use num_traits::Float;
 
 // Copyright (c) 2018 Michael Persson
@@ -34,11 +32,10 @@ use num_traits::Float;
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use cv_core::nalgebra::{IsometryMatrix3, Matrix3, Rotation3, Translation, Vector3};
+use cv_core::nalgebra::{Matrix3, Rotation3, Vector3};
 use cv_core::sample_consensus::Estimator;
-use cv_core::{Bearing, FeatureWorldMatch, WorldPoint, WorldPose};
+use cv_core::{Bearing, FeatureWorldMatch, Pose, Projective, WorldToCamera};
 
-type Iso3 = IsometryMatrix3<f64>;
 type Mat3 = Matrix3<f64>;
 type Vec3 = Vector3<f64>;
 
@@ -64,6 +61,8 @@ pub struct LambdaTwist {
     pub gauss_newton_iterations: usize,
     /// This determines the number of iterations to spend converging on a proper rotation matrix.
     pub rotation_convergence_iterations: usize,
+    /// The epsilon on which convergence is considered achieved for converging on a proper rotation.
+    pub rotation_convergence_epsilon: f64,
 }
 
 impl LambdaTwist {
@@ -87,6 +86,232 @@ impl LambdaTwist {
             ..self
         }
     }
+
+    /// Sets the [`LambdaTwist::rotation_convergence_epsilon`].
+    pub fn rotation_convergence_epsilon(self, rotation_convergence_epsilon: f64) -> Self {
+        Self {
+            rotation_convergence_epsilon,
+            ..self
+        }
+    }
+
+    /// Compute the pose of a camera using three 3D-to-2D correspondences.
+    /// Implementation of the paper
+    /// "Lambda Twist: An Accurate Fast Robust Perspective Three Point (P3P) Solver".
+    /// Persson, M. and Nordberg, K. ECCV 2018.
+    ///
+    /// `let poses = compute_poses_nordberg(world_3d_points, bearing_vectors);`
+    ///
+    /// The 3x3 matrix `world_3d_points` contains one 3D point per column.
+    /// The 3x3 matrix `bearing_vectors` contains one homogeneous image coordinate per column.
+    fn compute_poses_nordberg<P: Bearing>(
+        &self,
+        samples: [FeatureWorldMatch<P>; 3],
+    ) -> ArrayVec<[WorldToCamera; 4]> {
+        // Extraction of 3D points vectors
+        let to_wp = |&FeatureWorldMatch(_, point)| point.point();
+        let wps = [
+            if let Some(p) = to_wp(&samples[0]) {
+                p
+            } else {
+                return ArrayVec::new();
+            },
+            if let Some(p) = to_wp(&samples[1]) {
+                p
+            } else {
+                return ArrayVec::new();
+            },
+            if let Some(p) = to_wp(&samples[2]) {
+                p
+            } else {
+                return ArrayVec::new();
+            },
+        ];
+        let to_bearing = |FeatureWorldMatch(point, _): &FeatureWorldMatch<P>| point.bearing();
+        let bearings = [
+            to_bearing(&samples[0]),
+            to_bearing(&samples[1]),
+            to_bearing(&samples[2]),
+        ];
+
+        // Compute vectors between 3D points.
+        let d12 = wps[0] - wps[1];
+        let d13 = wps[0] - wps[2];
+        let d23 = wps[1] - wps[2];
+        let d12xd13 = d12.cross(&d13);
+
+        // "a12" is the squared distance between 3D points 1 and 2.
+        let a12 = d12.norm_squared();
+        let a13 = d13.norm_squared();
+        let a23 = d23.norm_squared();
+
+        // "c31" is the cosine between bearing vectors 3 and 1.
+        let c12 = bearings[0].dot(&bearings[1]);
+        let c23 = bearings[1].dot(&bearings[2]);
+        let c31 = bearings[2].dot(&bearings[0]);
+        let blob = c12 * c23 * c31 - 1.0;
+
+        // "s31" is the sine between bearing vectors 3 and 1.
+        let s12_sqr = 1.0 - c12 * c12;
+        let s23_sqr = 1.0 - c23 * c23;
+        let s31_sqr = 1.0 - c31 * c31;
+
+        // Other useful constants.
+        let b12 = -2.0 * c12;
+        let b13 = -2.0 * c31;
+        let b23 = -2.0 * c23;
+
+        // "p[0-3]" here are the four coefficients of the cubic polynomial.
+        // They are refered to as "c[0-3]" in equation (10) of the paper.
+        let p3 = a13 * (a23 * s31_sqr - a13 * s23_sqr);
+        let p2 = 2.0 * blob * a23 * a13
+            + a13 * (2.0 * a12 + a13) * s23_sqr
+            + a23 * (a23 - a12) * s31_sqr;
+        let p1 = a23 * (a13 - a23) * s12_sqr
+            - a12 * a12 * s23_sqr
+            - 2.0 * a12 * (blob * a23 + a13 * s23_sqr);
+        let p0 = a12 * (a12 * s23_sqr - a23 * s12_sqr);
+
+        // Get sharpest real root of above.
+        let g = cube_root(p2 / p3, p1 / p3, p0 / p3);
+
+        // Build the matrix called D0 in the paper.
+        let d0_00 = a23 * (1.0 - g);
+        let d0_01 = -(a23 * c12);
+        let d0_02 = a23 * c31 * g;
+        let d0_11 = a23 - a12 + a13 * g;
+        let d0_12 = -c23 * (a13 * g - a12);
+        let d0_22 = g * (a13 - a23) - a12;
+        #[rustfmt::skip]
+    let d0_mat = Mat3::new(
+        d0_00, d0_01, d0_02,
+        d0_01, d0_11, d0_12,
+        d0_02, d0_12, d0_22,
+    );
+
+        // Get sorted eigenvectors and eigenvalues of the singular matrix D0.
+        let (eig_vectors, eig_values) = eigen_decomposition_singular(d0_mat);
+
+        // Initialize the possible depths triplets for the three image points.
+        // There might be between 0 and 4 possible solutions.
+        let mut lambdas: ArrayVec<[Vec3; 4]> = ArrayVec::new();
+
+        // Solve the four possible solutions for the depths values.
+        let eigen_ratio = (0.0_f64.max(-eig_values[1] / eig_values[0])).sqrt();
+
+        // Helper closure to compute quadratic coefficients.
+        // CF equation (15) in paper.
+        let quadratic_coefficients = |ratio: f64| {
+            let w2 = 1.0 / (ratio * eig_vectors.m12 - eig_vectors.m11);
+            let w0 = w2 * (eig_vectors.m21 - ratio * eig_vectors.m22);
+            let w1 = w2 * (eig_vectors.m31 - ratio * eig_vectors.m32);
+
+            let a = 1.0 / ((a13 - a12) * w1 * w1 - a12 * b13 * w1 - a12);
+            let b = a * (a13 * b12 * w1 - a12 * b13 * w0 - 2.0 * w0 * w1 * (a12 - a13));
+            let c = a * ((a13 - a12) * w0 * w0 + a13 * b12 * w0 + a13);
+            (w0, w1, b, c)
+        };
+
+        // Helper closure to estimate possible depths values.
+        // CF equation (16) in paper.
+        let possible_depths = |tau: f64, w0: f64, w1: f64| {
+            let d = a23 / (tau * (b23 + tau) + 1.0);
+            if d > 0.0 {
+                let l2 = d.sqrt();
+                let l3 = tau * l2;
+                let l1 = w0 * l2 + w1 * l3;
+                (true, l1, l2, l3)
+            } else {
+                (false, 0.0, 0.0, 0.0)
+            }
+        };
+
+        // Helper closure pushing one potential solution.
+        let mut push_solution = |tau: f64, w0: f64, w1: f64| {
+            if tau > 0.0 {
+                let (valid, l1, l2, l3) = possible_depths(tau, w0, w1);
+                if valid && l1 >= 0.0 {
+                    lambdas.push(Vec3::new(l1, l2, l3));
+                }
+            }
+        };
+
+        // Helper closure pushing two potential solutions
+        // corresponding to a given eigen value ratio.
+        let mut push_solutions_to_lambdas = |ratio: f64| {
+            let (w0, w1, b, c) = quadratic_coefficients(ratio);
+            if b * b - 4.0 * c >= 0.0 {
+                let (_, tau1, tau2) = root2real(b, c);
+                push_solution(tau1, w0, w1);
+                push_solution(tau2, w0, w1);
+            }
+        };
+
+        push_solutions_to_lambdas(eigen_ratio);
+        push_solutions_to_lambdas(-eigen_ratio);
+
+        // Recover the rotation R and translation t such that
+        // lambda_i * y_i = R * x_i + t
+        // TODO: replace by the quaternion version.
+        // According to the author, it works slightly better.
+        #[rustfmt::skip]
+    let x_mat = Mat3::new(
+        d12[0], d13[0], d12xd13[0],
+        d12[1], d13[1], d12xd13[1],
+        d12[2], d13[2], d12xd13[2],
+    );
+        let x_mat = if let Some(x_mat) = x_mat.try_inverse() {
+            x_mat
+        } else {
+            return ArrayVec::new();
+        };
+
+        lambdas
+            .iter()
+            .map(|&lambda| {
+                // Refine estimated depth values.
+                let lambda_refined = gauss_newton_refine_lambda(
+                    lambda,
+                    self.gauss_newton_iterations,
+                    a12,
+                    a13,
+                    a23,
+                    b12,
+                    b13,
+                    b23,
+                );
+
+                let ry1 = lambda_refined[0] * *bearings[0];
+                let ry2 = lambda_refined[1] * *bearings[1];
+                let ry3 = lambda_refined[2] * *bearings[2];
+
+                let yd1 = ry1 - ry2;
+                let yd2 = ry1 - ry3;
+                let yd1xd2 = yd1.cross(&yd2);
+
+                #[rustfmt::skip]
+            let y_mat = Mat3::new(
+                yd1[0], yd2[0], yd1xd2[0],
+                yd1[1], yd2[1], yd1xd2[1],
+                yd1[2], yd2[2], yd1xd2[2],
+            );
+
+                let rot = y_mat * x_mat;
+                (rot, ry1 - rot * wps[0].coords)
+            })
+            .map(|(rot, trans)| {
+                WorldToCamera::from_parts(
+                    trans,
+                    Rotation3::from_matrix_eps(
+                        &rot,
+                        self.rotation_convergence_epsilon,
+                        self.rotation_convergence_iterations,
+                        Rotation3::identity(),
+                    ),
+                )
+            })
+            .collect()
+    }
 }
 
 impl Default for LambdaTwist {
@@ -94,6 +319,7 @@ impl Default for LambdaTwist {
         Self {
             gauss_newton_iterations: 5,
             rotation_convergence_iterations: 100,
+            rotation_convergence_epsilon: 1e-12,
         }
     }
 }
@@ -102,25 +328,21 @@ impl<P> Estimator<FeatureWorldMatch<P>> for LambdaTwist
 where
     P: Bearing,
 {
-    type Model = WorldPose;
-    type ModelIter = Vec<WorldPose>;
+    type Model = WorldToCamera;
+    type ModelIter = ArrayVec<[WorldToCamera; 4]>;
     const MIN_SAMPLES: usize = 3;
     fn estimate<I>(&self, mut data: I) -> Self::ModelIter
     where
         I: Iterator<Item = FeatureWorldMatch<P>> + Clone,
     {
-        compute_poses_nordberg(
-            self.gauss_newton_iterations,
-            self.rotation_convergence_iterations,
-            [
-                data.next()
-                    .expect("must provide 3 samples at minimum to LambdaTwist"),
-                data.next()
-                    .expect("must provide 3 samples at minimum to LambdaTwist"),
-                data.next()
-                    .expect("must provide 3 samples at minimum to LambdaTwist"),
-            ],
-        )
+        self.compute_poses_nordberg([
+            data.next()
+                .expect("must provide 3 samples at minimum to LambdaTwist"),
+            data.next()
+                .expect("must provide 3 samples at minimum to LambdaTwist"),
+            data.next()
+                .expect("must provide 3 samples at minimum to LambdaTwist"),
+        ])
     }
 }
 
@@ -329,199 +551,4 @@ fn eigen_decomposition_singular(x: Mat3) -> (Mat3, Vec3) {
     );
 
     (eigenvectors, eigenvalues)
-}
-
-/// Compute the pose of a camera using three 3D-to-2D correspondences.
-/// Implementation of the paper
-/// "Lambda Twist: An Accurate Fast Robust Perspective Three Point (P3P) Solver".
-/// Persson, M. and Nordberg, K. ECCV 2018.
-///
-/// `let poses = compute_poses_nordberg(world_3d_points, bearing_vectors);`
-///
-/// The 3x3 matrix `world_3d_points` contains one 3D point per column.
-/// The 3x3 matrix `bearing_vectors` contains one homogeneous image coordinate per column.
-fn compute_poses_nordberg<P: Bearing>(
-    iterations: usize,
-    rotation_convergence_iterations: usize,
-    samples: [FeatureWorldMatch<P>; 3],
-) -> Vec<WorldPose> {
-    // Extraction of 3D points vectors
-    let to_wp = |&FeatureWorldMatch(_, WorldPoint(point))| point;
-    let wps = [to_wp(&samples[0]), to_wp(&samples[1]), to_wp(&samples[2])];
-    let to_bearing = |FeatureWorldMatch(point, _): &FeatureWorldMatch<P>| point.bearing();
-    let bearings = [
-        to_bearing(&samples[0]),
-        to_bearing(&samples[1]),
-        to_bearing(&samples[2]),
-    ];
-
-    // Compute vectors between 3D points.
-    let d12 = wps[0] - wps[1];
-    let d13 = wps[0] - wps[2];
-    let d23 = wps[1] - wps[2];
-    let d12xd13 = d12.cross(&d13);
-
-    // "a12" is the squared distance between 3D points 1 and 2.
-    let a12 = d12.norm_squared();
-    let a13 = d13.norm_squared();
-    let a23 = d23.norm_squared();
-
-    // "c31" is the cosine between bearing vectors 3 and 1.
-    let c12 = bearings[0].dot(&bearings[1]);
-    let c23 = bearings[1].dot(&bearings[2]);
-    let c31 = bearings[2].dot(&bearings[0]);
-    let blob = c12 * c23 * c31 - 1.0;
-
-    // "s31" is the sine between bearing vectors 3 and 1.
-    let s12_sqr = 1.0 - c12 * c12;
-    let s23_sqr = 1.0 - c23 * c23;
-    let s31_sqr = 1.0 - c31 * c31;
-
-    // Other useful constants.
-    let b12 = -2.0 * c12;
-    let b13 = -2.0 * c31;
-    let b23 = -2.0 * c23;
-
-    // "p[0-3]" here are the four coefficients of the cubic polynomial.
-    // They are refered to as "c[0-3]" in equation (10) of the paper.
-    let p3 = a13 * (a23 * s31_sqr - a13 * s23_sqr);
-    let p2 =
-        2.0 * blob * a23 * a13 + a13 * (2.0 * a12 + a13) * s23_sqr + a23 * (a23 - a12) * s31_sqr;
-    let p1 = a23 * (a13 - a23) * s12_sqr
-        - a12 * a12 * s23_sqr
-        - 2.0 * a12 * (blob * a23 + a13 * s23_sqr);
-    let p0 = a12 * (a12 * s23_sqr - a23 * s12_sqr);
-
-    // Get sharpest real root of above.
-    let g = cube_root(p2 / p3, p1 / p3, p0 / p3);
-
-    // Build the matrix called D0 in the paper.
-    let d0_00 = a23 * (1.0 - g);
-    let d0_01 = -(a23 * c12);
-    let d0_02 = a23 * c31 * g;
-    let d0_11 = a23 - a12 + a13 * g;
-    let d0_12 = -c23 * (a13 * g - a12);
-    let d0_22 = g * (a13 - a23) - a12;
-    #[rustfmt::skip]
-    let d0_mat = Mat3::new(
-        d0_00, d0_01, d0_02,
-        d0_01, d0_11, d0_12,
-        d0_02, d0_12, d0_22,
-    );
-
-    // Get sorted eigenvectors and eigenvalues of the singular matrix D0.
-    let (eig_vectors, eig_values) = eigen_decomposition_singular(d0_mat);
-
-    // Initialize the possible depths triplets for the three image points.
-    // There might be between 0 and 4 possible solutions.
-    let mut lambdas = Vec::with_capacity(4);
-
-    // Solve the four possible solutions for the depths values.
-    let eigen_ratio = (0.0_f64.max(-eig_values[1] / eig_values[0])).sqrt();
-
-    // Helper closure to compute quadratic coefficients.
-    // CF equation (15) in paper.
-    let quadratic_coefficients = |ratio: f64| {
-        let w2 = 1.0 / (ratio * eig_vectors.m12 - eig_vectors.m11);
-        let w0 = w2 * (eig_vectors.m21 - ratio * eig_vectors.m22);
-        let w1 = w2 * (eig_vectors.m31 - ratio * eig_vectors.m32);
-
-        let a = 1.0 / ((a13 - a12) * w1 * w1 - a12 * b13 * w1 - a12);
-        let b = a * (a13 * b12 * w1 - a12 * b13 * w0 - 2.0 * w0 * w1 * (a12 - a13));
-        let c = a * ((a13 - a12) * w0 * w0 + a13 * b12 * w0 + a13);
-        (w0, w1, b, c)
-    };
-
-    // Helper closure to estimate possible depths values.
-    // CF equation (16) in paper.
-    let possible_depths = |tau: f64, w0: f64, w1: f64| {
-        let d = a23 / (tau * (b23 + tau) + 1.0);
-        if d > 0.0 {
-            let l2 = d.sqrt();
-            let l3 = tau * l2;
-            let l1 = w0 * l2 + w1 * l3;
-            (true, l1, l2, l3)
-        } else {
-            (false, 0.0, 0.0, 0.0)
-        }
-    };
-
-    // Helper closure pushing one potential solution.
-    let mut push_solution = |tau: f64, w0: f64, w1: f64| {
-        if tau > 0.0 {
-            let (valid, l1, l2, l3) = possible_depths(tau, w0, w1);
-            if valid && l1 >= 0.0 {
-                lambdas.push(Vec3::new(l1, l2, l3));
-            }
-        }
-    };
-
-    // Helper closure pushing two potential solutions
-    // corresponding to a given eigen value ratio.
-    let mut push_solutions_to_lambdas = |ratio: f64| {
-        let (w0, w1, b, c) = quadratic_coefficients(ratio);
-        if b * b - 4.0 * c >= 0.0 {
-            let (_, tau1, tau2) = root2real(b, c);
-            push_solution(tau1, w0, w1);
-            push_solution(tau2, w0, w1);
-        }
-    };
-
-    push_solutions_to_lambdas(eigen_ratio);
-    push_solutions_to_lambdas(-eigen_ratio);
-
-    // Recover the rotation R and translation t such that
-    // lambda_i * y_i = R * x_i + t
-    // TODO: replace by the quaternion version.
-    // According to the author, it works slightly better.
-    #[rustfmt::skip]
-    let x_mat = Mat3::new(
-        d12[0], d13[0], d12xd13[0],
-        d12[1], d13[1], d12xd13[1],
-        d12[2], d13[2], d12xd13[2],
-    );
-    let x_mat = if let Some(x_mat) = x_mat.try_inverse() {
-        x_mat
-    } else {
-        return Vec::new();
-    };
-
-    lambdas
-        .iter()
-        .map(|&lambda| {
-            // Refine estimated depth values.
-            let lambda_refined =
-                gauss_newton_refine_lambda(lambda, iterations, a12, a13, a23, b12, b13, b23);
-
-            let ry1 = lambda_refined[0] * *bearings[0];
-            let ry2 = lambda_refined[1] * *bearings[1];
-            let ry3 = lambda_refined[2] * *bearings[2];
-
-            let yd1 = ry1 - ry2;
-            let yd2 = ry1 - ry3;
-            let yd1xd2 = yd1.cross(&yd2);
-
-            #[rustfmt::skip]
-            let y_mat = Mat3::new(
-                yd1[0], yd2[0], yd1xd2[0],
-                yd1[1], yd2[1], yd1xd2[1],
-                yd1[2], yd2[2], yd1xd2[2],
-            );
-
-            let rot = y_mat * x_mat;
-            (rot, ry1 - rot * wps[0].coords)
-        })
-        .map(|(rot, trans)| {
-            let translation = Translation::from(trans);
-            WorldPose(Iso3::from_parts(
-                translation,
-                Rotation3::from_matrix_eps(
-                    &rot,
-                    1e-12,
-                    rotation_convergence_iterations,
-                    Rotation3::identity(),
-                ),
-            ))
-        })
-        .collect()
 }
