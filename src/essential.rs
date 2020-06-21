@@ -107,14 +107,15 @@ impl EssentialMatrix {
     /// A `max_iterations` of `0` may execute indefinitely and is not recommended.
     ///
     /// ```
-    /// # use cv_core::CameraToCamera;
-    /// # use cv_core::nalgebra::{IsometryMatrix3, Rotation3, Vector3};
+    /// use cv_core::CameraToCamera;
+    /// use cv_core::nalgebra::{IsometryMatrix3, Rotation3, Vector3};
+    /// use cv_pinhole::EssentialMatrix;
     /// let pose = CameraToCamera(IsometryMatrix3::from_parts(
     ///     Vector3::new(-0.8, 0.4, 0.5).into(),
     ///     Rotation3::from_euler_angles(0.2, 0.3, 0.4),
     /// ));
     /// // Get the possible poses for the essential matrix created from `pose`.
-    /// let (rot_a, rot_b, t) = pose.essential_matrix().possible_rotations_unscaled_translation(1e-6, 50).unwrap();
+    /// let (rot_a, rot_b, t) = EssentialMatrix::from(pose).possible_rotations_unscaled_translation(1e-6, 50).unwrap();
     /// // Compute residual rotations.
     /// let a_res = rot_a.rotation_to(&pose.0.rotation).angle();
     /// let b_res = rot_b.rotation_to(&pose.0.rotation).angle();
@@ -198,14 +199,15 @@ impl EssentialMatrix {
     /// This returns only the two rotations that are possible.
     ///
     /// ```
-    /// # use cv_core::CameraToCamera;
-    /// # use cv_core::nalgebra::{IsometryMatrix3, Rotation3, Vector3};
+    /// use cv_core::CameraToCamera;
+    /// use cv_core::nalgebra::{IsometryMatrix3, Rotation3, Vector3};
+    /// use cv_pinhole::EssentialMatrix;
     /// let pose = CameraToCamera(IsometryMatrix3::from_parts(
     ///     Vector3::new(-0.8, 0.4, 0.5).into(),
     ///     Rotation3::from_euler_angles(0.2, 0.3, 0.4),
     /// ));
     /// // Get the possible rotations for the essential matrix created from `pose`.
-    /// let rbs = pose.essential_matrix().possible_rotations(1e-6, 50).unwrap();
+    /// let rbs = EssentialMatrix::from(pose).possible_rotations(1e-6, 50).unwrap();
     /// let one_correct = rbs.iter().any(|&rot| {
     ///     let angle_residual = rot.rotation_to(&pose.0.rotation).angle();
     ///     angle_residual < 1e-4
@@ -226,14 +228,15 @@ impl EssentialMatrix {
     /// This returns the rotations and their corresponding post-rotation translation bearing.
     ///
     /// ```
-    /// # use cv_core::CameraToCamera;
-    /// # use cv_core::nalgebra::{IsometryMatrix3, Rotation3, Vector3};
+    /// use cv_core::CameraToCamera;
+    /// use cv_core::nalgebra::{IsometryMatrix3, Rotation3, Vector3};
+    /// use cv_pinhole::EssentialMatrix;
     /// let pose = CameraToCamera(IsometryMatrix3::from_parts(
     ///     Vector3::new(-0.8, 0.4, 0.5).into(),
     ///     Rotation3::from_euler_angles(0.2, 0.3, 0.4),
     /// ));
     /// // Get the possible poses for the essential matrix created from `pose`.
-    /// let rbs = pose.essential_matrix().possible_unscaled_poses(1e-6, 50).unwrap();
+    /// let rbs = EssentialMatrix::from(pose).possible_unscaled_poses(1e-6, 50).unwrap();
     /// let one_correct = rbs.iter().any(|&upose| {
     ///     let angle_residual =
     ///         upose.0.rotation.rotation_to(&pose.0.rotation).angle();
@@ -459,13 +462,10 @@ impl<'a> PoseSolver<'a> {
     ///
     /// The `alloc` feature must be enabled to use this method.
     #[cfg(feature = "alloc")]
-    pub fn solve_unscaled_inliers<P>(
+    pub fn solve_unscaled_inliers(
         &self,
-        correspondences: impl Iterator<Item = FeatureMatch<P>>,
-    ) -> Option<(CameraToCamera, alloc::vec::Vec<usize>)>
-    where
-        P: Bearing + Copy,
-    {
+        correspondences: impl Iterator<Item = FeatureMatch<NormalizedKeyPoint>>,
+    ) -> Option<(CameraToCamera, alloc::vec::Vec<usize>)> {
         // Get the possible rotations and the translation
         self.essential
             .possible_unscaled_poses(self.epsilon, self.max_iterations)
@@ -483,7 +483,7 @@ impl<'a> PoseSolver<'a> {
                         0usize,
                     ),
                     |(mut ts, total), (ix, FeatureMatch(a, b))| {
-                        let trans_and_agree = |pose| {
+                        let trans_and_agree = |pose: CameraToCamera| {
                             // Put the second camera position back into the first camera's frame of reference.
                             let p = -(pose.0.rotation.inverse() * pose.0.translation.vector);
                             let a = a.virtual_image_point().coords;

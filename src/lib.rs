@@ -5,6 +5,9 @@
 
 #![no_std]
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
 mod essential;
 
 pub use essential::*;
@@ -137,9 +140,9 @@ impl CameraModel for CameraIntrinsics {
     /// converts it to a [`NormalizedKeyPoint`].
     ///
     /// ```
-    /// # use cv_core::{KeyPoint, CameraModel};
-    /// # use cv_pinhole::{NormalizedKeyPoint, CameraIntrinsics};
-    /// # use cv_core::nalgebra::{Vector2, Vector3, Point2};
+    /// use cv_core::{KeyPoint, CameraModel};
+    /// use cv_pinhole::{NormalizedKeyPoint, CameraIntrinsics};
+    /// use cv_core::nalgebra::{Vector2, Vector3, Point2};
     /// let intrinsics = CameraIntrinsics {
     ///     focals: Vector2::new(800.0, 900.0),
     ///     principal_point: Point2::new(500.0, 600.0),
@@ -164,9 +167,9 @@ impl CameraModel for CameraIntrinsics {
     /// Converts a [`NormalizedKeyPoint`] back into pixel coordinates.
     ///
     /// ```
-    /// # use cv_core::{KeyPoint, CameraModel};
-    /// # use cv_pinhole::{NormalizedKeyPoint, CameraIntrinsics};
-    /// # use cv_core::nalgebra::{Vector2, Vector3, Point2};
+    /// use cv_core::{KeyPoint, CameraModel};
+    /// use cv_pinhole::{NormalizedKeyPoint, CameraIntrinsics};
+    /// use cv_core::nalgebra::{Vector2, Vector3, Point2};
     /// let intrinsics = CameraIntrinsics {
     ///     focals: Vector2::new(800.0, 900.0),
     ///     principal_point: Point2::new(500.0, 600.0),
@@ -212,9 +215,9 @@ impl CameraModel for CameraIntrinsicsK1Distortion {
     /// converts it to a [`NormalizedKeyPoint`].
     ///
     /// ```
-    /// # use cv_core::{KeyPoint, CameraModel};
-    /// # use cv_pinhole::{NormalizedKeyPoint, CameraIntrinsics, CameraIntrinsicsK1Distortion};
-    /// # use cv_core::nalgebra::{Vector2, Vector3, Point2};
+    /// use cv_core::{KeyPoint, CameraModel};
+    /// use cv_pinhole::{NormalizedKeyPoint, CameraIntrinsics, CameraIntrinsicsK1Distortion};
+    /// use cv_core::nalgebra::{Vector2, Vector3, Point2};
     /// let intrinsics = CameraIntrinsics {
     ///     focals: Vector2::new(800.0, 900.0),
     ///     principal_point: Point2::new(500.0, 600.0),
@@ -245,9 +248,9 @@ impl CameraModel for CameraIntrinsicsK1Distortion {
     /// Converts a [`NormalizedKeyPoint`] back into pixel coordinates.
     ///
     /// ```
-    /// # use cv_core::{KeyPoint, CameraModel};
-    /// # use cv_pinhole::{NormalizedKeyPoint, CameraIntrinsics, CameraIntrinsicsK1Distortion};
-    /// # use cv_core::nalgebra::{Vector2, Vector3, Point2};
+    /// use cv_core::{KeyPoint, CameraModel};
+    /// use cv_pinhole::{NormalizedKeyPoint, CameraIntrinsics, CameraIntrinsicsK1Distortion};
+    /// use cv_core::nalgebra::{Vector2, Vector3, Point2};
     /// let intrinsics = CameraIntrinsics {
     ///     focals: Vector2::new(800.0, 900.0),
     ///     principal_point: Point2::new(500.0, 600.0),
@@ -326,9 +329,9 @@ impl CameraSpecification {
 /// perspective of camera A, and the pose will be used to transform the point into the perspective of camera B.
 ///
 /// ```
-/// # use cv_core::{CameraToCamera, CameraPoint, FeatureMatch, Pose};
-/// # use cv_core::nalgebra::{Point3, IsometryMatrix3, Vector3, Rotation3};
-/// # use cv_pinhole::NormalizedKeyPoint;
+/// use cv_core::{CameraToCamera, CameraPoint, FeatureMatch, Pose};
+/// use cv_core::nalgebra::{Point3, IsometryMatrix3, Vector3, Rotation3};
+/// use cv_pinhole::NormalizedKeyPoint;
 /// // Create an arbitrary point in the space of camera A.
 /// let point_a = CameraPoint(Point3::new(0.4, -0.25, 5.0).to_homogeneous());
 /// // Create an arbitrary relative pose between two cameras A and B.
@@ -341,7 +344,7 @@ impl CameraSpecification {
 /// let nkpb = NormalizedKeyPoint::from_camera_point(point_b).unwrap();
 ///
 /// // Create a triangulator.
-/// let triangulator = cv_geom::MinSquaredTriangulator::new();
+/// let triangulator = cv_geom::MinSquaresTriangulator::new();
 ///
 /// // Since the normalized keypoints were computed exactly, there should be no reprojection error.
 /// let errors = cv_pinhole::pose_reprojection_error(pose, FeatureMatch(nkpa, nkpb), triangulator).unwrap();
@@ -369,9 +372,9 @@ pub fn pose_reprojection_error(
 /// This is a convenience function that simply finds the average reprojection error rather than all components.
 ///
 /// ```
-/// # use cv_core::{CameraToCamera, CameraPoint, FeatureMatch, Pose};
-/// # use cv_core::nalgebra::{Point3, IsometryMatrix3, Vector3, Rotation3};
-/// # use cv_pinhole::NormalizedKeyPoint;
+/// use cv_core::{CameraToCamera, CameraPoint, FeatureMatch, Pose};
+/// use cv_core::nalgebra::{Point3, IsometryMatrix3, Vector3, Rotation3};
+/// use cv_pinhole::NormalizedKeyPoint;
 /// // Create an arbitrary point in the space of camera A.
 /// let point_a = CameraPoint(Point3::new(0.4, -0.25, 5.0).to_homogeneous());
 /// // Create an arbitrary relative pose between two cameras A and B.
@@ -384,7 +387,7 @@ pub fn pose_reprojection_error(
 /// let nkpb = NormalizedKeyPoint::from_camera_point(point_b).unwrap();
 ///
 /// // Create a triangulator.
-/// let triangulator = cv_geom::MinSquaredTriangulator::new();
+/// let triangulator = cv_geom::MinSquaresTriangulator::new();
 ///
 /// // Since the normalized keypoints were computed exactly, there should be no reprojection error.
 /// let average_error = cv_pinhole::average_pose_reprojection_error(pose, FeatureMatch(nkpa, nkpb), triangulator).unwrap();

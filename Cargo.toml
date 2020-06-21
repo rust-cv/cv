@@ -11,11 +11,14 @@ categories = ["algorithms", "computer-vision", "no-std", "science::robotics"]
 license = "MIT"
 readme = "README.md"
 
+[features]
+alloc = []
+
 [dependencies]
-cv-core = "0.13.1"
+cv-core = "0.14.0"
 derive_more = "0.99.8"
 num-traits = { version = "0.2.12", default-features = false }
 float-ord = "0.2.0"
 
 [dev-dependencies]
-cv-geom = "0.3.0"
+cv-geom = "0.5.0"
