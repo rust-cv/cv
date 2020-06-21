@@ -1,6 +1,6 @@
 [package]
 name = "lambda-twist"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["Matthieu Pizenberg <matthieu.pizenberg@gmail.com>", "Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 description = "p3p pose estimation given world points and feature bearings"
