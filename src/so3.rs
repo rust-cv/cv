@@ -67,7 +67,7 @@ impl Skew3 {
     ///
     /// If you have the rotation matrix already, please use the rotation matrix itself
     /// rather than calling this method. Calling this method will waste time converting
-    /// the [`Skew`] back into a [`Rotation3`], which is non-trivial.
+    /// the [`Skew3`] back into a [`Rotation3`], which is non-trivial.
     pub fn jacobian_input(self) -> Matrix4<f64> {
         let rotation: Rotation3<f64> = self.into();
         let matrix: Matrix3<f64> = rotation.into();

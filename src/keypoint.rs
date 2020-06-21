@@ -11,7 +11,7 @@ pub trait ImagePoint {
 /// the point location is on the image frame in pixel coordinates.
 /// This means the keypoint is neither undistorted nor normalized.
 ///
-/// For calibrated coordinates, use a type that implements [`Bearing`].
+/// For calibrated coordinates, use a type that implements [`Bearing`](crate::Bearing).
 /// This can be a type from a camera model crate (like `cv-pinhole`), or
 /// it can be the `Unit<Vector3<f64>>` type, which implements bearing.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]

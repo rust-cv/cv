@@ -50,11 +50,6 @@ use sample_consensus::Model;
 ///
 /// Where the first operation creates a pependicular vector to the epipoles on the first image
 /// and the second takes the dot product which should result in 0.
-///
-/// With a `EssentialMatrix`, you can retrieve the rotation and translation given
-/// one normalized image coordinate and one bearing that is scaled to the depth
-/// of the point relative to the current reconstruction. This kind of point can be computed
-/// using [`Pose::transform`] to convert a [`WorldPoint`](crate::WorldPoint) to a [`CameraPoint`].
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
 pub struct EssentialMatrix(pub Matrix3<f64>);
 
@@ -345,8 +340,8 @@ impl<'a> PoseSolver<'a> {
         }
     }
 
-    /// Return the [`CameraToCamera`] that transforms a [`CameraPoint`] of image
-    /// A (source of `a`) to the corresponding [`CameraPoint`] of image B (source of `b`).
+    /// Return the [`CameraToCamera`] that transforms a [`CameraPoint`](crate::CameraPoint) of image
+    /// A (source of `a`) to the corresponding [`CameraPoint`](crate::CameraPoint) of image B (source of `b`).
     /// The function takes an iterator over [`FeatureMatch`] from A to B.
     /// The translation scale is unknown of the returned pose.
     ///
