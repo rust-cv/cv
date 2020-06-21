@@ -18,6 +18,11 @@ pub trait Projective: From<Vector4<f64>> + Clone + Copy {
         Point3::from_homogeneous(self.homogeneous())
     }
 
+    /// Convert the euclidean 3d point into homogeneous coordinates.
+    fn from_point(point: Point3<f64>) -> Self {
+        point.to_homogeneous().into()
+    }
+
     /// Retrieve the normalized bearing of the coordinate.
     fn bearing(self) -> Unit<Vector3<f64>> {
         Unit::new_normalize(self.bearing_unnormalized())
