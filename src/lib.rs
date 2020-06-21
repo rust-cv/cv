@@ -39,7 +39,7 @@ use cv_core::{Bearing, FeatureWorldMatch, Pose, Projective, WorldToCamera};
 type Mat3 = Matrix3<f64>;
 type Vec3 = Vector3<f64>;
 
-/// The core P3P algorithm. Estimates potential poses of the world relative to the camera.
+/// The core P3P algorithm named Lambda Twist. Estimates up to 4 potential [`WorldToCamera`] poses.
 ///
 /// Returns 0 to 4 potential solutions to the equation:
 ///
@@ -50,9 +50,7 @@ type Vec3 = Vector3<f64>;
 ///   (also sometimes called "bearing vectors").
 /// - ![lambda_i](https://chart.googleapis.com/chart?cht=tx&chl=lambda_i) are the signed distances from the camera.
 ///
-/// The rotation and pose of the camera itself can be retrieved by converting the [`cv_core::WorldPose`] into a [`cv_core::CameraPose`].
-///
-/// This struct is marked as `#lnon_exhaustive]` to allow the backwards-compatible addition of new fields.
+/// This struct is marked as `#[non_exhaustive]` to allow the backwards-compatible addition of new fields.
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct LambdaTwist {
