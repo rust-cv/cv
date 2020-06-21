@@ -5,10 +5,10 @@
 
 #![no_std]
 
-use cv_core::nalgebra::{Matrix3, Point2, Vector2, Vector3};
+use cv_core::nalgebra::{Matrix3, Point2, Point3, Vector2, Vector3};
 use cv_core::{
-    Bearing, CameraModel, CameraPoint, FeatureMatch, ImagePoint, KeyPoint, Pose,
-    RelativeCameraPose, TriangulatorRelative,
+    Bearing, CameraModel, CameraPoint, CameraToCamera, FeatureMatch, ImagePoint, KeyPoint, Pose,
+    Projective, TriangulatorRelative,
 };
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use num_traits::Float;
@@ -23,6 +23,12 @@ use num_traits::Float;
 pub struct NormalizedKeyPoint(pub Point2<f64>);
 
 impl NormalizedKeyPoint {
+    /// Tries to convert the [`CameraPoint`] into a [`NormalizedKeyPoint`], but it may fail
+    /// in extreme conditions, in which case `None` is returned.
+    pub fn from_camera_point(point: CameraPoint) -> Option<Self> {
+        Point2::from_homogeneous(point.bearing_unnormalized()).map(Self)
+    }
+
     /// Conceptually appends a `1.0` component to the normalized keypoint to create
     /// a [`CameraPoint`] on the virtual image plane and then multiplies
     /// the point by `depth`. This `z`/`depth` component must be the depth of
@@ -33,7 +39,7 @@ impl NormalizedKeyPoint {
     /// with the vector that represents the position delta of the point from
     /// the camera.
     pub fn with_depth(self, depth: f64) -> CameraPoint {
-        CameraPoint((self.coords * depth).push(depth).into())
+        (self.coords * depth).push(depth).to_homogeneous().into()
     }
 
     /// Projects the keypoint out to the [`CameraPoint`] that is
@@ -41,16 +47,15 @@ impl NormalizedKeyPoint {
     /// `distance` is defined as the norm of the vector that represents
     /// the position delta of the point from the camera.
     pub fn with_distance(self, distance: f64) -> CameraPoint {
-        CameraPoint((distance * *self.bearing()).into())
+        (distance * *self.bearing()).to_homogeneous().into()
     }
 
-    /// Get the epipolar point as a [`CameraPoint`].
+    /// Get the virtual image point as a [`Point3`].
     ///
-    /// The epipolar point is the point that is formed on the virtual
-    /// image at a depth 1.0 in front of the camera. For that reason,
-    /// this is the exact same as calling `nkp.with_depth(1.0)`.
-    pub fn epipolar_point(self) -> CameraPoint {
-        self.with_depth(1.0)
+    /// The virtual image point is the point that is formed on the virtual
+    /// image plane at a depth 1.0 in front of the camera.
+    pub fn virtual_image_point(self) -> Point3<f64> {
+        self.coords.push(1.0).into()
     }
 }
 
@@ -61,12 +66,6 @@ impl Bearing for NormalizedKeyPoint {
 
     fn from_bearing_vector(bearing: Vector3<f64>) -> Self {
         Self((bearing.xy() / bearing.z).into())
-    }
-}
-
-impl From<CameraPoint> for NormalizedKeyPoint {
-    fn from(CameraPoint(point): CameraPoint) -> Self {
-        NormalizedKeyPoint(point.xy() / point.z)
     }
 }
 
@@ -322,25 +321,23 @@ impl CameraSpecification {
 /// The pose must transform the space of camera A into camera B. The triangulator will triangulate the 3d point from the
 /// perspective of camera A, and the pose will be used to transform the point into the perspective of camera B.
 ///
-/// You can use [`cv_core::geom::make_one_pose_dlt_triangulator`] to create the triangulator.
-///
 /// ```
-/// # use cv_core::{RelativeCameraPose, CameraPoint, FeatureMatch, Pose};
+/// # use cv_core::{CameraToCamera, CameraPoint, FeatureMatch, Pose};
 /// # use cv_core::nalgebra::{Point3, IsometryMatrix3, Vector3, Rotation3};
 /// # use cv_pinhole::NormalizedKeyPoint;
 /// // Create an arbitrary point in the space of camera A.
-/// let point_a = CameraPoint(Point3::new(0.4, -0.25, 5.0));
+/// let point_a = CameraPoint(Point3::new(0.4, -0.25, 5.0).to_homogeneous());
 /// // Create an arbitrary relative pose between two cameras A and B.
-/// let pose = RelativeCameraPose(IsometryMatrix3::from_parts(Vector3::new(0.1, 0.2, -0.5).into(), Rotation3::identity()));
+/// let pose = CameraToCamera::from_parts(Vector3::new(0.1, 0.2, -0.5), Rotation3::identity());
 /// // Transform the point in camera A to camera B.
 /// let point_b = pose.transform(point_a);
 ///
 /// // Convert the camera points to normalized image coordinates.
-/// let nkpa = NormalizedKeyPoint(point_a.xy() / point_a.z);
-/// let nkpb = NormalizedKeyPoint(point_b.xy() / point_b.z);
+/// let nkpa = NormalizedKeyPoint::from_camera_point(point_a).unwrap();
+/// let nkpb = NormalizedKeyPoint::from_camera_point(point_b).unwrap();
 ///
 /// // Create a triangulator.
-/// let triangulator = cv_geom::MinimalSquareReprojectionErrorTriangulator::new();
+/// let triangulator = cv_geom::MinSquaredTriangulator::new();
 ///
 /// // Since the normalized keypoints were computed exactly, there should be no reprojection error.
 /// let errors = cv_pinhole::pose_reprojection_error(pose, FeatureMatch(nkpa, nkpb), triangulator).unwrap();
@@ -348,17 +345,19 @@ impl CameraSpecification {
 /// assert!(average_error < 1e-6);
 /// ```
 pub fn pose_reprojection_error(
-    pose: RelativeCameraPose,
+    pose: CameraToCamera,
     m: FeatureMatch<NormalizedKeyPoint>,
     triangulator: impl TriangulatorRelative,
 ) -> Option<[Vector2<f64>; 2]> {
     let FeatureMatch(a, b) = m;
-    triangulator.triangulate_relative(pose, a, b).map(|point| {
-        let reproject_a = point.xy() / point.z;
-        let transform_b = pose.transform(point);
-        let reproject_b = transform_b.xy() / transform_b.z;
-        [a.0 - reproject_a, b.0 - reproject_b]
-    })
+    triangulator
+        .triangulate_relative(pose, a, b)
+        .and_then(|point_a| {
+            let reproject_a = NormalizedKeyPoint::from_camera_point(point_a)?;
+            let point_b = pose.transform(point_a);
+            let reproject_b = NormalizedKeyPoint::from_camera_point(point_b)?;
+            Some([a.0 - reproject_a.0, b.0 - reproject_b.0])
+        })
 }
 
 /// See [`pose_reprojection_error`].
@@ -366,29 +365,29 @@ pub fn pose_reprojection_error(
 /// This is a convenience function that simply finds the average reprojection error rather than all components.
 ///
 /// ```
-/// # use cv_core::{RelativeCameraPose, CameraPoint, FeatureMatch, Pose};
+/// # use cv_core::{CameraToCamera, CameraPoint, FeatureMatch, Pose};
 /// # use cv_core::nalgebra::{Point3, IsometryMatrix3, Vector3, Rotation3};
 /// # use cv_pinhole::NormalizedKeyPoint;
 /// // Create an arbitrary point in the space of camera A.
-/// let point_a = CameraPoint(Point3::new(0.4, -0.25, 5.0));
+/// let point_a = CameraPoint(Point3::new(0.4, -0.25, 5.0).to_homogeneous());
 /// // Create an arbitrary relative pose between two cameras A and B.
-/// let pose = RelativeCameraPose(IsometryMatrix3::from_parts(Vector3::new(0.1, 0.2, -0.5).into(), Rotation3::identity()));
+/// let pose = CameraToCamera::from_parts(Vector3::new(0.1, 0.2, -0.5), Rotation3::identity());
 /// // Transform the point in camera A to camera B.
 /// let point_b = pose.transform(point_a);
 ///
 /// // Convert the camera points to normalized image coordinates.
-/// let nkpa = NormalizedKeyPoint(point_a.xy() / point_a.z);
-/// let nkpb = NormalizedKeyPoint(point_b.xy() / point_b.z);
+/// let nkpa = NormalizedKeyPoint::from_camera_point(point_a).unwrap();
+/// let nkpb = NormalizedKeyPoint::from_camera_point(point_b).unwrap();
 ///
 /// // Create a triangulator.
-/// let triangulator = cv_geom::MinimalSquareReprojectionErrorTriangulator::new();
+/// let triangulator = cv_geom::MinSquaredTriangulator::new();
 ///
 /// // Since the normalized keypoints were computed exactly, there should be no reprojection error.
 /// let average_error = cv_pinhole::average_pose_reprojection_error(pose, FeatureMatch(nkpa, nkpb), triangulator).unwrap();
 /// assert!(average_error < 1e-6);
 /// ```
 pub fn average_pose_reprojection_error(
-    pose: RelativeCameraPose,
+    pose: CameraToCamera,
     m: FeatureMatch<NormalizedKeyPoint>,
     triangulator: impl TriangulatorRelative,
 ) -> Option<f64> {

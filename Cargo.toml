@@ -12,9 +12,9 @@ license = "MIT"
 readme = "README.md"
 
 [dependencies]
-cv-core = "0.12.0"
-derive_more = "0.99.7"
-num-traits = { version = "0.2.11", default-features = false }
+cv-core = "0.13.1"
+derive_more = "0.99.8"
+num-traits = { version = "0.2.12", default-features = false }
 
 [dev-dependencies]
-cv-geom = "0.2.0"
+cv-geom = "0.3.0"
