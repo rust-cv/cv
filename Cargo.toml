@@ -15,6 +15,7 @@ readme = "README.md"
 cv-core = "0.13.1"
 derive_more = "0.99.8"
 num-traits = { version = "0.2.12", default-features = false }
+float-ord = "0.2.0"
 
 [dev-dependencies]
 cv-geom = "0.3.0"
