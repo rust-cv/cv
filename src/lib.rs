@@ -123,6 +123,7 @@ impl TriangulatorObservances for MinSquaresTriangulator {
             .enumerate()
             .min_by_key(|&(_, &n)| float_ord::FloatOrd(n))
             .map(|(ix, _)| se.eigenvectors.column(ix).into_owned())
+            .map(|v| if v.w.is_sign_negative() { -v } else { v })
             .map(Into::into)
     }
 }
@@ -202,6 +203,7 @@ impl TriangulatorRelative for RelativeDltTriangulator {
             .enumerate()
             .min_by_key(|&(_, &n)| float_ord::FloatOrd(n))
             .map(|(ix, _)| svd.v_t.unwrap().row(ix).transpose().into_owned())
+            .map(|v| if v.w.is_sign_negative() { -v } else { v })
             .map(Into::into)
     }
 }
