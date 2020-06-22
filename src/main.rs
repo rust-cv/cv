@@ -5,7 +5,7 @@ use cv::{
     camera::pinhole::{CameraIntrinsics, CameraIntrinsicsK1Distortion},
     consensus::Arrsac,
     estimate::{EightPoint, LambdaTwist},
-    geom::MinimalSquareReprojectionErrorTriangulator,
+    geom::MinSquaresTriangulator,
 };
 
 use cv::nalgebra::{Point2, Vector2};
@@ -35,7 +35,7 @@ struct Opt {
     bundle_adjust_landmarks: usize,
     /// The threshold for ARRSAC.
     #[structopt(short, long, default_value = "0.001")]
-    arrsac_threshold: f32,
+    arrsac_threshold: f64,
     /// The threshold for AKAZE.
     #[structopt(short = "z", long, default_value = "0.001")]
     akaze_threshold: f64,
@@ -89,7 +89,7 @@ fn main() {
         Arrsac::new(opt.arrsac_threshold, Pcg64::from_seed([5; 32])),
         EightPoint::new(),
         LambdaTwist::new(),
-        MinimalSquareReprojectionErrorTriangulator::new(),
+        MinSquaresTriangulator::new(),
         Pcg64::from_seed([5; 32]),
     )
     .akaze_threshold(opt.akaze_threshold)
@@ -106,10 +106,11 @@ fn main() {
         vslam.insert_frame(feed, &image);
     }
 
-    vslam.bundle_adjust_highest_observances(opt.bundle_adjust_landmarks);
+    // vslam.bundle_adjust_highest_observances(opt.bundle_adjust_landmarks);
 
     // Export the first match
     if let Some(path) = opt.output {
         vslam.export_reconstruction_at(0, opt.minimum_observances, path);
+        // vslam.export_covisibility(Pair::new(0, 1), path);
     }
 }
