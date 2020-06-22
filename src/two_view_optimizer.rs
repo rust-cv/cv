@@ -1,15 +1,15 @@
 use cv_core::nalgebra::{
     dimension::{Dynamic, U1, U6},
     storage::Owned,
-    DVector, MatrixMN, VecStorage, Vector3, Vector6,
+    DVector, MatrixMN, VecStorage, Vector6,
 };
-use cv_core::{Bearing, FeatureMatch, Pose, RelativeCameraPose, Skew3, TriangulatorRelative};
+use cv_core::{Bearing, CameraToCamera, FeatureMatch, Pose, Projective, TriangulatorRelative};
 use levenberg_marquardt::{differentiate_numerically, LeastSquaresProblem};
 
 #[derive(Clone)]
 pub struct TwoViewOptimizer<I, T> {
     matches: I,
-    pub pose: RelativeCameraPose,
+    pub pose: CameraToCamera,
     triangulator: T,
 }
 
@@ -19,7 +19,7 @@ where
     P: Bearing,
     T: TriangulatorRelative,
 {
-    pub fn new(matches: I, pose: RelativeCameraPose, triangulator: T) -> Self {
+    pub fn new(matches: I, pose: CameraToCamera, triangulator: T) -> Self {
         Self {
             matches,
             pose,
@@ -42,19 +42,12 @@ where
 
     /// Set the stored parameters `$\vec{x}$`.
     fn set_params(&mut self, x: &Vector6<f64>) {
-        self.pose.translation.vector = x.xyz();
-        let x = x.as_slice();
-        self.pose.rotation = Skew3(Vector3::new(x[3], x[4], x[5])).into();
+        self.pose = Pose::from_se3(*x);
     }
 
     /// Get the stored parameters `$\vec{x}$`.
     fn params(&self) -> Vector6<f64> {
-        let skew: Skew3 = self.pose.rotation.into();
-        if let [x, y, z] = *skew.as_slice() {
-            self.pose.translation.vector.push(x).push(y).push(z)
-        } else {
-            unreachable!()
-        }
+        self.pose.se3()
     }
 
     /// Compute the residual vector.
@@ -67,8 +60,8 @@ where
                 self.triangulator
                     .triangulate_relative(self.pose, a, b)
                     .map(|point| {
-                        let a_hat = point.coords.normalize();
-                        let b_hat = self.pose.transform(point).coords.normalize();
+                        let a_hat = point.bearing();
+                        let b_hat = self.pose.transform(point).bearing();
 
                         1.0 - a.dot(&a_hat) + 1.0 - b.dot(&b_hat)
                     })
