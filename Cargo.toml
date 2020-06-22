@@ -16,7 +16,7 @@ float-ord = "0.2.0"
 cv-core = "0.14.0"
 cv-pinhole = { version = "0.5.0", default-features = false }
 derive_more = "0.99.8"
-num-traits = "0.2.12"
+num-traits = { version = "0.2.12", default-features = false }
 
 [dev-dependencies]
 nalgebra = "0.21.1"
