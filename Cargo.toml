@@ -1,6 +1,6 @@
 [package]
 name = "akaze"
-version = "0.5.0"
+version = "0.6.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 description = "AKAZE feature extraction algorithm for computer vision"
