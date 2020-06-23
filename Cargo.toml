@@ -1,6 +1,6 @@
 [package]
 name = "cv-geom"
-version = "0.5.1"
+version = "0.6.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 description = "Contains computational geometry algorithms used in computer vision"
