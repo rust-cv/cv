@@ -25,7 +25,7 @@ struct Opt {
     #[structopt(short, long, default_value = "64")]
     match_threshold: usize,
     /// The number of points to use in optimization.
-    #[structopt(long, default_value = "16")]
+    #[structopt(long, default_value = "32")]
     optimization_points: usize,
     /// The number of observances required to export a landmark to PLY.
     #[structopt(long, default_value = "3")]

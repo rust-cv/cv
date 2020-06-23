@@ -26,18 +26,18 @@ dependencies = [
 
 [[package]]
 name = "aho-corasick"
-version = "0.7.10"
+version = "0.7.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8716408b8bc624ed7f65d223ddb9ac2d044c0547b6fa4b0d554f3a9540496ada"
+checksum = "c259a748ac706ba73d609b73fc13469e128337f9a6b2fb3cc82d100f8dd8d511"
 dependencies = [
  "memchr",
 ]
 
 [[package]]
 name = "akaze"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1cc6977e96fa2b492a990ac648a05b46db9f64d2a205d298d9fadb31c01d18cf"
+checksum = "c6ea936b35fb74aeb3eac80debc773de77a15a65a10aba0e9625a3fa6b7867e8"
 dependencies = [
  "bitarray",
  "cv-core",
@@ -269,9 +269,9 @@ dependencies = [
 
 [[package]]
 name = "cv"
-version = "0.4.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2227dba32ee3571411ada32fc7f8733e08592ef713a40e073a71e654fe4f886c"
+checksum = "2fc3a72c90484ddc59c824bee51db98dc4ac64b7762c39e44ba8413d8c998371"
 dependencies = [
  "akaze",
  "arrsac",
@@ -288,9 +288,9 @@ dependencies = [
 
 [[package]]
 name = "cv-core"
-version = "0.14.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e5a594aee81a04d1ca99b8e351757e218da06b8cd12b955fcfc19281ecbfab5"
+checksum = "6615281229e05151670257a1dc2bcc46720fe53a533093d9c4f7e534b82a9c88"
 dependencies = [
  "derive_more",
  "nalgebra",
@@ -300,9 +300,9 @@ dependencies = [
 
 [[package]]
 name = "cv-geom"
-version = "0.5.1"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d15cf5e06d596c8a1ea2281e068f5948c869ab01baad30d6e71f35df46ae176e"
+checksum = "0bc9e52d873480aafa8a019fa39ccea2229c0f4ffba69b43d80dc05992669013"
 dependencies = [
  "cv-core",
  "float-ord",
@@ -311,6 +311,7 @@ dependencies = [
 [[package]]
 name = "cv-optimize"
 version = "0.1.0"
+source = "git+https://github.com/rust-cv/cv-optimize.git#7003a96a5a6db1c697e546b61d549a03d0cf9c43"
 dependencies = [
  "cv-core",
  "levenberg-marquardt",
@@ -319,9 +320,9 @@ dependencies = [
 
 [[package]]
 name = "cv-pinhole"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8adf18831ce71f0f2e3c74f188589dae815364c4a22cfb268c9f3f06e62401e1"
+checksum = "0e4261f8a8c5609d460875963d40a986920ede5205c7c4f8e359b5c68768e119"
 dependencies = [
  "cv-core",
  "derive_more",
@@ -352,9 +353,9 @@ dependencies = [
 
 [[package]]
 name = "eight-point"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4868012fb9fc8ef37a561e4bd2df870afb64f08efe5324f09fd34455cf2bbd9"
+checksum = "0a85a91d2d3bb66a46d19b0dd3c82aabb649942e159d968a1a23818c73916b77"
 dependencies = [
  "cv-core",
  "cv-pinhole",
@@ -541,9 +542,9 @@ dependencies = [
 
 [[package]]
 name = "lambda-twist"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59e1ae38466b193ff409112fb6e2bac3befaa6bdd2012873819f5cb62c871ac0"
+checksum = "caa1652b730f9f142d2f1fbb7de4aaa4c04ef9de1f51baab388d4821a236f0cb"
 dependencies = [
  "arrayvec",
  "cv-core",

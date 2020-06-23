@@ -15,6 +15,7 @@ use slab::Slab;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
+use levenberg_marquardt::{LeastSquaresProblem, differentiate_numerically};
 
 type Features = Vec<(NormalizedKeyPoint, BitArray<64>)>;
 
@@ -396,7 +397,7 @@ where
         info!("filter by cosine distance on {} matches", matches.len());
 
         // Filter outlier matches based on cosine distance.
-        let matches: Vec<FeatureMatch<usize>> = matches
+        let matches: Vec<FeatureMatch<usize>> = original_matches
             .iter()
             .filter_map(|m| {
                 let FeatureMatch(a, b) = match_ix_kps(m);
@@ -438,6 +439,8 @@ where
             pose,
             self.triangulator.clone(),
         ));
+        eprintln!("Jacobian algorithmic: {:?}", tvo.jacobian().unwrap().transpose());
+        eprintln!("Jacobian numeric: {:?}", differentiate_numerically(&mut tvo.clone()).unwrap().transpose());
         let pose = tvo.pose;
 
         info!(
@@ -451,7 +454,7 @@ where
         );
 
         // Filter outlier matches based on cosine distance.
-        let matches: Vec<FeatureMatch<usize>> = matches
+        let matches: Vec<FeatureMatch<usize>> = original_matches
             .iter()
             .filter_map(|m| {
                 let FeatureMatch(a, b) = match_ix_kps(m);
@@ -503,7 +506,7 @@ where
         info!("filtering matches using cosine distance and chirality");
 
         // Filter outlier matches based on cosine distance.
-        let matches: Vec<FeatureMatch<usize>> = matches
+        let matches: Vec<FeatureMatch<usize>> = original_matches
             .iter()
             .filter_map(|m| {
                 let FeatureMatch(a, b) = match_ix_kps(m);
@@ -525,6 +528,12 @@ where
             })
             .collect();
 
+        // Select a random sample of 32 points to use for optimization.
+        let opti_matches: Vec<FeatureMatch<NormalizedKeyPoint>> = matches
+            .choose_multiple(&mut *self.rng.borrow_mut(), self.optimization_points)
+            .map(match_ix_kps)
+            .collect();
+
         info!("performing Levenberg-Marquardt after filtering");
 
         let lm = LevenbergMarquardt::new();
@@ -534,6 +543,7 @@ where
             self.triangulator.clone(),
         ));
         let pose = tvo.pose;
+
 
         info!(
             "Levenberg-Marquardt terminated with reason {:?}",
