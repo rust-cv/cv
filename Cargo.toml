@@ -22,7 +22,7 @@ num-traits = { version = "0.2.12", default-features = false }
 float-ord = "0.2.0"
 
 [dev-dependencies]
-cv-geom = "0.6.0"
+cv-geom = "0.7.0"
 
 [package.metadata.docs.rs]
 all-features = true
