@@ -1,6 +1,8 @@
 use crate::{Bearing, CameraPoint, FeatureWorldMatch, Projective, Skew3, WorldPoint};
 use derive_more::{AsMut, AsRef, From, Into};
-use nalgebra::{IsometryMatrix3, Matrix4, Matrix6x4, Matrix4x6, Rotation3, Vector3, Vector4, Vector6};
+use nalgebra::{
+    IsometryMatrix3, Matrix4, Matrix4x6, Matrix6x4, Rotation3, Vector3, Vector4, Vector6,
+};
 use sample_consensus::Model;
 
 /// This trait is implemented by all the different poses in this library:
@@ -164,7 +166,8 @@ fn pose_jacobian_self<P: Pose>(
         dp_ds.row(0),
         dp_ds.row(1),
         dp_ds.row(2),
-    ]).transpose()
+    ])
+    .transpose()
 }
 
 /// This contains a world pose, which is a pose of the world relative to the camera.
