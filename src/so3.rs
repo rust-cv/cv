@@ -86,7 +86,7 @@ impl Skew3 {
     /// Note that when working with homogeneous projective coordinates, only the first three components
     /// (the bearing) are relevant, hence the resulting matrix is a [`Matrix3`].
     pub fn jacobian_self(y: Vector3<f64>) -> Matrix3<f64> {
-        (-y).cross_matrix()
+        y.cross_matrix()
     }
 }
 

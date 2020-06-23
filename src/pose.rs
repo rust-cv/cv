@@ -1,6 +1,6 @@
 use crate::{Bearing, CameraPoint, FeatureWorldMatch, Projective, Skew3, WorldPoint};
 use derive_more::{AsMut, AsRef, From, Into};
-use nalgebra::{IsometryMatrix3, Matrix4, Matrix6x4, Rotation3, Vector3, Vector4, Vector6};
+use nalgebra::{IsometryMatrix3, Matrix4, Matrix6x4, Matrix4x6, Rotation3, Vector3, Vector4, Vector6};
 use sample_consensus::Model;
 
 /// This trait is implemented by all the different poses in this library:
@@ -68,7 +68,7 @@ pub trait Pose: From<IsometryMatrix3<f64>> + Clone + Copy {
     fn transform_jacobians(
         self,
         input: Self::InputPoint,
-    ) -> (Self::OutputPoint, Matrix4<f64>, Matrix6x4<f64>) {
+    ) -> (Self::OutputPoint, Matrix4<f64>, Matrix4x6<f64>) {
         let (rotated, output) = pose_rotated_output(self, input);
         let jacobian_input = pose_jacobian_input(self);
         let jacobian_self = pose_jacobian_self(self, rotated, output);
@@ -99,7 +99,7 @@ pub trait Pose: From<IsometryMatrix3<f64>> + Clone + Copy {
     fn transform_jacobian_self(
         self,
         input: Self::InputPoint,
-    ) -> (Self::OutputPoint, Matrix6x4<f64>) {
+    ) -> (Self::OutputPoint, Matrix4x6<f64>) {
         let (rotated, output) = pose_rotated_output(self, input);
         let jacobian_self = pose_jacobian_self(self, rotated, output);
         (output.into(), jacobian_self)
@@ -144,7 +144,7 @@ fn pose_jacobian_self<P: Pose>(
     pose: P,
     rotated: Vector4<f64>,
     output: Vector4<f64>,
-) -> Matrix6x4<f64> {
+) -> Matrix4x6<f64> {
     // The translation homogeneous matrix
     //
     // This is also the jacobian of the output in respect to the rotation output.
@@ -164,7 +164,7 @@ fn pose_jacobian_self<P: Pose>(
         dp_ds.row(0),
         dp_ds.row(1),
         dp_ds.row(2),
-    ])
+    ]).transpose()
 }
 
 /// This contains a world pose, which is a pose of the world relative to the camera.
