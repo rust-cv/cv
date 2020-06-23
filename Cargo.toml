@@ -1,6 +1,6 @@
 [package]
 name = "cv-pinhole"
-version = "0.5.0"
+version = "0.6.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 description = "Pinhole camera model for comptuer vision"
@@ -16,13 +16,13 @@ default = ["alloc"]
 alloc = []
 
 [dependencies]
-cv-core = "0.14.0"
+cv-core = "0.15.0"
 derive_more = "0.99.8"
 num-traits = { version = "0.2.12", default-features = false }
 float-ord = "0.2.0"
 
 [dev-dependencies]
-cv-geom = "0.5.0"
+cv-geom = "0.6.0"
 
 [package.metadata.docs.rs]
 all-features = true
