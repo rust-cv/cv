@@ -12,7 +12,7 @@ license = "MIT"
 readme = "README.md"
 
 [features]
-default = ["alloc"]
+default = []
 alloc = []
 
 [dependencies]
