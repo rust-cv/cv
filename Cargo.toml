@@ -1,6 +1,6 @@
 [package]
 name = "akaze"
-version = "0.6.0"
+version = "0.7.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 description = "AKAZE feature extraction algorithm for computer vision"
@@ -12,7 +12,7 @@ license = "MIT"
 readme = "README.md"
 
 [dependencies]
-cv-core = "0.14.0"
+cv-core = "0.15.0"
 image = { version = "0.23.6", default-features = false }
 log = { version = "0.4.8", default-features = false }
 primal = { version = "0.3.0", default-features = false }
@@ -25,8 +25,8 @@ bitarray = "0.2.3"
 
 
 [dev-dependencies]
-eight-point = "0.7.0"
-cv-pinhole = "0.5.0"
+eight-point = "0.8.0"
+cv-pinhole = "0.6.0"
 arrsac = "0.5.0"
 space = "0.10.3"
 rand = "0.7.3"
