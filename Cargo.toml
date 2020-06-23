@@ -1,6 +1,6 @@
 [package]
 name = "eight-point"
-version = "0.7.0"
+version = "0.8.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 description = "Eight-point algorithm for essential matrix estimation"
@@ -13,8 +13,8 @@ readme = "README.md"
 
 [dependencies]
 float-ord = "0.2.0"
-cv-core = "0.14.0"
-cv-pinhole = { version = "0.5.0", default-features = false }
+cv-core = "0.15.0"
+cv-pinhole = "0.6.0"
 derive_more = "0.99.8"
 num-traits = { version = "0.2.12", default-features = false }
 
