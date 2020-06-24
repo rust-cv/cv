@@ -106,7 +106,7 @@ fn main() {
         vslam.insert_frame(feed, &image);
     }
 
-    // vslam.bundle_adjust_highest_observances(opt.bundle_adjust_landmarks);
+    vslam.bundle_adjust_highest_observances(opt.bundle_adjust_landmarks);
 
     // Export the first match
     if let Some(path) = opt.output {

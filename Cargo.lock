@@ -311,7 +311,6 @@ dependencies = [
 [[package]]
 name = "cv-optimize"
 version = "0.1.0"
-source = "git+https://github.com/rust-cv/cv-optimize.git#7003a96a5a6db1c697e546b61d549a03d0cf9c43"
 dependencies = [
  "cv-core",
  "levenberg-marquardt",
