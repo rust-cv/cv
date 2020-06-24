@@ -1,11 +1,10 @@
 use alloc::vec::Vec;
-use core::iter::once;
 use cv_core::nalgebra::{
-    dimension::{Dynamic, U1, U3, U6},
-    DVector, MatrixMN, Point3, VecStorage, Vector3,
+    dimension::{Dynamic, U1, U4, U6},
+    DMatrix, DVector, Matrix3, VecStorage, Vector4, Vector6,
 };
-use cv_core::{Bearing, Pose, Skew3, TriangulatorObservances, WorldPoint, WorldToCamera};
-use levenberg_marquardt::{differentiate_numerically, LeastSquaresProblem};
+use cv_core::{Bearing, Pose, Projective, TriangulatorObservances, WorldPoint, WorldToCamera};
+use levenberg_marquardt::LeastSquaresProblem;
 
 #[derive(Clone)]
 pub struct ManyViewOptimizer<B> {
@@ -32,7 +31,6 @@ where
         O: Iterator<Item = Option<B>>,
         T: TriangulatorObservances,
     {
-        let poses: Vec<WorldToCamera> = poses.into();
         let points = landmarks
             .clone()
             .map(|observances| {
@@ -59,7 +57,7 @@ where
 
 impl<B> LeastSquaresProblem<f64, Dynamic, Dynamic> for ManyViewOptimizer<B>
 where
-    B: Bearing,
+    B: Bearing + Clone,
 {
     /// Storage type used for the residuals. Use `nalgebra::storage::Owned<F, M>`
     /// if you want to use `VectorN` or `MatrixMN`.
@@ -69,56 +67,29 @@ where
 
     /// Set the stored parameters `$\vec{x}$`.
     fn set_params(&mut self, params: &DVector<f64>) {
-        // Assert that the number of poses implied by the vector is correct.
-        assert_eq!(
-            self.poses.len() * 6 + self.points.len() * 3,
-            params.len(),
-            "number of internal values and length of params are not consistent"
-        );
-        // Assign the poses
-        for (pose, v) in self
-            .poses
-            .iter_mut()
-            .enumerate()
-            .map(|(ix, pose)| (pose, params.fixed_rows::<U6>(6 * ix)))
-        {
-            pose.0.translation.vector = v.xyz();
-            pose.0.rotation = Skew3(Vector3::new(v[3], v[4], v[5])).into();
+        let poses_len = self.poses.len() * 6;
+        for (ix, pose) in self.poses.iter_mut().enumerate() {
+            *pose = Pose::from_se3(params.fixed_rows::<U6>(6 * ix).into_owned());
         }
-        // Assign the points
-        for (point, v) in self
-            .points
-            .iter_mut()
-            .enumerate()
-            .filter_map(|(ix, point)| {
-                point
-                    .as_mut()
-                    .map(|p| (p, params.fixed_rows::<U3>(self.poses.len() * 6 + 3 * ix)))
-            })
-        {
-            point.0.coords.copy_from(&v);
+        for (ix, point) in self.points.iter_mut().enumerate() {
+            if let Some(p) = point {
+                *p = WorldPoint(params.fixed_rows::<U4>(poses_len + 4 * ix).into_owned());
+            }
         }
     }
 
     /// Get the stored parameters `$\vec{x}$`.
     fn params(&self) -> DVector<f64> {
-        let pose_iter = |pose: &WorldPose| {
-            let skew: Skew3 = pose.rotation.into();
-            let trans = pose.translation.vector;
-            once(trans.x)
-                .chain(once(trans.y))
-                .chain(once(trans.z))
-                .chain(once(skew.x))
-                .chain(once(skew.y))
-                .chain(once(skew.z))
-        };
-        let point_iter = |p: Point3<f64>| once(p.x).chain(once(p.y)).chain(once(p.z));
+        let pose_len = 6 * self.poses.len();
+        let point_len = self.points.len() * 4;
+        let zeros = Vector4::zeros();
+        let se3s: Vec<Vector6<f64>> = self.poses.iter().map(|p| p.se3()).collect();
         DVector::from_iterator(
-            self.poses.len() * 6,
-            self.poses.iter().flat_map(pose_iter).chain(
+            pose_len + point_len,
+            se3s.iter().flat_map(|se3| se3.iter().copied()).chain(
                 self.points
                     .iter()
-                    .flat_map(|p| point_iter(p.map(|w| w.0).unwrap_or(Point3::origin()))),
+                    .flat_map(|p| p.as_ref().map(|p| &p.0).unwrap_or(&zeros).iter().copied()),
             ),
         )
     }
@@ -126,43 +97,70 @@ where
     /// Compute the residual vector.
     fn residuals(&self) -> Option<DVector<f64>> {
         Some(DVector::from_iterator(
-            self.landmarks.clone().count(),
-            self.landmarks.clone().map(|observances| {
-                self.triangulator
-                    .triangulate_observances(
-                        self.poses
-                            .iter()
-                            .copied()
-                            .zip(observances.clone())
-                            .filter_map(|(pose, observance)| {
-                                // Create a tuple of the pose with its corresponding observance.
-                                observance.map(move |observance| (CameraPose(pose.0), observance))
-                            }),
-                    )
-                    .map(|point| {
-                        // Sum the cosine distance of each bearing to its projected bearing.
-                        observances
-                            .clone()
-                            .zip(&self.poses)
-                            .filter_map(|(observance, pose)| {
-                                observance.map(|observance| {
-                                    1.0 - pose
-                                        .transform(point)
-                                        .coords
-                                        .normalize()
-                                        .dot(&observance.bearing())
-                                })
-                            })
-                            .sum::<f64>()
+            self.points.len() * self.poses.len(),
+            self.points
+                .iter()
+                .zip(self.landmarks.iter())
+                .flat_map(|(&pw, lms)| {
+                    self.poses.iter().zip(lms.iter()).map(move |(pose, lm)| {
+                        // TODO: Once try blocks get added, this should be replaced with a try block.
+                        let res = || -> Option<f64> {
+                            let pc = pose.transform(pw?);
+                            Some(1.0 - lm.as_ref()?.bearing().dot(&pc.bearing()))
+                        };
+                        res().unwrap_or(0.0)
                     })
-                    .unwrap_or(0.0)
-            }),
+                }),
         ))
     }
 
     /// Compute the Jacobian of the residual vector.
-    fn jacobian(&self) -> Option<MatrixMN<f64, Dynamic, Dynamic>> {
-        let mut clone = self.clone();
-        differentiate_numerically(&mut clone)
+    fn jacobian(&self) -> Option<DMatrix<f64>> {
+        let pose_len = self.poses.len() * 6;
+        let point_len = self.points.len() * 4;
+        let mut mat = DMatrix::zeros(self.points.len() * self.poses.len(), pose_len + point_len);
+        for (ix, wp, lm, pose) in self
+            .points
+            .iter()
+            .zip(self.landmarks.iter())
+            .flat_map(|(&point, lms)| {
+                lms.iter()
+                    .zip(&self.poses)
+                    .map(move |(lm, &pose)| (point, lm.clone(), pose))
+            })
+            .enumerate()
+            .filter_map(|(ix, (point, lm, pose))| Some((ix, point?, lm?, pose)))
+        {
+            // Get the row corresponding to this index.
+            let mut row = mat.row_mut(ix);
+            // Transform the point into the camera space and retrieve the jacobians.
+            let (cp, jacobian_cp_wp, jacobian_cp_pose) = pose.transform_jacobians(wp);
+            // Get the cp bearing and norm.
+            let cp_bearing = cp.bearing().into_inner();
+            let cp_norm = cp.bearing_unnormalized().norm();
+            // The jacobian relating the residual to the normalized form of cp (cpn).
+            let jacobian_res_cpn = -lm.bearing().into_inner().transpose();
+            // The jacobian relating cpn to cp.
+            let jacobian_cpn_cp =
+                (Matrix3::identity() - cp_bearing * cp_bearing.transpose()) / cp_norm;
+
+            // The jacobian relating residual to cp (0.0 appended to convert to homogeneous coordinates).
+            let jacobian_res_cp = (jacobian_res_cpn * jacobian_cpn_cp)
+                .transpose()
+                .push(0.0)
+                .transpose();
+
+            // Compute the jacobians that will go into the row relating this residual to the pose and the point.
+            let jacobian_res_pose = jacobian_res_cp * jacobian_cp_pose;
+            let jacobian_res_wp = jacobian_res_cp * jacobian_cp_wp;
+
+            let pose_ix = ix % self.poses.len();
+            let point_ix = ix / self.poses.len();
+            row.fixed_columns_mut::<U6>(6 * pose_ix)
+                .copy_from(&jacobian_res_pose);
+            row.fixed_columns_mut::<U4>(pose_len + 4 * point_ix)
+                .copy_from(&jacobian_res_wp);
+        }
+        Some(mat)
     }
 }
