@@ -2,6 +2,7 @@ use cv::nalgebra::Point3;
 use cv::{
     camera::pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix, NormalizedKeyPoint},
     feature::akaze,
+    knn::hnsw::HNSW,
     Bearing, BitArray, CameraModel, CameraPoint, CameraToCamera, Consensus, Estimator,
     FeatureMatch, FeatureWorldMatch, Pose, Projective, TriangulatorObservances,
     TriangulatorRelative, WorldPoint, WorldToCamera,
@@ -9,7 +10,6 @@ use cv::{
 use cv_optimize::{ManyViewOptimizer, TwoViewOptimizer};
 use image::DynamicImage;
 use levenberg_marquardt::LevenbergMarquardt;
-use levenberg_marquardt::{differentiate_numerically, LeastSquaresProblem};
 use log::*;
 use rand::{seq::SliceRandom, Rng};
 use slab::Slab;
@@ -19,15 +19,21 @@ use std::path::Path;
 
 type Features = Vec<(NormalizedKeyPoint, BitArray<64>)>;
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Pair(usize, usize);
+
+impl Pair {
+    /// Creates a new pair, cannonicalizing the order of the pair.
+    pub fn new(a: usize, b: usize) -> Self {
+        Self(std::cmp::min(a, b), std::cmp::max(a, b))
+    }
+}
+
 struct Frame {
     /// A VSlam::feeds index
     feed: usize,
     /// The keypoints and corresponding descriptors observed on this frame
     features: Features,
-    /// A map from Frame::features indices to VSlam::landmarks indices
-    landmarks: HashMap<usize, usize>,
-    /// A list of outgoing (first in pair) covisibilities
-    covisibilities: HashSet<Pair>,
 }
 
 impl Frame {
@@ -50,54 +56,76 @@ impl Frame {
 
 /// A 3d point in space that has been observed on two or more frames
 struct Landmark {
+    /// The world coordinate of the landmark.
+    point: WorldPoint,
     /// Contains a map from VSlam::frames indices to Frame::features indices.
     observances: HashMap<usize, usize>,
 }
 
+/// A frame which has been incorporated into a reconstruction.
+struct View {
+    /// The VSlam::frame index corresponding to this view
+    frame: usize,
+    /// The VSlam::reconstructions index corresponding to this view
+    reconstruction: usize,
+    /// Pose in the reconstruction of the view
+    pose: WorldToCamera,
+    /// A map from Frame::features indices to VSlam::landmarks indices
+    landmarks: HashMap<usize, usize>,
+}
+
+/// Frames from a video source
 struct Feed {
     /// The camera intrinsics for this feed
     intrinsics: CameraIntrinsicsK1Distortion,
     /// VSlam::frames indices corresponding to each frame of the feed
     frames: Vec<usize>,
+    /// The VSlam::reconstructions index currently being tracked
+    /// If tracking fails, the reconstruction will be set to None.
+    reconstruction: Option<usize>,
 }
 
-struct Covisibility {
-    /// The relative pose between the first to the second frame in the covisibility
-    pose: CameraToCamera,
-    /// The matches in index from the first view to the second
-    matches: Vec<FeatureMatch<usize>>,
+/// A series of views and points which exist in the same world space
+struct Reconstruction {
+    /// The VSlam::views IDs contained in this reconstruction
+    views: Vec<usize>,
+    /// The VSlam::landmarks IDs contained in this reconstruction
+    landmarks: HashSet<usize>,
+    /// The HNSW to look up all landmarks in the reconstruction
+    features: HNSW<BitArray<64>>,
+    /// The map from HNSW entries to VSlam::landmarks IDs
+    feature_landmarks: HashMap<u32, usize>,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Pair(usize, usize);
-
-impl Pair {
-    /// Creates a new pair, cannonicalizing the order of the pair.
-    pub fn new(a: usize, b: usize) -> Self {
-        Self(std::cmp::min(a, b), std::cmp::max(a, b))
-    }
-}
-
+/// Contains the results of a bundle adjust
 pub struct BundleAdjust {
-    poses: HashMap<usize, WorldToCamera>,
-    pairs: Vec<Pair>,
+    /// Maps VSlam::views IDs to poses
+    poses: Vec<(usize, WorldToCamera)>,
+    /// Maps VSlam::landmark IDs to points
+    points: Vec<(usize, WorldPoint)>,
 }
 
 pub struct VSlam<C, EE, PE, T, R> {
     /// Contains the camera intrinsics for each feed
     feeds: Slab<Feed>,
-    /// Contains all the landmarks
-    landmarks: Slab<Landmark>,
+    /// Contains each one of the ongoing reconstructions
+    reconstructions: Slab<Reconstruction>,
     /// Contains all the frames
     frames: Slab<Frame>,
-    /// Contains a mapping from cannonical pairs to covisibility data
-    covisibilities: HashMap<Pair, Option<Covisibility>>,
+    /// Contains all the views
+    views: Slab<View>,
+    /// Contains a set of all the VSlam::views ID pairs which have already been evaluated
+    matches: HashSet<Pair>,
+    /// Contains all the landmarks
+    landmarks: Slab<Landmark>,
     /// The threshold used for akaze
     akaze_threshold: f64,
     /// The threshold distance below which a match is allowed
     match_threshold: usize,
     /// The number of points to use in optimization of matches
     optimization_points: usize,
+    /// The number of times we perform LM and filtering in a loop
+    levenberg_marquardt_filter_iterations: usize,
     /// The maximum cosine distance permitted in a valid match
     cosine_distance_threshold: f64,
     /// The consensus algorithm
@@ -131,11 +159,14 @@ where
     ) -> Self {
         Self {
             feeds: Default::default(),
-            landmarks: Default::default(),
+            reconstructions: Default::default(),
             frames: Default::default(),
-            covisibilities: Default::default(),
+            views: Default::default(),
+            matches: Default::default(),
+            landmarks: Default::default(),
             akaze_threshold: 0.001,
             match_threshold: 64,
+            levenberg_marquardt_filter_iterations: 20,
             cosine_distance_threshold: 0.001,
             optimization_points: 16,
             consensus: RefCell::new(consensus),
@@ -191,6 +222,7 @@ where
         self.feeds.insert(Feed {
             intrinsics,
             frames: vec![],
+            reconstruction: None,
         })
     }
 
@@ -203,15 +235,13 @@ where
         let next_id = self.frames.insert(Frame {
             feed,
             features: self.kps_descriptors(&self.feeds[feed].intrinsics, image),
-            landmarks: Default::default(),
-            covisibilities: Default::default(),
         });
         self.feeds[feed].frames.push(next_id);
         let feed_frames = &self.feeds[feed].frames[..];
         if feed_frames.len() == 2 {
             let a = feed_frames[feed_frames.len() - 2];
             let b = feed_frames[feed_frames.len() - 1];
-            self.try_match(Pair::new(a, b));
+            self.try_init(Pair::new(a, b));
         } else if feed_frames.len() >= 3 {
             let old = feed_frames[feed_frames.len() - 3];
             let a = feed_frames[feed_frames.len() - 2];
@@ -225,25 +255,15 @@ where
         Some((self.frames.get(a)?, self.frames.get(b)?))
     }
 
-    /// Attempts to match the pair.
+    /// Attempts to match a frame pair, creating a new reconstruction from a two view pair.
     ///
-    /// Returns `true` if successful.
-    fn try_match(&mut self, pair: Pair) -> bool {
-        // First see if the covisibility has already been computed, and if so, don't recompute it.
-        if let Some(outcome) = self
-            .covisibilities
-            .get(&pair)
-            .map(|c| c.as_ref().map(|_| pair))
-        {
-            return outcome.is_some();
-        }
-
+    /// Returns the VSlam::reconstructions ID if successful.
+    fn try_init(&mut self, pair: Pair) -> Option<usize> {
         // Get the two frames.
-        let (a, b) = self.get_pair(pair).expect("tried to get an invalid pair");
+        let (a, b) = self.get_pair(pair).expect("tried to match an invalid pair");
 
-        // Generate the outcome.
-        let outcome = self.create_init_covisibility(a, b);
-        let success = outcome.is_some();
+        // Generate the reconstruction.
+        let reconstruction_data = self.init_reconstruction(a, b)?;
 
         // Add the outcome.
         self.add_covisibility_outcome(pair, outcome);
@@ -337,7 +357,12 @@ where
         }
     }
 
-    fn add_covisibility_outcome(&mut self, pair: Pair, covisibility: Option<Covisibility>) {
+    fn add_reconstruction(
+        &mut self,
+        pair: Pair,
+        pose: CameraToCamera,
+        features: Vec<FeatureMatch<usize>>,
+    ) {
         if let Some(covisibility) = covisibility {
             // First handle updating all the landmarks and frame landmarks.
             for &m in &covisibility.matches {
@@ -356,7 +381,11 @@ where
     /// This creates a covisibility between frames `a` and `b` using the essential matrix estimator.
     ///
     /// This method resolves to an undefined scale, and thus is only appropriate for initialization.
-    fn create_init_covisibility(&self, a: &Frame, b: &Frame) -> Option<Covisibility> {
+    fn init_reconstruction(
+        &self,
+        a: &Frame,
+        b: &Frame,
+    ) -> Option<(CameraToCamera, Vec<(CameraPoint, FeatureMatch<usize>)>)> {
         // A helper to convert an index match to a keypoint match given frame a and b.
         let match_ix_kps = |&FeatureMatch(aix, bix)| FeatureMatch(a.keypoint(aix), b.keypoint(bix));
 
@@ -386,18 +415,12 @@ where
         info!("perform chirality test on {}", matches.len());
 
         // Perform a chirality test to retain only the points in front of both cameras.
-        let (pose, inliers) = essential
+        let pose = essential
             .pose_solver()
-            .solve_unscaled_inliers(matches.iter().map(match_ix_kps))?;
-        let matches = inliers
-            .iter()
-            .map(|&inlier| matches[inlier])
-            .collect::<Vec<_>>();
+            .solve_unscaled(matches.iter().map(match_ix_kps))?;
 
-        info!("filter by cosine distance on {} matches", matches.len());
-
-        // Filter outlier matches based on cosine distance.
-        let matches: Vec<FeatureMatch<usize>> = original_matches
+        // Initialize the camera points.
+        let mut matches: Vec<(CameraPoint, FeatureMatch<usize>)> = matches
             .iter()
             .filter_map(|m| {
                 let FeatureMatch(a, b) = match_ix_kps(m);
@@ -411,7 +434,7 @@ where
                             && point_a.z.is_sign_positive()
                             && point_b.z.is_sign_positive()
                         {
-                            Some(*m)
+                            Some((point_a, *m))
                         } else {
                             None
                         }
@@ -419,161 +442,59 @@ where
             })
             .collect();
 
-        info!("get optimization matches from {} matches", matches.len());
+        for _ in 0..self.levenberg_marquardt_filter_iterations {
+            // Select a random sample of self.optimization_points points to use for optimization.
+            let opti_matches: Vec<FeatureMatch<NormalizedKeyPoint>> = matches
+                .choose_multiple(&mut *self.rng.borrow_mut(), self.optimization_points)
+                .map(|(_, m)| m)
+                .map(match_ix_kps)
+                .collect();
 
-        // Select a random sample of 32 points to use for optimization.
-        let opti_matches: Vec<FeatureMatch<NormalizedKeyPoint>> = matches
-            .choose_multiple(&mut *self.rng.borrow_mut(), self.optimization_points)
-            .map(match_ix_kps)
-            .collect();
+            info!(
+                "performing Levenberg-Marquardt on {} matches out of {}",
+                opti_matches.len(),
+                matches.len()
+            );
 
-        info!(
-            "performing Levenberg-Marquardt on {} matches out of {}",
-            opti_matches.len(),
-            matches.len()
-        );
+            let lm = LevenbergMarquardt::new();
+            let (tvo, termination) = lm.minimize(TwoViewOptimizer::new(
+                opti_matches.iter().copied(),
+                pose,
+                self.triangulator.clone(),
+            ));
+            let pose = tvo.pose;
+            let points = tvo.points;
 
-        let lm = LevenbergMarquardt::new();
-        let (tvo, termination) = lm.minimize(TwoViewOptimizer::new(
-            opti_matches.iter().copied(),
-            pose,
-            self.triangulator.clone(),
-        ));
-        let pose = tvo.pose;
+            info!(
+                "Levenberg-Marquardt terminated with reason {:?}",
+                termination
+            );
 
-        info!(
-            "Levenberg-Marquardt terminated with reason {:?}",
-            termination
-        );
+            // Filter outlier matches based on cosine distance.
+            matches = original_matches
+                .iter()
+                .filter_map(|m| {
+                    let FeatureMatch(a, b) = match_ix_kps(m);
+                    self.triangulator
+                        .triangulate_relative(pose, a, b)
+                        .and_then(|point_a| {
+                            let point_b = pose.transform(point_a);
+                            let residual = 1.0 - point_a.bearing().dot(&a.bearing()) + 1.0
+                                - point_b.bearing().dot(&b.bearing());
+                            if residual < self.cosine_distance_threshold
+                                && point_a.z.is_sign_positive()
+                                && point_b.z.is_sign_positive()
+                            {
+                                Some(*m)
+                            } else {
+                                None
+                            }
+                        })
+                })
+                .collect();
 
-        info!(
-            "filtering {} matches using cosine distance and chirality",
-            matches.len()
-        );
-
-        // Filter outlier matches based on cosine distance.
-        let matches: Vec<FeatureMatch<usize>> = original_matches
-            .iter()
-            .filter_map(|m| {
-                let FeatureMatch(a, b) = match_ix_kps(m);
-                self.triangulator
-                    .triangulate_relative(pose, a, b)
-                    .and_then(|point_a| {
-                        let point_b = pose.transform(point_a);
-                        let residual = 1.0 - point_a.bearing().dot(&a.bearing()) + 1.0
-                            - point_b.bearing().dot(&b.bearing());
-                        if residual < self.cosine_distance_threshold
-                            && point_a.z.is_sign_positive()
-                            && point_b.z.is_sign_positive()
-                        {
-                            Some(*m)
-                        } else {
-                            None
-                        }
-                    })
-            })
-            .collect();
-
-        info!(
-            "get optimization {} matches out of {}",
-            self.optimization_points,
-            matches.len()
-        );
-
-        // Select a random sample of 32 points to use for optimization.
-        let opti_matches: Vec<FeatureMatch<NormalizedKeyPoint>> = matches
-            .choose_multiple(&mut *self.rng.borrow_mut(), self.optimization_points)
-            .map(match_ix_kps)
-            .collect();
-
-        info!("performing Levenberg-Marquardt after filtering");
-
-        let lm = LevenbergMarquardt::new();
-        let (tvo, termination) = lm.minimize(TwoViewOptimizer::new(
-            opti_matches.iter().copied(),
-            pose,
-            self.triangulator.clone(),
-        ));
-        let pose = tvo.pose;
-
-        info!(
-            "Levenberg-Marquardt terminated with reason {:?}",
-            termination
-        );
-
-        info!("filtering matches using cosine distance and chirality");
-
-        // Filter outlier matches based on cosine distance.
-        let matches: Vec<FeatureMatch<usize>> = original_matches
-            .iter()
-            .filter_map(|m| {
-                let FeatureMatch(a, b) = match_ix_kps(m);
-                self.triangulator
-                    .triangulate_relative(pose, a, b)
-                    .and_then(|point_a| {
-                        let point_b = pose.transform(point_a);
-                        let residual = 1.0 - point_a.bearing().dot(&a.bearing()) + 1.0
-                            - point_b.bearing().dot(&b.bearing());
-                        if residual < self.cosine_distance_threshold
-                            && point_a.z.is_sign_positive()
-                            && point_b.z.is_sign_positive()
-                        {
-                            Some(*m)
-                        } else {
-                            None
-                        }
-                    })
-            })
-            .collect();
-
-        // Select a random sample of 32 points to use for optimization.
-        let opti_matches: Vec<FeatureMatch<NormalizedKeyPoint>> = matches
-            .choose_multiple(&mut *self.rng.borrow_mut(), self.optimization_points)
-            .map(match_ix_kps)
-            .collect();
-
-        info!("performing Levenberg-Marquardt after filtering");
-
-        let lm = LevenbergMarquardt::new();
-        let (tvo, termination) = lm.minimize(TwoViewOptimizer::new(
-            opti_matches.iter().copied(),
-            pose,
-            self.triangulator.clone(),
-        ));
-        let pose = tvo.pose;
-
-        info!(
-            "Levenberg-Marquardt terminated with reason {:?}",
-            termination
-        );
-
-        info!(
-            "filtering matches using cosine distance and chirality on all {} original matches",
-            original_matches.len()
-        );
-
-        // Filter outlier matches based on cosine distance.
-        let matches: Vec<FeatureMatch<usize>> = original_matches
-            .iter()
-            .filter_map(|m| {
-                let FeatureMatch(a, b) = match_ix_kps(m);
-                self.triangulator
-                    .triangulate_relative(pose, a, b)
-                    .and_then(|point_a| {
-                        let point_b = pose.transform(point_a);
-                        let residual = 1.0 - point_a.bearing().dot(&a.bearing()) + 1.0
-                            - point_b.bearing().dot(&b.bearing());
-                        if residual < self.cosine_distance_threshold
-                            && point_a.z.is_sign_positive()
-                            && point_b.z.is_sign_positive()
-                        {
-                            Some(*m)
-                        } else {
-                            None
-                        }
-                    })
-            })
-            .collect();
+            info!("filtering left us with {} matches", matches.len());
+        }
 
         info!(
             "matches remaining after all filtering stages: {}",
@@ -581,7 +502,7 @@ where
         );
 
         // Add the new covisibility.
-        Some(Covisibility { pose, matches })
+        Some((pose, matches))
     }
 
     /// Triangulates a landmark by ID using only two frames.
