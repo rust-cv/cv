@@ -35,6 +35,20 @@ where
             triangulator,
         }
     }
+
+    pub fn new_points(
+        matches: I,
+        pose: CameraToCamera,
+        points: Vec<Option<CameraPoint>>,
+        triangulator: T,
+    ) -> Self {
+        Self {
+            matches,
+            pose,
+            points,
+            triangulator,
+        }
+    }
 }
 
 impl<I, P, T> LeastSquaresProblem<f64, Dynamic, Dynamic> for TwoViewOptimizer<I, T>
