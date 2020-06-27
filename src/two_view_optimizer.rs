@@ -11,10 +11,10 @@ use levenberg_marquardt::LeastSquaresProblem;
 
 #[derive(Clone)]
 pub struct TwoViewOptimizer<I, T> {
-    matches: I,
+    pub matches: I,
     pub pose: CameraToCamera,
-    pub points: Vec<Option<CameraPoint>>,
-    triangulator: T,
+    pub points: Vec<CameraPoint>,
+    pub triangulator: T,
 }
 
 impl<I, P, T> TwoViewOptimizer<I, T>
@@ -23,23 +23,10 @@ where
     P: Bearing,
     T: TriangulatorRelative,
 {
-    pub fn new(matches: I, pose: CameraToCamera, triangulator: T) -> Self {
-        let points = matches
-            .clone()
-            .map(|FeatureMatch(a, b)| triangulator.triangulate_relative(pose, a, b))
-            .collect();
-        Self {
-            matches,
-            pose,
-            points,
-            triangulator,
-        }
-    }
-
-    pub fn new_points(
+    pub fn new(
         matches: I,
         pose: CameraToCamera,
-        points: Vec<Option<CameraPoint>>,
+        points: Vec<CameraPoint>,
         triangulator: T,
     ) -> Self {
         Self {
