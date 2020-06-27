@@ -2,7 +2,7 @@ use alloc::vec::Vec;
 use core::iter::once;
 use cv_core::nalgebra::{
     dimension::{Dynamic, U1, U4, U6},
-    DMatrix, DVector, Matrix3, VecStorage, Vector4, Vector6,
+    DMatrix, DVector, Matrix3, VecStorage, Vector6,
 };
 use cv_core::{
     Bearing, CameraPoint, CameraToCamera, FeatureMatch, Pose, Projective, TriangulatorRelative,
@@ -54,9 +54,7 @@ where
     fn set_params(&mut self, x: &DVector<f64>) {
         self.pose = Pose::from_se3(Vector6::new(x[0], x[1], x[2], x[3], x[4], x[5]));
         for (ix, point) in self.points.iter_mut().enumerate() {
-            if let Some(p) = point {
-                *p = CameraPoint(x.fixed_rows::<U4>(6 + 4 * ix).into_owned());
-            }
+            *point = CameraPoint(x.fixed_rows::<U4>(6 + 4 * ix).into_owned());
         }
     }
 
@@ -64,14 +62,13 @@ where
     fn params(&self) -> DVector<f64> {
         let pose_len = 6;
         let point_len = self.points.len() * 4;
-        let zeros = Vector4::zeros();
         DVector::from_iterator(
             pose_len + point_len,
-            self.pose.se3().iter().copied().chain(
-                self.points
-                    .iter()
-                    .flat_map(|p| p.as_ref().map(|p| &p.0).unwrap_or(&zeros).iter().copied()),
-            ),
+            self.pose
+                .se3()
+                .iter()
+                .copied()
+                .chain(self.points.iter().flat_map(|p| p.iter().copied())),
         )
     }
 
@@ -83,14 +80,10 @@ where
                 .iter()
                 .zip(self.matches.clone())
                 .flat_map(|(pa, FeatureMatch(a, b))| {
-                    if let Some(pa) = *pa {
-                        let pb = self.pose.transform(pa);
-                        let sim_a = pa.bearing().dot(&a.bearing());
-                        let sim_b = pb.bearing().dot(&b.bearing());
-                        once(1.0 - sim_a).chain(once(1.0 - sim_b))
-                    } else {
-                        once(0.0).chain(once(0.0))
-                    }
+                    let pb = self.pose.transform(*pa);
+                    let sim_a = pa.bearing().dot(&a.bearing());
+                    let sim_b = pb.bearing().dot(&b.bearing());
+                    once(1.0 - sim_a).chain(once(1.0 - sim_b))
                 }),
         ))
     }
@@ -100,13 +93,12 @@ where
         let pose_len = 6;
         let point_len = self.points.len() * 4;
         let mut mat = DMatrix::zeros(self.points.len() * 2, pose_len + point_len);
-        for (ix, ap, FeatureMatch(a, b)) in self
+        for (ix, (ap, FeatureMatch(a, b))) in self
             .points
             .iter()
             .copied()
             .zip(self.matches.clone())
             .enumerate()
-            .filter_map(|(ix, (ap, m))| Some((ix, ap?, m)))
         {
             // Get the transformed point and the jacobians.
             let (bp, jacobian_bp_ap, jacobian_bp_pose) = self.pose.transform_jacobians(ap);
