@@ -113,11 +113,11 @@ fn main() {
     // Add the frames.
     for path in opt.images {
         let image = image::open(path).expect("failed to load image");
-        vslam.insert_frame(feed, &image);
+        if let Some(reconstruction) = vslam.insert_frame(feed, &image) {
+            vslam.bundle_adjust_highest_observances(reconstruction, opt.bundle_adjust_landmarks);
+            vslam.filter_observations(reconstruction);
+        }
     }
-
-    vslam.bundle_adjust_highest_observances(0, opt.bundle_adjust_landmarks);
-    vslam.filter_observations(0);
 
     // Export the first match
     if let Some(path) = opt.output {

@@ -264,8 +264,8 @@ where
     ///
     /// This may perform camera tracking and will always extract features.
     ///
-    /// Returns a VSlam::frames index.
-    pub fn insert_frame(&mut self, feed: usize, image: &DynamicImage) {
+    /// Returns a VSlam::reconstructions index if the frame was incorporated in a reconstruction.
+    pub fn insert_frame(&mut self, feed: usize, image: &DynamicImage) -> Option<usize> {
         // Extract the features for the frame and add the frame object.
         let next_id = self.frames.insert(Frame {
             feed,
@@ -289,6 +289,7 @@ where
             let b = self.feeds[feed].frames[num_frames - 1];
             self.feeds[feed].reconstruction = self.try_init(Pair::new(a, b));
         }
+        self.feeds[feed].reconstruction
     }
 
     fn get_pair(&self, Pair(a, b): Pair) -> Option<(&Frame, &Frame)> {
@@ -801,6 +802,10 @@ where
         }
     }
 
+    pub fn num_reconstructions(&self) -> usize {
+        self.reconstructions.len()
+    }
+
     fn apply_bundle_adjust(&mut self, bundle_adjust: BundleAdjust) {
         let BundleAdjust {
             reconstruction,
@@ -859,6 +864,25 @@ where
                 self.landmarks.remove(lmix);
             }
         }
+
+        info!("rebuilding HNSW");
+
+        // Rebuild the HNSW of this reconstruction.
+        let mut features = HNSW::new();
+        let mut feature_landmarks = HashMap::new();
+        for (rlmix, &lmix) in self.reconstructions[reconstruction].landmarks.iter() {
+            for (&view, &feature) in self.landmarks[lmix].observances.iter() {
+                let fix = features.insert(
+                    self.frames[self.views[view].frame].features[feature].1,
+                    &mut self.searcher.borrow_mut(),
+                );
+                feature_landmarks.insert(fix as usize, rlmix);
+            }
+        }
+
+        // Assign the new HNSW and feature_landmarks map.
+        self.reconstructions[reconstruction].features = features;
+        self.reconstructions[reconstruction].feature_landmarks = feature_landmarks;
 
         // Log the data after filtering.
         let num_observations: usize = self.reconstructions[reconstruction]
