@@ -8,3 +8,4 @@ edition = "2018"
 levenberg-marquardt = "0.5.2"
 cv-core = "0.15.0"
 nalgebra = { version = "0.21.1", features = ["alloc"], default-features = false }
+num-traits = "0.2.12"
