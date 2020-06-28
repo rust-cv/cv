@@ -10,7 +10,9 @@ pub fn export(mut writer: impl Write, points: Vec<Point3<f64>>) {
     // crete a ply objet
     let mut ply = Ply::<DefaultElement>::new();
     ply.header.encoding = Encoding::Ascii;
-    ply.header.comments.push("A beautiful comment!".to_string());
+    ply.header
+        .comments
+        .push("Exported from rust-cv/vslam-sandbox".to_string());
 
     // Define the elements we want to write. In our case we write a 2D Point.
     // When writing, the `count` will be set automatically to the correct value by calling `make_consistent`

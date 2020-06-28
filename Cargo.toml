@@ -19,8 +19,10 @@ cv-optimize = { git = "https://github.com/rust-cv/cv-optimize.git" }
 levenberg-marquardt = "0.5.2"
 slab = "0.4.2"
 ahash = "0.3.8"
+maplit = "1.0.2"
+space = "0.10.3"
 
 [profile.release]
-lto = true
+lto = "fat"
 codegen-units = 1
 debug = true

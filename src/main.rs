@@ -39,6 +39,15 @@ struct Opt {
     /// The threshold for AKAZE.
     #[structopt(short = "z", long, default_value = "0.001")]
     akaze_threshold: f64,
+    /// Loss softener.
+    ///
+    /// Increasing this value causes the residual function to become cosine distance squared of observances
+    ///
+    /// Decreasing this value causes the tail ends of the cosine distance squared to flatten out, reducing the impact of outliers.
+    ///
+    /// Make this value roughly the same as cosine_distance_threshold and arrsac_threshold.
+    #[structopt(long, default_value = "0.0002")]
+    loss_softener: f64,
     /// The threshold for reprojection error in pixels.
     #[structopt(long, default_value = "0.001")]
     cosine_distance_threshold: f64,
@@ -58,7 +67,7 @@ struct Opt {
     #[structopt(long, default_value = "0.0")]
     skew: f64,
     /// The K1 radial distortion
-    #[structopt(long, default_value = "-0.3728755")]
+    #[structopt(long, default_value = "-0.007151")]
     radial_distortion: f64,
     /// Output PLY file to deposit point cloud
     #[structopt(short, long)]
@@ -95,7 +104,8 @@ fn main() {
     .akaze_threshold(opt.akaze_threshold)
     .match_threshold(opt.match_threshold)
     .optimization_points(opt.optimization_points)
-    .cosine_distance_threshold(opt.cosine_distance_threshold);
+    .cosine_distance_threshold(opt.cosine_distance_threshold)
+    .loss_softener(opt.loss_softener);
 
     // Add the feed.
     let feed = vslam.insert_feed(intrinsics);
@@ -106,11 +116,11 @@ fn main() {
         vslam.insert_frame(feed, &image);
     }
 
-    vslam.bundle_adjust_highest_observances(opt.bundle_adjust_landmarks);
+    // vslam.bundle_adjust_highest_observances(opt.bundle_adjust_landmarks);
 
     // Export the first match
     if let Some(path) = opt.output {
-        vslam.export_reconstruction_at(0, opt.minimum_observances, path);
+        vslam.export_reconstruction(0, opt.minimum_observances, path);
         // vslam.export_covisibility(Pair::new(0, 1), path);
     }
 }

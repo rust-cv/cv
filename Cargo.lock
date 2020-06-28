@@ -26,9 +26,9 @@ dependencies = [
 
 [[package]]
 name = "aho-corasick"
-version = "0.7.12"
+version = "0.7.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c259a748ac706ba73d609b73fc13469e128337f9a6b2fb3cc82d100f8dd8d511"
+checksum = "043164d8ba5c4c3035fec9bbee8647c0261d788f3474306f93bb65901cae0e86"
 dependencies = [
  "memchr",
 ]
@@ -311,11 +311,12 @@ dependencies = [
 [[package]]
 name = "cv-optimize"
 version = "0.1.0"
-source = "git+https://github.com/rust-cv/cv-optimize.git#15a990411a2562214fa9c8c0b7808b0b4ca5d1a3"
+source = "git+https://github.com/rust-cv/cv-optimize.git#fa8825ad4ed6cd11050cce387c753a065ca144ff"
 dependencies = [
  "cv-core",
  "levenberg-marquardt",
  "nalgebra",
+ "num-traits",
 ]
 
 [[package]]
@@ -342,9 +343,9 @@ dependencies = [
 
 [[package]]
 name = "derive_more"
-version = "0.99.8"
+version = "0.99.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc655351f820d774679da6cdc23355a93de496867d8203496675162e17b1d671"
+checksum = "298998b1cf6b5b2c8a7b023dfd45821825ce3ba8a8af55c921a0e734e4653f76"
 dependencies = [
  "proc-macro2",
  "quote 1.0.7",
@@ -603,6 +604,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d947cbb889ed21c2a84be6ffbaebf5b4e0f4340638cba0444907e38b56be084"
 
 [[package]]
+name = "maplit"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e2e65a1a2e43cfcb47a895c4c8b10d1f4a61097f9f254f183aee60cad9c651d"
+
+[[package]]
 name = "matrixmultiply"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -801,9 +808,9 @@ dependencies = [
 
 [[package]]
 name = "png"
-version = "0.16.5"
+version = "0.16.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34ccdd66f6fe4b2433b07e4728e9a013e43233120427046e93ceb709c3a439bf"
+checksum = "c150bf7479fafe3dd8740dbe48cc33b2a3efb7b0fe3483aced8bbc39f6d0238d"
 dependencies = [
  "bitflags",
  "crc32fast",
@@ -875,9 +882,9 @@ dependencies = [
 
 [[package]]
 name = "proc-macro-error"
-version = "1.0.2"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98e9e4b82e0ef281812565ea4751049f1bdcdfccda7d3f459f2e138a40c08678"
+checksum = "fc175e9777c3116627248584e8f8b3e2987405cabe1c0adf7d1dd28f09dc7880"
 dependencies = [
  "proc-macro-error-attr",
  "proc-macro2",
@@ -888,9 +895,9 @@ dependencies = [
 
 [[package]]
 name = "proc-macro-error-attr"
-version = "1.0.2"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f5444ead4e9935abd7f27dc51f7e852a0569ac888096d5ec2499470794e2e53"
+checksum = "3cc9795ca17eb581285ec44936da7fc2335a3f34f2ddd13118b6f4d515435c50"
 dependencies = [
  "proc-macro2",
  "quote 1.0.7",
@@ -1356,9 +1363,9 @@ checksum = "caaa9d531767d1ff2150b9332433f32a24622147e5ebb1f26409d5da67afd479"
 
 [[package]]
 name = "unicode-xid"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "826e7639553986605ec5979c7dd957c7895e93eabed50ab2ffa7f6128a75097c"
+checksum = "f7fe0bb3479651439c9112f72b6c505038574c9fbb575ed1bf3b797fa39dd564"
 
 [[package]]
 name = "vec_map"
@@ -1383,12 +1390,14 @@ dependencies = [
  "image",
  "levenberg-marquardt",
  "log",
+ "maplit",
  "ply-rs",
  "pretty_env_logger",
  "rand 0.7.3",
  "rand_pcg",
  "serde",
  "slab",
+ "space",
  "structopt",
 ]
 
@@ -1411,9 +1420,9 @@ checksum = "cccddf32554fecc6acb585f82a32a72e28b48f8c4c1883ddfeeeaa96f7d8e519"
 
 [[package]]
 name = "winapi"
-version = "0.3.8"
+version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8093091eeb260906a183e6ae1abdba2ef5ef2257a21801128899c3fc699229c6"
+checksum = "5c839a674fcd7a98952e593242ea400abe93992746761e38641405d28b00f419"
 dependencies = [
  "winapi-i686-pc-windows-gnu",
  "winapi-x86_64-pc-windows-gnu",

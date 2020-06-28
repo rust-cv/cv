@@ -2,17 +2,19 @@ use cv::nalgebra::Point3;
 use cv::{
     camera::pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix, NormalizedKeyPoint},
     feature::akaze,
-    knn::hnsw::HNSW,
+    knn::hnsw::{Searcher, HNSW},
+    optimize::lm::{LevenbergMarquardt, TerminationReason},
     Bearing, BitArray, CameraModel, CameraPoint, CameraToCamera, Consensus, Estimator,
     FeatureMatch, FeatureWorldMatch, Pose, Projective, TriangulatorObservances,
     TriangulatorRelative, WorldPoint, WorldToCamera,
 };
 use cv_optimize::{ManyViewOptimizer, TwoViewOptimizer};
 use image::DynamicImage;
-use levenberg_marquardt::LevenbergMarquardt;
 use log::*;
+use maplit::hashmap;
 use rand::{seq::SliceRandom, Rng};
 use slab::Slab;
+use space::Neighbor;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
@@ -58,7 +60,7 @@ impl Frame {
 struct Landmark {
     /// The world coordinate of the landmark.
     point: WorldPoint,
-    /// Contains a map from VSlam::frames indices to Frame::features indices.
+    /// Contains a map from VSlam::views indices to Frame::features indices.
     observances: HashMap<usize, usize>,
 }
 
@@ -70,7 +72,7 @@ struct View {
     reconstruction: usize,
     /// Pose in the reconstruction of the view
     pose: WorldToCamera,
-    /// A map from Frame::features indices to VSlam::landmarks indices
+    /// A map from Frame::features indices to Reconstruction::landmarks indices
     landmarks: HashMap<usize, usize>,
 }
 
@@ -86,15 +88,16 @@ struct Feed {
 }
 
 /// A series of views and points which exist in the same world space
+#[derive(Default, Clone)]
 struct Reconstruction {
     /// The VSlam::views IDs contained in this reconstruction
-    views: Vec<usize>,
+    views: Slab<usize>,
     /// The VSlam::landmarks IDs contained in this reconstruction
-    landmarks: HashSet<usize>,
+    landmarks: Slab<usize>,
     /// The HNSW to look up all landmarks in the reconstruction
     features: HNSW<BitArray<64>>,
-    /// The map from HNSW entries to VSlam::landmarks IDs
-    feature_landmarks: HashMap<u32, usize>,
+    /// The map from HNSW entries to Reconstruction::landmarks IDs
+    feature_landmarks: HashMap<usize, usize>,
 }
 
 /// Contains the results of a bundle adjust
@@ -118,6 +121,8 @@ pub struct VSlam<C, EE, PE, T, R> {
     matches: HashSet<Pair>,
     /// Contains all the landmarks
     landmarks: Slab<Landmark>,
+    /// Helper for HNSW.
+    searcher: RefCell<Searcher>,
     /// The threshold used for akaze
     akaze_threshold: f64,
     /// The threshold distance below which a match is allowed
@@ -126,6 +131,8 @@ pub struct VSlam<C, EE, PE, T, R> {
     optimization_points: usize,
     /// The number of times we perform LM and filtering in a loop
     levenberg_marquardt_filter_iterations: usize,
+    /// The amount to soften the loss function by
+    loss_softener: f64,
     /// The maximum cosine distance permitted in a valid match
     cosine_distance_threshold: f64,
     /// The consensus algorithm
@@ -164,9 +171,11 @@ where
             views: Default::default(),
             matches: Default::default(),
             landmarks: Default::default(),
+            searcher: Default::default(),
             akaze_threshold: 0.001,
             match_threshold: 64,
             levenberg_marquardt_filter_iterations: 20,
+            loss_softener: 0.0002,
             cosine_distance_threshold: 0.001,
             optimization_points: 16,
             consensus: RefCell::new(consensus),
@@ -207,6 +216,29 @@ where
         }
     }
 
+    /// Set the number of iterations to run levenberg marquart and perform filtering.
+    ///
+    /// Default: `20`
+    pub fn levenberg_marquardt_filter_iterations(
+        self,
+        levenberg_marquardt_filter_iterations: usize,
+    ) -> Self {
+        Self {
+            levenberg_marquardt_filter_iterations,
+            ..self
+        }
+    }
+
+    /// Set the amount to soften the loss by (lowering reduces the impact of outliers).
+    ///
+    /// Default: `0.0002`
+    pub fn loss_softener(self, loss_softener: f64) -> Self {
+        Self {
+            loss_softener,
+            ..self
+        }
+    }
+
     /// Set the maximum cosine distance allowed as a match residual.
     ///
     /// Default: `0.001`
@@ -228,27 +260,33 @@ where
 
     /// Add frame.
     ///
-    /// This may perform camera tracking, and thus will take a while.
+    /// This may perform camera tracking and will always extract features.
     ///
     /// Returns a VSlam::frames index.
-    pub fn insert_frame(&mut self, feed: usize, image: &DynamicImage) -> usize {
+    pub fn insert_frame(&mut self, feed: usize, image: &DynamicImage) {
+        // Extract the features for the frame and add the frame object.
         let next_id = self.frames.insert(Frame {
             feed,
             features: self.kps_descriptors(&self.feeds[feed].intrinsics, image),
         });
+        // Add the frame to the feed.
         self.feeds[feed].frames.push(next_id);
-        let feed_frames = &self.feeds[feed].frames[..];
-        if feed_frames.len() == 2 {
-            let a = feed_frames[feed_frames.len() - 2];
-            let b = feed_frames[feed_frames.len() - 1];
-            self.try_init(Pair::new(a, b));
-        } else if feed_frames.len() >= 3 {
-            let old = feed_frames[feed_frames.len() - 3];
-            let a = feed_frames[feed_frames.len() - 2];
-            let b = feed_frames[feed_frames.len() - 1];
-            self.try_match_track(old, a, b);
+        // Get the number of frames this feed has.
+        let num_frames = self.feeds[feed].frames.len();
+
+        if let Some(reconstruction) = self.feeds[feed].reconstruction {
+            // If the feed has an active reconstruction, try to track the frame.
+            if self.try_track(reconstruction, next_id).is_none() {
+                // If tracking fails, set the active reconstruction to None.
+                self.feeds[feed].reconstruction = None;
+            }
+        } else if num_frames >= 2 {
+            // If there is no active reconstruction, but we have at least two frames, try to initialize the reconstruction
+            // using the last two frames.
+            let a = self.feeds[feed].frames[num_frames - 2];
+            let b = self.feeds[feed].frames[num_frames - 1];
+            self.feeds[feed].reconstruction = self.try_init(Pair::new(a, b));
         }
-        next_id
     }
 
     fn get_pair(&self, Pair(a, b): Pair) -> Option<(&Frame, &Frame)> {
@@ -262,120 +300,125 @@ where
         // Get the two frames.
         let (a, b) = self.get_pair(pair).expect("tried to match an invalid pair");
 
-        // Generate the reconstruction.
-        let reconstruction_data = self.init_reconstruction(a, b)?;
-
         // Add the outcome.
-        self.add_covisibility_outcome(pair, outcome);
-
-        success
+        let (pose, landmarks) = self.init_reconstruction(a, b)?;
+        Some(self.add_reconstruction(pair, pose, landmarks))
     }
 
     /// Attempts to track the camera.
     ///
-    /// Returns `true` if successful.
-    fn try_match_track(&mut self, old: usize, a: usize, b: usize) -> bool {
-        // Get the b frame.
-        let b_frame = &self.frames[b];
-
+    /// Returns VSlam::views index if successful.
+    fn try_track(&mut self, reconstruction: usize, frame: usize) -> Option<usize> {
         // Generate the outcome.
-        let outcome = self.create_track_covisibility(old, a, b_frame);
-        let success = outcome.is_some();
+        let (pose, landmarks) = self.locate_frame(reconstruction, &self.frames[frame])?;
 
         // Add the outcome.
-        self.add_covisibility_outcome(Pair::new(a, b), outcome);
-
-        success
+        Some(self.incorporate_frame(reconstruction, frame, pose, landmarks))
     }
 
-    /// Joins two landmarks together.
+    /// Incorporate a frame using the precomputed pose and landmark to feature correspondences.
     ///
-    /// Returns the VSlam::landmarks index of the combined landmark.
-    fn join_landmarks(&mut self, lm_aix: usize, lm_bix: usize) -> usize {
-        // We will move each observance from b to a.
-        let lm_b = self.landmarks.remove(lm_bix);
-        for (&frame, &feature) in &lm_b.observances {
-            // Point the landmark referenced in the frame to landmark a.
-            *self.frames[frame]
-                .landmarks
-                .get_mut(&feature)
-                .expect("observance from landmark b in join_landmarks was invalid") = lm_aix;
-            // Insert the observance into landmark a.
-            self.landmarks[lm_aix].observances.insert(frame, feature);
-        }
-        lm_aix
-    }
-
-    /// Adds a new landmark from a match and a frame pair.
+    /// The `landmarks` vector elements must be in index form FeatureMatch(Reconstruction::landmarks, Frame::features).
     ///
-    /// Returns the VSlam::landmarks index.
-    fn add_landmark(&mut self, pair: Pair, FeatureMatch(aix, bix): FeatureMatch<usize>) -> usize {
-        let mut observances = HashMap::new();
-        observances.insert(pair.0, aix);
-        observances.insert(pair.1, bix);
-        let lmix = self.landmarks.insert(Landmark { observances });
-        self.frames[pair.0].landmarks.insert(aix, lmix);
-        self.frames[pair.1].landmarks.insert(bix, lmix);
-        lmix
-    }
-
-    /// Adds an observance to the frame and the landmark.
-    ///
-    /// Returns the VSlam::landmarks index.
-    fn add_landmark_observance(&mut self, lmix: usize, frame: usize, feature: usize) -> usize {
-        self.frames[frame].landmarks.insert(feature, lmix);
-        self.landmarks[lmix].observances.insert(frame, feature);
-        lmix
-    }
-
-    /// Takes a match and, if it is not already known, adds the observances to the landmark and frame,
-    /// combining landmarks as needed.
-    ///
-    /// Returns the VSlam::landmarks index.
-    fn add_match_to_landmarks(
+    /// Returns a VSlam::view index.
+    fn incorporate_frame(
         &mut self,
-        pair: Pair,
-        FeatureMatch(aix, bix): FeatureMatch<usize>,
+        reconstruction: usize,
+        frame: usize,
+        pose: WorldToCamera,
+        landmarks: Vec<FeatureMatch<usize>>,
     ) -> usize {
-        let lm_a = self.frames[pair.0].landmarks.get(&aix).copied();
-        let lm_b = self.frames[pair.1].landmarks.get(&bix).copied();
-
-        match (lm_a, lm_b) {
-            (Some(lm_aix), Some(lm_bix)) => {
-                // If the landmarks are the same, we have found that both frames already share
-                // the same landmark, and in this case there is no need to add the observances.
-                // However, if the landmarks are different, we must join them together.
-                if lm_aix != lm_bix {
-                    self.join_landmarks(lm_aix, lm_bix)
-                } else {
-                    lm_aix
-                }
-            }
-            (Some(lmix), None) => self.add_landmark_observance(lmix, pair.1, bix),
-            (None, Some(lmix)) => self.add_landmark_observance(lmix, pair.0, aix),
-            (None, None) => self.add_landmark(pair, FeatureMatch(aix, bix)),
+        // Create new view.
+        let view = self.views.insert(View {
+            frame,
+            reconstruction,
+            pose,
+            landmarks: landmarks
+                .iter()
+                .map(|&FeatureMatch(rlmix, fix)| (fix, rlmix))
+                .collect(),
+        });
+        // Add landmark connections where they need to be added.
+        for FeatureMatch(rlmix, fix) in landmarks {
+            // Add the observance to the landmark.
+            self.landmarks[self.reconstructions[reconstruction].landmarks[rlmix]]
+                .observances
+                .insert(view, fix);
+            // Add feature to the HNSW.
+            let feature_id = self.reconstructions[reconstruction].features.insert(
+                self.frames[frame].features[fix].1,
+                &mut self.searcher.borrow_mut(),
+            );
+            self.reconstructions[reconstruction]
+                .feature_landmarks
+                .insert(feature_id as usize, rlmix);
         }
+        // Add view to reconstruction.
+        self.reconstructions[reconstruction].views.insert(view);
+        view
     }
 
     fn add_reconstruction(
         &mut self,
         pair: Pair,
         pose: CameraToCamera,
-        features: Vec<FeatureMatch<usize>>,
-    ) {
-        if let Some(covisibility) = covisibility {
-            // First handle updating all the landmarks and frame landmarks.
-            for &m in &covisibility.matches {
-                self.add_match_to_landmarks(pair, m);
-            }
-            // Add it to the covisibility map.
-            self.covisibilities.insert(pair, Some(covisibility));
-            // Add the covisibility to the first frame.
-            self.frames[pair.0].covisibilities.insert(pair);
-        } else {
-            // Put a None to indicate the failure.
-            self.covisibilities.insert(pair, None);
+        landmarks: Vec<(CameraPoint, FeatureMatch<usize>)>,
+    ) -> usize {
+        // Create a new empty reconstruction
+        let reconstruction = self.reconstructions.insert(Reconstruction::default());
+        // Create view A.
+        let view_a = self.views.insert(View {
+            frame: pair.0,
+            reconstruction,
+            pose: WorldToCamera::identity(),
+            landmarks: Default::default(),
+        });
+        // Create view B.
+        let view_b = self.views.insert(View {
+            frame: pair.1,
+            reconstruction,
+            pose: WorldToCamera(pose.0),
+            landmarks: Default::default(),
+        });
+        // Add landmarks.
+        for (CameraPoint(point), FeatureMatch(fa, fb)) in landmarks {
+            let point = WorldPoint(point);
+            // Create the landmark.
+            let lm = self.landmarks.insert(Landmark {
+                point,
+                observances: hashmap! {
+                    view_a => fa,
+                    view_b => fb,
+                },
+            });
+            // Add the landmark to the reconstruction.
+            let reconstruction_lm = self.reconstructions[reconstruction].landmarks.insert(lm);
+            // Add the landmark to the two views.
+            self.views[view_a].landmarks.insert(fa, reconstruction_lm);
+            self.views[view_b].landmarks.insert(fb, reconstruction_lm);
+            // Add feature a to the HNSW.
+            let feature_a_id = self.reconstructions[reconstruction].features.insert(
+                self.frames[pair.0].features[fa].1,
+                &mut self.searcher.borrow_mut(),
+            );
+            self.reconstructions[reconstruction]
+                .feature_landmarks
+                .insert(feature_a_id as usize, reconstruction_lm);
+            // Add feature b to the HNSW.
+            let feature_b_id = self.reconstructions[reconstruction].features.insert(
+                self.frames[pair.1].features[fb].1,
+                &mut self.searcher.borrow_mut(),
+            );
+            self.reconstructions[reconstruction]
+                .feature_landmarks
+                .insert(feature_b_id as usize, reconstruction_lm);
         }
+        // Add views to reconstruction.
+        self.reconstructions[reconstruction].views.insert(view_a);
+        self.reconstructions[reconstruction].views.insert(view_b);
+        // Mark the view pair as matched.
+        self.matches.insert(pair);
+        reconstruction
     }
 
     /// This creates a covisibility between frames `a` and `b` using the essential matrix estimator.
@@ -387,7 +430,7 @@ where
         b: &Frame,
     ) -> Option<(CameraToCamera, Vec<(CameraPoint, FeatureMatch<usize>)>)> {
         // A helper to convert an index match to a keypoint match given frame a and b.
-        let match_ix_kps = |&FeatureMatch(aix, bix)| FeatureMatch(a.keypoint(aix), b.keypoint(bix));
+        let match_ix_kps = |FeatureMatch(aix, bix)| FeatureMatch(a.keypoint(aix), b.keypoint(bix));
 
         // Retrieve the matches which agree with each other from each frame and filter out ones that aren't within the match threshold.
         let matches: Vec<FeatureMatch<usize>> = symmetric_matching(a, b)
@@ -404,6 +447,7 @@ where
             &self.essential_estimator,
             matches
                 .iter()
+                .copied()
                 .map(match_ix_kps)
                 .collect::<Vec<_>>()
                 .iter()
@@ -415,86 +459,80 @@ where
         info!("perform chirality test on {}", matches.len());
 
         // Perform a chirality test to retain only the points in front of both cameras.
-        let pose = essential
+        let mut pose = essential
             .pose_solver()
-            .solve_unscaled(matches.iter().map(match_ix_kps))?;
+            .solve_unscaled(matches.iter().copied().map(match_ix_kps))?;
 
         // Initialize the camera points.
-        let mut matches: Vec<(CameraPoint, FeatureMatch<usize>)> = matches
+        let mut matches: Vec<(CameraPoint, FeatureMatch<usize>)> = original_matches
             .iter()
+            .copied()
             .filter_map(|m| {
                 let FeatureMatch(a, b) = match_ix_kps(m);
-                self.triangulator
-                    .triangulate_relative(pose, a, b)
-                    .and_then(|point_a| {
-                        let point_b = pose.transform(point_a);
-                        let residual = 1.0 - point_a.bearing().dot(&a.bearing()) + 1.0
-                            - point_b.bearing().dot(&b.bearing());
-                        if residual < self.cosine_distance_threshold
-                            && point_a.z.is_sign_positive()
-                            && point_b.z.is_sign_positive()
-                        {
-                            Some((point_a, *m))
-                        } else {
-                            None
-                        }
-                    })
+                let point_a = self.triangulator.triangulate_relative(pose, a, b)?;
+                let point_b = pose.transform(point_a);
+                let residual = 1.0 - point_a.bearing().dot(&a.bearing()) + 1.0
+                    - point_b.bearing().dot(&b.bearing());
+                if residual.is_finite()
+                    && (residual < self.cosine_distance_threshold
+                        && point_a.z.is_sign_positive()
+                        && point_b.z.is_sign_positive())
+                {
+                    Some((point_a, m))
+                } else {
+                    None
+                }
             })
             .collect();
 
-        for _ in 0..self.levenberg_marquardt_filter_iterations {
-            // Select a random sample of self.optimization_points points to use for optimization.
-            let opti_matches: Vec<FeatureMatch<NormalizedKeyPoint>> = matches
-                .choose_multiple(&mut *self.rng.borrow_mut(), self.optimization_points)
-                .map(|(_, m)| m)
-                .map(match_ix_kps)
-                .collect();
+        let opti_matches: Vec<FeatureMatch<NormalizedKeyPoint>> = matches
+            .choose_multiple(&mut *self.rng.borrow_mut(), self.optimization_points)
+            .map(|&(_, m)| m)
+            .map(match_ix_kps)
+            .collect::<Vec<_>>();
 
-            info!(
-                "performing Levenberg-Marquardt on {} matches out of {}",
-                opti_matches.len(),
-                matches.len()
-            );
+        info!(
+            "performing Levenberg-Marquardt on {} matches out of {}",
+            opti_matches.len(),
+            matches.len()
+        );
 
-            let lm = LevenbergMarquardt::new();
-            let (tvo, termination) = lm.minimize(TwoViewOptimizer::new(
+        let lm = LevenbergMarquardt::new();
+        let (tvo, termination) = lm.minimize(
+            TwoViewOptimizer::new(
                 opti_matches.iter().copied(),
                 pose,
                 self.triangulator.clone(),
-            ));
-            let pose = tvo.pose;
-            let points = tvo.points;
+            )
+            .loss_softener(self.loss_softener),
+        );
+        pose = tvo.pose;
 
-            info!(
-                "Levenberg-Marquardt terminated with reason {:?}",
-                termination
-            );
+        info!("Levenberg-Marquardt: {:?}", termination);
 
-            // Filter outlier matches based on cosine distance.
-            matches = original_matches
-                .iter()
-                .filter_map(|m| {
-                    let FeatureMatch(a, b) = match_ix_kps(m);
-                    self.triangulator
-                        .triangulate_relative(pose, a, b)
-                        .and_then(|point_a| {
-                            let point_b = pose.transform(point_a);
-                            let residual = 1.0 - point_a.bearing().dot(&a.bearing()) + 1.0
-                                - point_b.bearing().dot(&b.bearing());
-                            if residual < self.cosine_distance_threshold
-                                && point_a.z.is_sign_positive()
-                                && point_b.z.is_sign_positive()
-                            {
-                                Some(*m)
-                            } else {
-                                None
-                            }
-                        })
-                })
-                .collect();
+        // Filter outlier matches based on cosine distance.
+        matches = original_matches
+            .iter()
+            .copied()
+            .filter_map(|m| {
+                let FeatureMatch(a, b) = match_ix_kps(m);
+                let point_a = self.triangulator.triangulate_relative(pose, a, b)?;
+                let point_b = pose.transform(point_a);
+                let residual = 1.0 - point_a.bearing().dot(&a.bearing()) + 1.0
+                    - point_b.bearing().dot(&b.bearing());
+                if residual.is_finite()
+                    && (residual < self.cosine_distance_threshold
+                        && point_a.z.is_sign_positive()
+                        && point_b.z.is_sign_positive())
+                {
+                    Some((point_a, m))
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-            info!("filtering left us with {} matches", matches.len());
-        }
+        info!("filtering left us with {} matches", matches.len());
 
         info!(
             "matches remaining after all filtering stages: {}",
@@ -505,65 +543,59 @@ where
         Some((pose, matches))
     }
 
-    /// Triangulates a landmark by ID using only two frames.
-    fn triangulate_landmark_covisibility(
+    /// Attempts to track the frame in the reconstruction.
+    ///
+    /// Returns the pose and a vector of indices in the format (Reconstruction::landmarks, Frame::features).
+    fn locate_frame(
         &self,
-        lmid: usize,
-        origin_frame: usize,
-        secondary_frame: usize,
-    ) -> Option<WorldPoint> {
-        let pair = Pair::new(origin_frame, secondary_frame);
-        let pose = self.covisibilities.get(&pair)?.as_ref()?.pose;
-        let pose = if pair.0 == origin_frame {
-            pose
-        } else {
-            pose.inverse()
-        };
-        let landmark = self.landmarks.get(lmid)?;
-        let feature_a = *landmark.observances.get(&origin_frame)?;
-        let kp_a = self.frames[origin_frame].features[feature_a].0;
-        let feature_b = *landmark.observances.get(&secondary_frame)?;
-        let kp_b = self.frames[secondary_frame].features[feature_b].0;
-        self.triangulator
-            .triangulate_relative(pose, kp_a, kp_b)
-            .map(|CameraPoint(p)| WorldPoint(p))
-    }
-
-    /// This creates a covisibility between frames `a` and `b` using PnP. `a` must already be part of the reconstruction,
-    /// and `b` must be a new frame. The scale is preserved. `old` is the frame preceeding `a`.
-    fn create_track_covisibility(
-        &self,
-        old: usize,
-        frame_a_ix: usize,
-        b: &Frame,
-    ) -> Option<Covisibility> {
-        let a = &self.frames[frame_a_ix];
-        // A helper to convert an index match to a keypoint match given frame a and b.
-        let match_ix_kps = |&FeatureMatch(aix, bix)| FeatureMatch(a.keypoint(aix), b.keypoint(bix));
-
-        // Retrieve the matches which agree with each other from each frame and filter out ones that aren't within the match threshold.
-        let matches: Vec<FeatureMatch<usize>> = symmetric_matching(a, b)
-            .filter(|&(_, distance)| distance < self.match_threshold)
-            .map(|(m, _)| m)
+        reconstruction: usize,
+        frame: &Frame,
+    ) -> Option<(WorldToCamera, Vec<FeatureMatch<usize>>)> {
+        let reconstruction = &self.reconstructions[reconstruction];
+        // Start by trying to match the frame's features to the landmarks in the reconstruction.
+        // Get back a bunch of (Reconstruction::landmarks, Frame::features) correspondences.
+        let matches: Vec<FeatureMatch<usize>> = frame
+            .features
+            .iter()
+            .enumerate()
+            .filter_map(|(ix, &(_, descriptor))| {
+                // Find the nearest neighbors.
+                let mut neighbors = [Neighbor::invalid(); 1];
+                let lm_feature_id = reconstruction
+                    .features
+                    .nearest(
+                        &descriptor,
+                        24,
+                        &mut self.searcher.borrow_mut(),
+                        &mut neighbors,
+                    )
+                    .first()
+                    .cloned()?;
+                let distance = reconstruction
+                    .features
+                    .feature(lm_feature_id.index as u32)
+                    .distance(&descriptor);
+                // TODO: Perhaps add symmetric filtering and lowes ratio (by landmark, not by feature) filtering here
+                if distance < self.match_threshold {
+                    Some(FeatureMatch(
+                        reconstruction.feature_landmarks[&lm_feature_id.index],
+                        ix,
+                    ))
+                } else {
+                    None
+                }
+            })
             .collect();
 
         info!("triangulate existing landmarks to track camera");
 
-        // Find all the landmarks in frame `a` which we will use to triangulate points for tracking.
-        let matches_3d: Vec<(FeatureMatch<usize>, FeatureWorldMatch<NormalizedKeyPoint>)> = matches
+        // Extract the FeatureWorldMatch for each of the features.
+        let matches_3d: Vec<FeatureWorldMatch<NormalizedKeyPoint>> = matches
             .iter()
-            .filter_map(|&FeatureMatch(aix, bix)| {
-                a.landmarks.get(&aix).and_then(move |&lmix| {
-                    self.landmarks[lmix].observances.get(&old).and_then(|_| {
-                        self.triangulate_landmark_covisibility(lmix, frame_a_ix, old)
-                            .map(|p| {
-                                (
-                                    FeatureMatch(aix, bix),
-                                    FeatureWorldMatch(b.features[bix].0, p),
-                                )
-                            })
-                    })
-                })
+            .map(|&FeatureMatch(rlmix, fix)| {
+                // Get VSlam::landmarks index from Reconstruction::landmarks index.
+                let lmix = reconstruction.landmarks[rlmix];
+                FeatureWorldMatch(frame.features[fix].0, self.landmarks[lmix].point)
             })
             .collect();
 
@@ -573,47 +605,13 @@ where
         );
 
         // Estimate the pose matrix and retrieve the inliers
-        let (pose, inliers) = self.consensus.borrow_mut().model_inliers(
-            &self.pose_estimator,
-            matches_3d
-                .iter()
-                .map(|&(_, m3d)| m3d)
-                .collect::<Vec<_>>()
-                .iter()
-                .copied(),
-        )?;
-        let pose = CameraToCamera(pose.0);
+        let (pose, inliers) = self
+            .consensus
+            .borrow_mut()
+            .model_inliers(&self.pose_estimator, matches_3d.iter().copied())?;
+
         // Reconstitute only the inlier matches into a matches vector.
-        let matches_3d: Vec<(FeatureMatch<usize>, FeatureWorldMatch<NormalizedKeyPoint>)> =
-            inliers.into_iter().map(|ix| matches_3d[ix]).collect();
-
-        info!("filtering matches using cosine distance and chirality");
-
-        // Filter outlier matches based on cosine distance.
-        let matches: Vec<FeatureMatch<usize>> = matches
-            .iter()
-            .filter_map(|m| {
-                let FeatureMatch(a, b) = match_ix_kps(m);
-                self.triangulator
-                    .triangulate_relative(pose, a, b)
-                    .and_then(|point_a| {
-                        let point_b = pose.transform(point_a);
-                        let residual = 1.0 - point_a.bearing().dot(&a.bearing()) + 1.0
-                            - point_b.bearing().dot(&b.bearing());
-                        if residual < self.cosine_distance_threshold
-                            && point_a.z.is_sign_positive()
-                            && point_b.z.is_sign_positive()
-                        {
-                            Some(*m)
-                        } else {
-                            None
-                        }
-                    })
-            })
-            .collect();
-
-        // Add the new covisibility.
-        Some(Covisibility { pose, matches })
+        Some((pose, inliers.into_iter().map(|ix| matches[ix]).collect()))
     }
 
     fn kps_descriptors(
@@ -628,65 +626,20 @@ where
             .collect()
     }
 
-    fn covisibility_keypoint_matches<'a>(
-        &'a self,
-        pair: Pair,
-        covisibility: &'a Covisibility,
-    ) -> impl Iterator<Item = FeatureMatch<NormalizedKeyPoint>> + 'a {
-        covisibility
-            .matches
-            .iter()
-            .map(move |&FeatureMatch(aix, bix)| {
-                FeatureMatch(
-                    self.frames[pair.0].keypoint(aix),
-                    self.frames[pair.1].keypoint(bix),
-                )
-            })
-    }
-
-    pub fn export_covisibility(&self, pair: Pair, path: impl AsRef<Path>) {
-        // Get the covisibility object.
-        let covisibility = self
-            .covisibilities
-            .get(&pair)
-            .expect("covisibility not found")
-            .as_ref()
-            .expect("covisibility was found to have been a failure");
-
-        // Output point cloud.
-        let points: Vec<Point3<f64>> = self
-            .covisibility_keypoint_matches(pair, covisibility)
-            .filter_map(|FeatureMatch(a, b)| {
-                self.triangulator
-                    .triangulate_relative(covisibility.pose, a, b)?
-                    .point()
-            })
-            .collect();
-        crate::export::export(std::fs::File::create(path).unwrap(), points);
-    }
-
-    pub fn export_reconstruction_at(
+    pub fn export_reconstruction(
         &self,
-        start: usize,
+        reconstruction: usize,
         min_observances: usize,
         path: impl AsRef<Path>,
     ) {
-        let (frame_poses, _) = self.frame_graph(start..self.frames.len());
-
         // Output point cloud.
-        let points: Vec<Point3<f64>> = self
+        let points: Vec<Point3<f64>> = self.reconstructions[reconstruction]
             .landmarks
             .iter()
-            .filter_map(|(_, lm)| {
+            .filter_map(|(_, &lmix)| {
+                let lm = &self.landmarks[lmix];
                 if lm.observances.len() >= min_observances {
-                    self.triangulator
-                        .triangulate_observances(lm.observances.iter().filter_map(
-                            |(&frame, &feature)| {
-                                let &pose = frame_poses.get(&frame)?;
-                                Some((pose, self.frames[frame].features[feature].0))
-                            },
-                        ))
-                        .and_then(Projective::point)
+                    lm.point.point()
                 } else {
                     None
                 }
@@ -695,172 +648,131 @@ where
         crate::export::export(std::fs::File::create(path).unwrap(), points);
     }
 
-    /// Turn frame IDs in arbitrary order and which may not be connected into one graph starting with the first frame.
-    fn frame_graph(
-        &self,
-        frames: impl Iterator<Item = usize>,
-    ) -> (BTreeMap<usize, WorldToCamera>, Vec<Pair>) {
-        // Find all the frame IDs corresponding to the landmarks and put them into a BTreeSet so they are in order.
-        // They must be in order because all correspondences are a directed acyclic graph from lowest frame to largest frame.
-        let frames: BTreeSet<usize> = frames.collect();
+    // /// Optimizes the entire reconstruction.
+    // ///
+    // /// Use `num_landmarks` to control the number of landmarks used in optimization.
+    // pub fn bundle_adjust_highest_observances(&mut self, num_landmarks: usize) {
+    //     self.apply_bundle_adjust(self.compute_bundle_adjust_highest_observances(num_landmarks));
+    // }
 
-        // We start by treating the lowest ID frame as the identity pose, and all others as relative.
-        let mut frames = frames.into_iter();
-        let mut frame_poses: BTreeMap<usize, WorldToCamera> = BTreeMap::new();
-        let mut pairs: Vec<Pair> = Vec::new();
-        frame_poses.insert(frames.next().unwrap(), WorldToCamera::identity());
+    // /// Optimizes the entire reconstruction.
+    // ///
+    // /// Use `num_landmarks` to control the number of landmarks used in optimization.
+    // ///
+    // /// Returns a series of camera
+    // fn compute_bundle_adjust_highest_observances(&self, num_landmarks: usize) -> BundleAdjust {
+    //     // At least one landmark exists or the unwraps below will fail.
+    //     if !self.landmarks.is_empty() {
+    //         info!(
+    //             "attempting to extract {} landmarks from a total of {}",
+    //             num_landmarks,
+    //             self.landmarks.len(),
+    //         );
 
-        for frame in frames {
-            if let Some(prev_frame) = frame_poses.keys().copied().find(|&prev_frame| {
-                self.covisibilities
-                    .get(&Pair::new(prev_frame, frame))
-                    .as_ref()
-                    .map(|outcome| outcome.is_some())
-                    .unwrap_or(false)
-            }) {
-                // Get the relative pose transforming the previous camera pose to this camera.
-                let relative_pose = self.covisibilities[&Pair::new(prev_frame, frame)]
-                    .as_ref()
-                    .unwrap()
-                    .pose
-                    .0;
-                let prev_pose = frame_poses[&prev_frame].0;
-                // Compute the new transformed pose of this camera.
-                let pose = WorldToCamera(relative_pose * prev_pose);
-                // Add the pose to the frame poses.
-                frame_poses.insert(frame, pose);
-                pairs.push(Pair::new(prev_frame, frame));
-            }
-        }
+    //         // First, we want to find the landmarks with the most observances to optimize the reconstruction.
+    //         // Start by putting all the landmark indices into a BTreeMap with the key as their observances and the value the index.
+    //         let mut landmarks_by_observances: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    //         for (observance_num, lmix) in self
+    //             .landmarks
+    //             .iter()
+    //             .map(|(ix, lm)| (lm.observances.len(), ix))
+    //         {
+    //             landmarks_by_observances
+    //                 .entry(observance_num)
+    //                 .or_default()
+    //                 .push(lmix);
+    //         }
 
-        (frame_poses, pairs)
-    }
+    //         info!(
+    //             "found landmarks with (observances, num) of {:?}",
+    //             landmarks_by_observances
+    //                 .iter()
+    //                 .map(|(ob, v)| (ob, v.len()))
+    //                 .collect::<Vec<_>>()
+    //         );
 
-    /// Optimizes the entire reconstruction.
-    ///
-    /// Use `num_landmarks` to control the number of landmarks used in optimization.
-    pub fn bundle_adjust_highest_observances(&mut self, num_landmarks: usize) {
-        self.apply_bundle_adjust(self.compute_bundle_adjust_highest_observances(num_landmarks));
-    }
+    //         // Now the BTreeMap is sorted from smallest number of observances to largest, so take the last indices.
+    //         let mut opti_landmarks: Vec<usize> = vec![];
+    //         for bucket in landmarks_by_observances.values().rev() {
+    //             if opti_landmarks.len() + bucket.len() >= num_landmarks {
+    //                 // Add what we need to randomly (to prevent patterns in data that throw off optimization).
+    //                 opti_landmarks.extend(
+    //                     bucket
+    //                         .choose_multiple(&mut *self.rng.borrow_mut(), num_landmarks)
+    //                         .copied(),
+    //                 );
+    //                 break;
+    //             } else {
+    //                 // Add everything from the bucket.
+    //                 opti_landmarks.extend(bucket.iter().copied());
+    //             }
+    //         }
 
-    /// Optimizes the entire reconstruction.
-    ///
-    /// Use `num_landmarks` to control the number of landmarks used in optimization.
-    ///
-    /// Returns a series of camera
-    fn compute_bundle_adjust_highest_observances(&self, num_landmarks: usize) -> BundleAdjust {
-        // At least one landmark exists or the unwraps below will fail.
-        if !self.landmarks.is_empty() {
-            info!(
-                "attempting to extract {} landmarks from a total of {}",
-                num_landmarks,
-                self.landmarks.len(),
-            );
+    //         // Find all the frame IDs corresponding to the landmarks and convert them to a graph.
+    //         let (frame_poses, pairs) =
+    //             self.frame_graph(opti_landmarks.iter().copied().flat_map(|lm| {
+    //                 self.landmarks[lm]
+    //                     .observances
+    //                     .iter()
+    //                     .map(|(&frame, _)| frame)
+    //             }));
 
-            // First, we want to find the landmarks with the most observances to optimize the reconstruction.
-            // Start by putting all the landmark indices into a BTreeMap with the key as their observances and the value the index.
-            let mut landmarks_by_observances: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
-            for (observance_num, lmix) in self
-                .landmarks
-                .iter()
-                .map(|(ix, lm)| (lm.observances.len(), ix))
-            {
-                landmarks_by_observances
-                    .entry(observance_num)
-                    .or_default()
-                    .push(lmix);
-            }
+    //         info!(
+    //             "performing Levenberg-Marquardt on best {} landmarks and {} frames",
+    //             opti_landmarks.len(),
+    //             frame_poses.len(),
+    //         );
 
-            info!(
-                "found landmarks with (observances, num) of {:?}",
-                landmarks_by_observances
-                    .iter()
-                    .map(|(ob, v)| (ob, v.len()))
-                    .collect::<Vec<_>>()
-            );
+    //         let levenberg_marquardt = LevenbergMarquardt::new();
+    //         let (mvo, termination) = levenberg_marquardt.minimize(ManyViewOptimizer::new(
+    //             frame_poses
+    //                 .values()
+    //                 .copied()
+    //                 .collect::<Vec<WorldToCamera>>(),
+    //             opti_landmarks.iter().copied().map(|lm| {
+    //                 frame_poses.keys().map(move |&frame| {
+    //                     self.landmarks[lm]
+    //                         .observances
+    //                         .get(&frame)
+    //                         .map(move |&feature| self.frames[frame].features[feature].0)
+    //                 })
+    //             }),
+    //             self.triangulator.clone(),
+    //         ));
+    //         let poses = mvo.poses;
 
-            // Now the BTreeMap is sorted from smallest number of observances to largest, so take the last indices.
-            let mut opti_landmarks: Vec<usize> = vec![];
-            for bucket in landmarks_by_observances.values().rev() {
-                if opti_landmarks.len() + bucket.len() >= num_landmarks {
-                    // Add what we need to randomly (to prevent patterns in data that throw off optimization).
-                    opti_landmarks.extend(
-                        bucket
-                            .choose_multiple(&mut *self.rng.borrow_mut(), num_landmarks)
-                            .copied(),
-                    );
-                    break;
-                } else {
-                    // Add everything from the bucket.
-                    opti_landmarks.extend(bucket.iter().copied());
-                }
-            }
+    //         info!(
+    //             "Levenberg-Marquardt terminated with reason {:?}",
+    //             termination
+    //         );
 
-            // Find all the frame IDs corresponding to the landmarks and convert them to a graph.
-            let (frame_poses, pairs) =
-                self.frame_graph(opti_landmarks.iter().copied().flat_map(|lm| {
-                    self.landmarks[lm]
-                        .observances
-                        .iter()
-                        .map(|(&frame, _)| frame)
-                }));
+    //         BundleAdjust {
+    //             poses: frame_poses.keys().copied().zip(poses).collect(),
+    //             pairs,
+    //         }
+    //     } else {
+    //         BundleAdjust {
+    //             poses: HashMap::new(),
+    //             pairs: vec![],
+    //         }
+    //     }
+    // }
 
-            info!(
-                "performing Levenberg-Marquardt on best {} landmarks and {} frames",
-                opti_landmarks.len(),
-                frame_poses.len(),
-            );
-
-            let levenberg_marquardt = LevenbergMarquardt::new();
-            let (mvo, termination) = levenberg_marquardt.minimize(ManyViewOptimizer::new(
-                frame_poses
-                    .values()
-                    .copied()
-                    .collect::<Vec<WorldToCamera>>(),
-                opti_landmarks.iter().copied().map(|lm| {
-                    frame_poses.keys().map(move |&frame| {
-                        self.landmarks[lm]
-                            .observances
-                            .get(&frame)
-                            .map(move |&feature| self.frames[frame].features[feature].0)
-                    })
-                }),
-                self.triangulator.clone(),
-            ));
-            let poses = mvo.poses;
-
-            info!(
-                "Levenberg-Marquardt terminated with reason {:?}",
-                termination
-            );
-
-            BundleAdjust {
-                poses: frame_poses.keys().copied().zip(poses).collect(),
-                pairs,
-            }
-        } else {
-            BundleAdjust {
-                poses: HashMap::new(),
-                pairs: vec![],
-            }
-        }
-    }
-
-    fn apply_bundle_adjust(&mut self, bundle_adjust: BundleAdjust) {
-        let BundleAdjust { poses, pairs } = bundle_adjust;
-        // Only run if there is at least one pair.
-        if !pairs.is_empty() {
-            assert_eq!(poses.len() - 1, pairs.len());
-            for pair in pairs {
-                self.covisibilities
-                    .get_mut(&pair)
-                    .unwrap()
-                    .as_mut()
-                    .unwrap()
-                    .pose = CameraToCamera(poses[&pair.0].0.inverse() * poses[&pair.1].0);
-            }
-        }
-    }
+    // fn apply_bundle_adjust(&mut self, bundle_adjust: BundleAdjust) {
+    //     let BundleAdjust { poses, pairs } = bundle_adjust;
+    //     // Only run if there is at least one pair.
+    //     if !pairs.is_empty() {
+    //         assert_eq!(poses.len() - 1, pairs.len());
+    //         for pair in pairs {
+    //             self.covisibilities
+    //                 .get_mut(&pair)
+    //                 .unwrap()
+    //                 .as_mut()
+    //                 .unwrap()
+    //                 .pose = CameraToCamera(poses[&pair.0].0.inverse() * poses[&pair.1].0);
+    //         }
+    //     }
+    // }
 }
 
 fn matching(
