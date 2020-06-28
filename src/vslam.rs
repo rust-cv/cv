@@ -851,7 +851,8 @@ where
                 let bearing = self.frames[self.views[view].frame].features[feature]
                     .0
                     .bearing();
-                if 1.0 - bearing.dot(&point.bearing()) > self.cosine_distance_threshold {
+                let view_point = self.views[view].pose.transform(point);
+                if 1.0 - bearing.dot(&view_point.bearing()) > self.cosine_distance_threshold {
                     // If the observance has too high of a residual, we must remove it from the landmark and the view.
                     self.landmarks[lmix].observances.remove(&view);
                     self.views[view].landmarks.remove(&feature);
