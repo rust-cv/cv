@@ -1,4 +1,4 @@
-use cv::nalgebra::Point3;
+use cv::nalgebra::{Point3, Unit, Vector3};
 use cv::{
     camera::pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix, NormalizedKeyPoint},
     feature::akaze,
@@ -102,6 +102,8 @@ struct Reconstruction {
 
 /// Contains the results of a bundle adjust
 pub struct BundleAdjust {
+    /// The reconstruction the bundle adjust is happening on.
+    reconstruction: usize,
     /// Maps VSlam::views IDs to poses
     poses: Vec<(usize, WorldToCamera)>,
     /// Maps VSlam::landmark IDs to points
@@ -648,131 +650,229 @@ where
         crate::export::export(std::fs::File::create(path).unwrap(), points);
     }
 
-    // /// Optimizes the entire reconstruction.
-    // ///
-    // /// Use `num_landmarks` to control the number of landmarks used in optimization.
-    // pub fn bundle_adjust_highest_observances(&mut self, num_landmarks: usize) {
-    //     self.apply_bundle_adjust(self.compute_bundle_adjust_highest_observances(num_landmarks));
-    // }
+    /// Optimizes the entire reconstruction.
+    ///
+    /// Use `num_landmarks` to control the number of landmarks used in optimization.
+    pub fn bundle_adjust_highest_observances(
+        &mut self,
+        reconstruction: usize,
+        num_landmarks: usize,
+    ) {
+        self.apply_bundle_adjust(
+            self.compute_bundle_adjust_highest_observances(reconstruction, num_landmarks),
+        );
+    }
 
-    // /// Optimizes the entire reconstruction.
-    // ///
-    // /// Use `num_landmarks` to control the number of landmarks used in optimization.
-    // ///
-    // /// Returns a series of camera
-    // fn compute_bundle_adjust_highest_observances(&self, num_landmarks: usize) -> BundleAdjust {
-    //     // At least one landmark exists or the unwraps below will fail.
-    //     if !self.landmarks.is_empty() {
-    //         info!(
-    //             "attempting to extract {} landmarks from a total of {}",
-    //             num_landmarks,
-    //             self.landmarks.len(),
-    //         );
+    /// Optimizes the entire reconstruction.
+    ///
+    /// Use `num_landmarks` to control the number of landmarks used in optimization.
+    ///
+    /// Returns a series of camera
+    fn compute_bundle_adjust_highest_observances(
+        &self,
+        reconstruction: usize,
+        num_landmarks: usize,
+    ) -> BundleAdjust {
+        let reconstruction_data = &self.reconstructions[reconstruction];
+        // At least one landmark exists or the unwraps below will fail.
+        if !reconstruction_data.landmarks.is_empty() {
+            info!(
+                "attempting to extract {} landmarks from a total of {}",
+                num_landmarks,
+                reconstruction_data.landmarks.len(),
+            );
 
-    //         // First, we want to find the landmarks with the most observances to optimize the reconstruction.
-    //         // Start by putting all the landmark indices into a BTreeMap with the key as their observances and the value the index.
-    //         let mut landmarks_by_observances: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
-    //         for (observance_num, lmix) in self
-    //             .landmarks
-    //             .iter()
-    //             .map(|(ix, lm)| (lm.observances.len(), ix))
-    //         {
-    //             landmarks_by_observances
-    //                 .entry(observance_num)
-    //                 .or_default()
-    //                 .push(lmix);
-    //         }
+            // First, we want to find the landmarks with the most observances to optimize the reconstruction.
+            // Start by putting all the landmark indices into a BTreeMap with the key as their observances and the value the index.
+            let mut landmarks_by_observances: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+            for (observance_num, rlmix) in reconstruction_data
+                .landmarks
+                .iter()
+                .map(|(rlmix, &lmix)| (self.landmarks[lmix].observances.len(), rlmix))
+            {
+                landmarks_by_observances
+                    .entry(observance_num)
+                    .or_default()
+                    .push(rlmix);
+            }
 
-    //         info!(
-    //             "found landmarks with (observances, num) of {:?}",
-    //             landmarks_by_observances
-    //                 .iter()
-    //                 .map(|(ob, v)| (ob, v.len()))
-    //                 .collect::<Vec<_>>()
-    //         );
+            info!(
+                "found landmarks with (observances, num) of {:?}",
+                landmarks_by_observances
+                    .iter()
+                    .map(|(ob, v)| (ob, v.len()))
+                    .collect::<Vec<_>>()
+            );
 
-    //         // Now the BTreeMap is sorted from smallest number of observances to largest, so take the last indices.
-    //         let mut opti_landmarks: Vec<usize> = vec![];
-    //         for bucket in landmarks_by_observances.values().rev() {
-    //             if opti_landmarks.len() + bucket.len() >= num_landmarks {
-    //                 // Add what we need to randomly (to prevent patterns in data that throw off optimization).
-    //                 opti_landmarks.extend(
-    //                     bucket
-    //                         .choose_multiple(&mut *self.rng.borrow_mut(), num_landmarks)
-    //                         .copied(),
-    //                 );
-    //                 break;
-    //             } else {
-    //                 // Add everything from the bucket.
-    //                 opti_landmarks.extend(bucket.iter().copied());
-    //             }
-    //         }
+            // Now the BTreeMap is sorted from smallest number of observances to largest, so take the last indices.
+            let mut opti_landmarks: Vec<usize> = vec![];
+            for bucket in landmarks_by_observances.values().rev() {
+                if opti_landmarks.len() + bucket.len() >= num_landmarks {
+                    // Add what we need to randomly (to prevent patterns in data that throw off optimization).
+                    opti_landmarks.extend(
+                        bucket
+                            .choose_multiple(&mut *self.rng.borrow_mut(), num_landmarks)
+                            .copied(),
+                    );
+                    break;
+                } else {
+                    // Add everything from the bucket.
+                    opti_landmarks.extend(bucket.iter().copied());
+                }
+            }
 
-    //         // Find all the frame IDs corresponding to the landmarks and convert them to a graph.
-    //         let (frame_poses, pairs) =
-    //             self.frame_graph(opti_landmarks.iter().copied().flat_map(|lm| {
-    //                 self.landmarks[lm]
-    //                     .observances
-    //                     .iter()
-    //                     .map(|(&frame, _)| frame)
-    //             }));
+            // Find all the view IDs corresponding to the landmarks.
+            let views: Vec<usize> = opti_landmarks
+                .iter()
+                .copied()
+                .flat_map(|rlmix| {
+                    self.landmarks[reconstruction_data.landmarks[rlmix]]
+                        .observances
+                        .iter()
+                        .map(|(&view, _)| view)
+                })
+                .collect::<BTreeSet<usize>>()
+                .into_iter()
+                .collect();
 
-    //         info!(
-    //             "performing Levenberg-Marquardt on best {} landmarks and {} frames",
-    //             opti_landmarks.len(),
-    //             frame_poses.len(),
-    //         );
+            // Form a vector over each landmark that contains a vector of the observances present in each view ID in order above.
+            let observances: Vec<Vec<Option<Unit<Vector3<f64>>>>> = opti_landmarks
+                .iter()
+                .copied()
+                .map(|rlmix| {
+                    let lm = &self.landmarks[reconstruction_data.landmarks[rlmix]];
+                    views
+                        .iter()
+                        .copied()
+                        .map(|view| {
+                            lm.observances.get(&view).map(|&feature| {
+                                self.frames[self.views[view].frame].features[feature]
+                                    .0
+                                    .bearing()
+                            })
+                        })
+                        .collect()
+                })
+                .collect();
 
-    //         let levenberg_marquardt = LevenbergMarquardt::new();
-    //         let (mvo, termination) = levenberg_marquardt.minimize(ManyViewOptimizer::new(
-    //             frame_poses
-    //                 .values()
-    //                 .copied()
-    //                 .collect::<Vec<WorldToCamera>>(),
-    //             opti_landmarks.iter().copied().map(|lm| {
-    //                 frame_poses.keys().map(move |&frame| {
-    //                     self.landmarks[lm]
-    //                         .observances
-    //                         .get(&frame)
-    //                         .map(move |&feature| self.frames[frame].features[feature].0)
-    //                 })
-    //             }),
-    //             self.triangulator.clone(),
-    //         ));
-    //         let poses = mvo.poses;
+            // Retrieve the view poses
+            let poses: Vec<WorldToCamera> = views
+                .iter()
+                .copied()
+                .map(|view| self.views[view].pose)
+                .collect();
 
-    //         info!(
-    //             "Levenberg-Marquardt terminated with reason {:?}",
-    //             termination
-    //         );
+            info!(
+                "performing Levenberg-Marquardt on best {} landmarks and {} views",
+                opti_landmarks.len(),
+                views.len(),
+            );
 
-    //         BundleAdjust {
-    //             poses: frame_poses.keys().copied().zip(poses).collect(),
-    //             pairs,
-    //         }
-    //     } else {
-    //         BundleAdjust {
-    //             poses: HashMap::new(),
-    //             pairs: vec![],
-    //         }
-    //     }
-    // }
+            let levenberg_marquardt = LevenbergMarquardt::new();
+            let (mvo, termination) = levenberg_marquardt.minimize(ManyViewOptimizer::new(
+                poses,
+                observances.iter().map(|v| v.iter().copied()),
+                self.triangulator.clone(),
+            ));
+            let poses = mvo.poses;
+            let points = mvo.points;
 
-    // fn apply_bundle_adjust(&mut self, bundle_adjust: BundleAdjust) {
-    //     let BundleAdjust { poses, pairs } = bundle_adjust;
-    //     // Only run if there is at least one pair.
-    //     if !pairs.is_empty() {
-    //         assert_eq!(poses.len() - 1, pairs.len());
-    //         for pair in pairs {
-    //             self.covisibilities
-    //                 .get_mut(&pair)
-    //                 .unwrap()
-    //                 .as_mut()
-    //                 .unwrap()
-    //                 .pose = CameraToCamera(poses[&pair.0].0.inverse() * poses[&pair.1].0);
-    //         }
-    //     }
-    // }
+            info!(
+                "Levenberg-Marquardt terminated with reason {:?}",
+                termination
+            );
+
+            BundleAdjust {
+                reconstruction,
+                poses: views.iter().copied().zip(poses).collect(),
+                points: opti_landmarks
+                    .iter()
+                    .copied()
+                    .zip(points)
+                    .filter_map(|(rlmix, point)| Some((rlmix, point?)))
+                    .collect(),
+            }
+        } else {
+            BundleAdjust {
+                reconstruction,
+                poses: vec![],
+                points: vec![],
+            }
+        }
+    }
+
+    fn apply_bundle_adjust(&mut self, bundle_adjust: BundleAdjust) {
+        let BundleAdjust {
+            reconstruction,
+            poses,
+            points,
+        } = bundle_adjust;
+        for (view, pose) in poses {
+            self.views[view].pose = pose;
+        }
+        for (rlmix, point) in points {
+            self.landmarks[self.reconstructions[reconstruction].landmarks[rlmix]].point = point;
+        }
+    }
+
+    pub fn filter_observations(&mut self, reconstruction: usize) {
+        info!("filtering reconstruction observations");
+        let landmarks: Vec<(usize, usize)> = self.reconstructions[reconstruction]
+            .landmarks
+            .iter()
+            .map(|(rlmix, &lmix)| (rlmix, lmix))
+            .collect();
+        // Log the data before filtering.
+        let num_observations: usize = self.reconstructions[reconstruction]
+            .landmarks
+            .iter()
+            .map(|(_, &lmix)| lmix)
+            .map(|lmix| self.landmarks[lmix].observances.len())
+            .sum();
+        info!(
+            "started with {} landmarks and {} observations",
+            landmarks.len(),
+            num_observations
+        );
+        for (rlmix, lmix) in landmarks {
+            let point = self.landmarks[lmix].point;
+            let observances: Vec<(usize, usize)> = self.landmarks[lmix]
+                .observances
+                .iter()
+                .map(|(&view, &feature)| (view, feature))
+                .collect();
+
+            for (view, feature) in observances {
+                let bearing = self.frames[self.views[view].frame].features[feature]
+                    .0
+                    .bearing();
+                if 1.0 - bearing.dot(&point.bearing()) > self.cosine_distance_threshold {
+                    // If the observance has too high of a residual, we must remove it from the landmark and the view.
+                    self.landmarks[lmix].observances.remove(&view);
+                    self.views[view].landmarks.remove(&feature);
+                }
+            }
+
+            if self.landmarks[lmix].observances.len() < 2 {
+                // In this case the landmark should be removed, as it no longer has meaning without at least two views.
+                self.reconstructions[reconstruction].landmarks.remove(rlmix);
+                self.landmarks.remove(lmix);
+            }
+        }
+
+        // Log the data after filtering.
+        let num_observations: usize = self.reconstructions[reconstruction]
+            .landmarks
+            .iter()
+            .map(|(_, &lmix)| lmix)
+            .map(|lmix| self.landmarks[lmix].observances.len())
+            .sum();
+        info!(
+            "ended with {} landmarks and {} observations",
+            self.reconstructions[reconstruction].landmarks.len(),
+            num_observations
+        );
+    }
 }
 
 fn matching(

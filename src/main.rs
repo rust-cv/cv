@@ -116,11 +116,11 @@ fn main() {
         vslam.insert_frame(feed, &image);
     }
 
-    // vslam.bundle_adjust_highest_observances(opt.bundle_adjust_landmarks);
+    vslam.bundle_adjust_highest_observances(0, opt.bundle_adjust_landmarks);
+    vslam.filter_observations(0);
 
     // Export the first match
     if let Some(path) = opt.output {
         vslam.export_reconstruction(0, opt.minimum_observances, path);
-        // vslam.export_covisibility(Pair::new(0, 1), path);
     }
 }
