@@ -717,7 +717,10 @@ where
                     // Add what we need to randomly (to prevent patterns in data that throw off optimization).
                     opti_landmarks.extend(
                         bucket
-                            .choose_multiple(&mut *self.rng.borrow_mut(), num_landmarks)
+                            .choose_multiple(
+                                &mut *self.rng.borrow_mut(),
+                                num_landmarks - opti_landmarks.len(),
+                            )
                             .copied(),
                     );
                     break;
