@@ -17,7 +17,7 @@ use structopt::StructOpt;
 use vslam::*;
 
 #[derive(StructOpt, Clone)]
-#[structopt(name = "vslam-sandbox", about = "A tool for testing vslam algorithms.")]
+#[structopt(name = "vslam-sandbox", about = "A tool for testing vslam algorithms")]
 struct Opt {
     /// The threshold in bits for matching.
     ///
@@ -25,7 +25,7 @@ struct Opt {
     #[structopt(short, long, default_value = "64")]
     match_threshold: usize,
     /// The number of points to use in optimization.
-    #[structopt(long, default_value = "32")]
+    #[structopt(long, default_value = "128")]
     optimization_points: usize,
     /// The number of observances required to export a landmark to PLY.
     #[structopt(long, default_value = "3")]
@@ -37,7 +37,7 @@ struct Opt {
     #[structopt(short, long, default_value = "0.01")]
     arrsac_threshold: f64,
     /// The threshold for AKAZE.
-    #[structopt(short = "z", long, default_value = "0.001")]
+    #[structopt(short = "z", long, default_value = "0.0001")]
     akaze_threshold: f64,
     /// Loss cutoff.
     ///
@@ -120,8 +120,12 @@ fn main() {
         let image = image::open(path).expect("failed to load image");
         if let Some(reconstruction) = vslam.insert_frame(feed, &image) {
             vslam.bundle_adjust_highest_observances(reconstruction, opt.bundle_adjust_landmarks);
-            vslam.retriangulate_landmarks(reconstruction);
-            vslam.filter_observations(reconstruction, opt.cosine_distance_threshold);
+            if vslam.reconstruction_view_count(reconstruction) >= 3 {
+                // If there are three or more views, run global bundle adjust.
+                vslam.retriangulate_landmarks(reconstruction);
+                vslam.filter_observations(reconstruction, opt.cosine_distance_threshold);
+                vslam.retriangulate_landmarks(reconstruction);
+            }
         }
     }
 

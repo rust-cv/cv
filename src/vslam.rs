@@ -817,6 +817,13 @@ where
         self.reconstructions.len()
     }
 
+    pub fn reconstruction_view_count(&self, reconstruction: usize) -> usize {
+        self.reconstructions
+            .get(reconstruction)
+            .map(|r| r.views.len())
+            .unwrap_or(0)
+    }
+
     fn apply_bundle_adjust(&mut self, bundle_adjust: BundleAdjust) {
         let BundleAdjust {
             reconstruction,
