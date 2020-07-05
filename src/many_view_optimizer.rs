@@ -11,6 +11,7 @@ pub struct ManyViewOptimizer<B> {
     pub poses: Vec<WorldToCamera>,
     pub points: Vec<Option<WorldPoint>>,
     landmarks: Vec<Vec<Option<B>>>,
+    loss_cutoff: f64,
 }
 
 impl<B> ManyViewOptimizer<B>
@@ -51,6 +52,14 @@ where
             poses,
             points,
             landmarks,
+            loss_cutoff: 0.01,
+        }
+    }
+
+    pub fn loss_cutoff(self, loss_cutoff: f64) -> Self {
+        Self {
+            loss_cutoff,
+            ..self
         }
     }
 }
@@ -96,6 +105,13 @@ where
 
     /// Compute the residual vector.
     fn residuals(&self) -> Option<DVector<f64>> {
+        let loss = |n: f64| {
+            if n > self.loss_cutoff {
+                self.loss_cutoff
+            } else {
+                n
+            }
+        };
         Some(DVector::from_iterator(
             self.points.len() * self.poses.len(),
             self.points
@@ -106,7 +122,7 @@ where
                         // TODO: Once try blocks get added, this should be replaced with a try block.
                         let res = || -> Option<f64> {
                             let pc = pose.transform(pw?);
-                            Some(1.0 - lm.as_ref()?.bearing().dot(&pc.bearing()))
+                            Some(loss(1.0 - lm.as_ref()?.bearing().dot(&pc.bearing())))
                         };
                         res().unwrap_or(0.0)
                     })

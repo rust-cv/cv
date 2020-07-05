@@ -8,12 +8,11 @@ use cv_core::{
     Bearing, CameraPoint, CameraToCamera, FeatureMatch, Pose, Projective, TriangulatorRelative,
 };
 use levenberg_marquardt::LeastSquaresProblem;
-use num_traits::Float;
 
 #[derive(Clone)]
 pub struct TwoViewOptimizer<I, T> {
     pub pose: CameraToCamera,
-    pub loss_softener_squared: f64,
+    pub loss_cutoff: f64,
     matches: I,
     points: Vec<Option<CameraPoint>>,
     triangulator: T,
@@ -32,16 +31,16 @@ where
             .collect();
         Self {
             pose,
-            loss_softener_squared: 0.0000001,
+            loss_cutoff: 0.01,
             matches,
             points,
             triangulator,
         }
     }
 
-    pub fn loss_softener(self, loss_softener: f64) -> Self {
+    pub fn loss_cutoff(self, loss_cutoff: f64) -> Self {
         Self {
-            loss_softener_squared: loss_softener.powi(2),
+            loss_cutoff,
             ..self
         }
     }
@@ -97,10 +96,11 @@ where
                         let sim_a = pa.bearing().dot(&a.bearing());
                         let sim_b = pb.bearing().dot(&b.bearing());
                         let loss = |n: f64| {
-                            Float::sqrt(
-                                (1.0 + n.powi(2) / self.loss_softener_squared).ln()
-                                    * self.loss_softener_squared,
-                            )
+                            if n > self.loss_cutoff {
+                                self.loss_cutoff
+                            } else {
+                                n
+                            }
                         };
                         once(loss(1.0 - sim_a)).chain(once(loss(1.0 - sim_b)))
                     } else {
