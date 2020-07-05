@@ -33,24 +33,29 @@ struct Opt {
     /// The number of landmarks to use in bundle adjust.
     #[structopt(long, default_value = "128")]
     bundle_adjust_landmarks: usize,
-    /// The threshold for ARRSAC.
-    #[structopt(short, long, default_value = "0.001")]
+    /// The threshold for ARRSAC in cosine distance.
+    #[structopt(short, long, default_value = "0.01")]
     arrsac_threshold: f64,
     /// The threshold for AKAZE.
     #[structopt(short = "z", long, default_value = "0.001")]
     akaze_threshold: f64,
-    /// Loss softener.
+    /// Loss cutoff.
     ///
     /// Increasing this value causes the residual function to become cosine distance squared of observances
     ///
     /// Decreasing this value causes the tail ends of the cosine distance squared to flatten out, reducing the impact of outliers.
     ///
-    /// Make this value roughly the same as cosine_distance_threshold and arrsac_threshold.
-    #[structopt(long, default_value = "0.0002")]
-    loss_softener: f64,
-    /// The threshold for reprojection error in pixels.
-    #[structopt(long, default_value = "0.001")]
+    /// Make this value around cosine_distance_threshold and arrsac_threshold.
+    #[structopt(long, default_value = "0.01")]
+    loss_cutoff: f64,
+    /// The threshold for reprojection error in cosine distance.
+    ///
+    /// When this is exceeded, points are filtered from the reconstruction, so set this sufficiently high.
+    #[structopt(long, default_value = "0.05")]
     cosine_distance_threshold: f64,
+    /// The threshold for reprojection error in cosine distance when the pointcloud is exported.
+    #[structopt(long, default_value = "0.005")]
+    export_cosine_distance_threshold: f64,
     /// The x focal length
     #[structopt(long, default_value = "984.2439")]
     x_focal: f64,
@@ -105,7 +110,7 @@ fn main() {
     .match_threshold(opt.match_threshold)
     .optimization_points(opt.optimization_points)
     .cosine_distance_threshold(opt.cosine_distance_threshold)
-    .loss_softener(opt.loss_softener);
+    .loss_cutoff(opt.loss_cutoff);
 
     // Add the feed.
     let feed = vslam.insert_feed(intrinsics);
@@ -115,12 +120,13 @@ fn main() {
         let image = image::open(path).expect("failed to load image");
         if let Some(reconstruction) = vslam.insert_frame(feed, &image) {
             vslam.bundle_adjust_highest_observances(reconstruction, opt.bundle_adjust_landmarks);
-            vslam.filter_observations(reconstruction);
+            vslam.filter_observations(reconstruction, opt.cosine_distance_threshold);
         }
     }
 
     // Export the first match
     if let Some(path) = opt.output {
+        vslam.filter_observations(0, opt.export_cosine_distance_threshold);
         vslam.export_reconstruction(0, opt.minimum_observances, path);
     }
 }

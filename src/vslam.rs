@@ -133,8 +133,8 @@ pub struct VSlam<C, EE, PE, T, R> {
     optimization_points: usize,
     /// The number of times we perform LM and filtering in a loop
     levenberg_marquardt_filter_iterations: usize,
-    /// The amount to soften the loss function by
-    loss_softener: f64,
+    /// The cutoff for the loss function
+    loss_cutoff: f64,
     /// The maximum cosine distance permitted in a valid match
     cosine_distance_threshold: f64,
     /// The consensus algorithm
@@ -177,7 +177,7 @@ where
             akaze_threshold: 0.001,
             match_threshold: 64,
             levenberg_marquardt_filter_iterations: 20,
-            loss_softener: 0.0002,
+            loss_cutoff: 0.05,
             cosine_distance_threshold: 0.001,
             optimization_points: 16,
             consensus: RefCell::new(consensus),
@@ -231,12 +231,12 @@ where
         }
     }
 
-    /// Set the amount to soften the loss by (lowering reduces the impact of outliers).
+    /// Set the amount to limit the loss at (lowering reduces the impact of outliers).
     ///
-    /// Default: `0.0002`
-    pub fn loss_softener(self, loss_softener: f64) -> Self {
+    /// Default: `0.05`
+    pub fn loss_cutoff(self, loss_cutoff: f64) -> Self {
         Self {
-            loss_softener,
+            loss_cutoff,
             ..self
         }
     }
@@ -435,6 +435,11 @@ where
         // A helper to convert an index match to a keypoint match given frame a and b.
         let match_ix_kps = |FeatureMatch(aix, bix)| FeatureMatch(a.keypoint(aix), b.keypoint(bix));
 
+        info!(
+            "performing brute-force matching between {} and {} features",
+            a.features.len(),
+            b.features.len()
+        );
         // Retrieve the matches which agree with each other from each frame and filter out ones that aren't within the match threshold.
         let matches: Vec<FeatureMatch<usize>> = symmetric_matching(a, b)
             .filter(|&(_, distance)| distance < self.match_threshold)
@@ -507,7 +512,7 @@ where
                 pose,
                 self.triangulator.clone(),
             )
-            .loss_softener(self.loss_softener),
+            .loss_cutoff(self.loss_cutoff),
         );
         pose = tvo.pose;
 
@@ -770,11 +775,14 @@ where
             );
 
             let levenberg_marquardt = LevenbergMarquardt::new();
-            let (mvo, termination) = levenberg_marquardt.minimize(ManyViewOptimizer::new(
-                poses,
-                observances.iter().map(|v| v.iter().copied()),
-                self.triangulator.clone(),
-            ));
+            let (mvo, termination) = levenberg_marquardt.minimize(
+                ManyViewOptimizer::new(
+                    poses,
+                    observances.iter().map(|v| v.iter().copied()),
+                    self.triangulator.clone(),
+                )
+                .loss_cutoff(self.loss_cutoff),
+            );
             let poses = mvo.poses;
             let points = mvo.points;
 
@@ -820,7 +828,7 @@ where
         }
     }
 
-    pub fn filter_observations(&mut self, reconstruction: usize) {
+    pub fn filter_observations(&mut self, reconstruction: usize, threshold: f64) {
         info!("filtering reconstruction observations");
         let landmarks: Vec<(usize, usize)> = self.reconstructions[reconstruction]
             .landmarks
@@ -852,7 +860,7 @@ where
                     .0
                     .bearing();
                 let view_point = self.views[view].pose.transform(point);
-                if 1.0 - bearing.dot(&view_point.bearing()) > self.cosine_distance_threshold {
+                if 1.0 - bearing.dot(&view_point.bearing()) > threshold {
                     // If the observance has too high of a residual, we must remove it from the landmark and the view.
                     self.landmarks[lmix].observances.remove(&view);
                     self.views[view].landmarks.remove(&feature);
