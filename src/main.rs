@@ -120,6 +120,7 @@ fn main() {
         let image = image::open(path).expect("failed to load image");
         if let Some(reconstruction) = vslam.insert_frame(feed, &image) {
             vslam.bundle_adjust_highest_observances(reconstruction, opt.bundle_adjust_landmarks);
+            vslam.retriangulate_landmarks(reconstruction);
             vslam.filter_observations(reconstruction, opt.cosine_distance_threshold);
         }
     }

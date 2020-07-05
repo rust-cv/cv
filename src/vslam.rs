@@ -906,6 +906,30 @@ where
             num_observations
         );
     }
+
+    pub fn retriangulate_landmarks(&mut self, reconstruction: usize) {
+        info!("filtering reconstruction observations");
+        let landmarks: Vec<usize> = self.reconstructions[reconstruction]
+            .landmarks
+            .iter()
+            .map(|(_, &lmix)| lmix)
+            .collect();
+        for lmix in landmarks {
+            if let Some(point) = self.triangulator.triangulate_observances(
+                self.landmarks[lmix]
+                    .observances
+                    .iter()
+                    .map(|(&view, &feature)| {
+                        (
+                            self.views[view].pose,
+                            self.frames[self.views[view].frame].features[feature].0,
+                        )
+                    }),
+            ) {
+                self.landmarks[lmix].point = point;
+            }
+        }
+    }
 }
 
 fn matching(
