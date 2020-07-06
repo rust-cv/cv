@@ -564,7 +564,7 @@ where
             })
             .collect();
 
-        info!("triangulate existing landmarks to track camera");
+        info!("find existing landmarks to track camera");
 
         // Extract the FeatureWorldMatch for each of the features.
         let matches_3d: Vec<FeatureWorldMatch<NormalizedKeyPoint>> = matches

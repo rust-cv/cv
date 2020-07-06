@@ -31,13 +31,13 @@ struct Opt {
     #[structopt(long, default_value = "3")]
     minimum_observances: usize,
     /// The number of landmarks to use in bundle adjust.
-    #[structopt(long, default_value = "128")]
+    #[structopt(long, default_value = "42")]
     bundle_adjust_landmarks: usize,
     /// The threshold for ARRSAC in cosine distance.
     #[structopt(short, long, default_value = "0.01")]
     arrsac_threshold: f64,
     /// The threshold for AKAZE.
-    #[structopt(short = "z", long, default_value = "0.0001")]
+    #[structopt(short = "z", long, default_value = "0.0003")]
     akaze_threshold: f64,
     /// Loss cutoff.
     ///
