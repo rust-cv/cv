@@ -129,6 +129,8 @@ pub struct VSlam<C, EE, PE, T, R> {
     loss_cutoff: f64,
     /// The maximum cosine distance permitted in a valid match
     cosine_distance_threshold: f64,
+    /// The maximum iterations to run Levenberg-Marquardt
+    patience: usize,
     /// The consensus algorithm
     consensus: RefCell<C>,
     /// The essential matrix estimator
@@ -167,6 +169,7 @@ where
             match_threshold: 64,
             loss_cutoff: 0.05,
             cosine_distance_threshold: 0.001,
+            patience: 1000,
             optimization_points: 16,
             consensus: RefCell::new(consensus),
             essential_estimator,
@@ -224,6 +227,13 @@ where
             cosine_distance_threshold,
             ..self
         }
+    }
+
+    /// Set the maximum iterations of Levenberg-Marquardt.
+    ///
+    /// Default: `1000`
+    pub fn patience(self, patience: usize) -> Self {
+        Self { patience, ..self }
     }
 
     /// Adds a new feed with the given intrinsics.
@@ -474,7 +484,7 @@ where
             matches.len()
         );
 
-        let lm = LevenbergMarquardt::new();
+        let lm = LevenbergMarquardt::new().with_patience(self.patience);
         let (tvo, termination) = lm.minimize(
             TwoViewOptimizer::new(
                 opti_matches.iter().copied(),
@@ -529,6 +539,7 @@ where
         frame: &Frame,
     ) -> Option<(WorldToCamera, Vec<FeatureMatch<usize>>)> {
         let reconstruction = &self.reconstructions[reconstruction];
+        info!("find existing landmarks to track camera");
         // Start by trying to match the frame's features to the landmarks in the reconstruction.
         // Get back a bunch of (Reconstruction::landmarks, Frame::features) correspondences.
         let matches: Vec<FeatureMatch<usize>> = frame
@@ -564,7 +575,7 @@ where
             })
             .collect();
 
-        info!("find existing landmarks to track camera");
+        info!("found {} landmark matches", matches.len());
 
         // Extract the FeatureWorldMatch for each of the features.
         let matches_3d: Vec<FeatureWorldMatch<NormalizedKeyPoint>> = matches

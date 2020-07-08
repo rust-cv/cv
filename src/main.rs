@@ -56,6 +56,9 @@ struct Opt {
     /// The threshold for reprojection error in cosine distance when the pointcloud is exported.
     #[structopt(long, default_value = "0.005")]
     export_cosine_distance_threshold: f64,
+    /// The maximum number of times to run Levenberg-Marquardt.
+    #[structopt(long, default_value = "1000")]
+    patience: usize,
     /// The x focal length
     #[structopt(long, default_value = "984.2439")]
     x_focal: f64,
@@ -110,6 +113,7 @@ fn main() {
     .match_threshold(opt.match_threshold)
     .optimization_points(opt.optimization_points)
     .cosine_distance_threshold(opt.cosine_distance_threshold)
+    .patience(opt.patience)
     .loss_cutoff(opt.loss_cutoff);
 
     // Add the feed.
