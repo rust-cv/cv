@@ -129,8 +129,10 @@ pub struct VSlam<C, EE, PE, T, R> {
     loss_cutoff: f64,
     /// The maximum cosine distance permitted in a valid match
     cosine_distance_threshold: f64,
-    /// The maximum iterations to run Levenberg-Marquardt
+    /// The maximum iterations to run Levenberg-Marquardt solver
     patience: usize,
+    /// The maximum iterations to run Levenberg-Marquardt and filtering
+    lm_filter_loop_iterations: usize,
     /// The consensus algorithm
     consensus: RefCell<C>,
     /// The essential matrix estimator
@@ -170,7 +172,8 @@ where
             loss_cutoff: 0.05,
             cosine_distance_threshold: 0.001,
             patience: 1000,
-            optimization_points: 16,
+            lm_filter_loop_iterations: 5,
+            optimization_points: 128,
             consensus: RefCell::new(consensus),
             essential_estimator,
             pose_estimator,
@@ -403,6 +406,32 @@ where
         reconstruction
     }
 
+    /// Triangulates the point of each match, filtering out matches which fail triangulation or chirality test.
+    fn camera_to_camera_match_points<'a>(
+        &'a self,
+        a: &'a Frame,
+        b: &'a Frame,
+        pose: CameraToCamera,
+        matches: impl Iterator<Item = FeatureMatch<usize>> + 'a,
+    ) -> impl Iterator<Item = (CameraPoint, FeatureMatch<usize>)> + 'a {
+        matches.filter_map(move |m| {
+            let FeatureMatch(a, b) = FeatureMatch(a.keypoint(m.0), b.keypoint(m.1));
+            let point_a = self.triangulator.triangulate_relative(pose, a, b)?;
+            let point_b = pose.transform(point_a);
+            let residual = 1.0 - point_a.bearing().dot(&a.bearing()) + 1.0
+                - point_b.bearing().dot(&b.bearing());
+            if residual.is_finite()
+                && (residual < self.cosine_distance_threshold
+                    && point_a.z.is_sign_positive()
+                    && point_b.z.is_sign_positive())
+            {
+                Some((point_a, m))
+            } else {
+                None
+            }
+        })
+    }
+
     /// This creates a covisibility between frames `a` and `b` using the essential matrix estimator.
     ///
     /// This method resolves to an undefined scale, and thus is only appropriate for initialization.
@@ -451,75 +480,43 @@ where
             .solve_unscaled(matches.iter().copied().map(match_ix_kps))?;
 
         // Initialize the camera points.
-        let mut matches: Vec<(CameraPoint, FeatureMatch<usize>)> = original_matches
-            .iter()
-            .copied()
-            .filter_map(|m| {
-                let FeatureMatch(a, b) = match_ix_kps(m);
-                let point_a = self.triangulator.triangulate_relative(pose, a, b)?;
-                let point_b = pose.transform(point_a);
-                let residual = 1.0 - point_a.bearing().dot(&a.bearing()) + 1.0
-                    - point_b.bearing().dot(&b.bearing());
-                if residual.is_finite()
-                    && (residual < self.cosine_distance_threshold
-                        && point_a.z.is_sign_positive()
-                        && point_b.z.is_sign_positive())
-                {
-                    Some((point_a, m))
-                } else {
-                    None
-                }
-            })
+        let mut matches: Vec<(CameraPoint, FeatureMatch<usize>)> = self
+            .camera_to_camera_match_points(a, b, pose, original_matches.iter().copied())
             .collect();
 
-        let opti_matches: Vec<FeatureMatch<NormalizedKeyPoint>> = matches
-            .choose_multiple(&mut *self.rng.borrow_mut(), self.optimization_points)
-            .map(|&(_, m)| m)
-            .map(match_ix_kps)
-            .collect::<Vec<_>>();
+        for _ in 0..self.lm_filter_loop_iterations {
+            let opti_matches: Vec<FeatureMatch<NormalizedKeyPoint>> = matches
+                .choose_multiple(&mut *self.rng.borrow_mut(), self.optimization_points)
+                .map(|&(_, m)| m)
+                .map(match_ix_kps)
+                .collect::<Vec<_>>();
 
-        info!(
-            "performing Levenberg-Marquardt on {} matches out of {}",
-            opti_matches.len(),
-            matches.len()
-        );
+            info!(
+                "performing Levenberg-Marquardt on {} matches out of {}",
+                opti_matches.len(),
+                matches.len()
+            );
 
-        let lm = LevenbergMarquardt::new().with_patience(self.patience);
-        let (tvo, termination) = lm.minimize(
-            TwoViewOptimizer::new(
-                opti_matches.iter().copied(),
-                pose,
-                self.triangulator.clone(),
-            )
-            .loss_cutoff(self.loss_cutoff),
-        );
-        pose = tvo.pose;
+            let lm = LevenbergMarquardt::new().with_patience(self.patience);
+            let (tvo, termination) = lm.minimize(
+                TwoViewOptimizer::new(
+                    opti_matches.iter().copied(),
+                    pose,
+                    self.triangulator.clone(),
+                )
+                .loss_cutoff(self.loss_cutoff),
+            );
+            pose = tvo.pose;
 
-        info!("Levenberg-Marquardt: {:?}", termination);
+            info!("Levenberg-Marquardt: {:?}", termination);
 
-        // Filter outlier matches based on cosine distance.
-        matches = original_matches
-            .iter()
-            .copied()
-            .filter_map(|m| {
-                let FeatureMatch(a, b) = match_ix_kps(m);
-                let point_a = self.triangulator.triangulate_relative(pose, a, b)?;
-                let point_b = pose.transform(point_a);
-                let residual = 1.0 - point_a.bearing().dot(&a.bearing()) + 1.0
-                    - point_b.bearing().dot(&b.bearing());
-                if residual.is_finite()
-                    && (residual < self.cosine_distance_threshold
-                        && point_a.z.is_sign_positive()
-                        && point_b.z.is_sign_positive())
-                {
-                    Some((point_a, m))
-                } else {
-                    None
-                }
-            })
-            .collect();
+            // Filter outlier matches based on cosine distance.
+            matches = self
+                .camera_to_camera_match_points(a, b, pose, original_matches.iter().copied())
+                .collect();
 
-        info!("filtering left us with {} matches", matches.len());
+            info!("filtering left us with {} matches", matches.len());
+        }
 
         info!(
             "matches remaining after all filtering stages: {}",
