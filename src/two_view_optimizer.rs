@@ -75,7 +75,13 @@ where
                 .triangulate_relative(pose, a.clone(), b.clone())?;
             let point_a_bearing = point.bearing();
             let point_b_bearing = pose.transform(point).bearing();
-            Some(a.bearing().dot(&point_a_bearing) + b.bearing().dot(&point_b_bearing))
+            let residual =
+                2.0 - a.bearing().dot(&point_a_bearing) + b.bearing().dot(&point_b_bearing);
+            Some(if residual < self.loss_cutoff {
+                residual
+            } else {
+                self.loss_cutoff
+            })
         })
     }
 }
