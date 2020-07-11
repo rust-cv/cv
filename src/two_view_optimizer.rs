@@ -1,4 +1,8 @@
-use alloc::vec::Vec;
+use argmin::{
+    core::{ArgminOp, Error},
+    solver::neldermead::NelderMead,
+};
+use average::Mean;
 use core::iter::once;
 use cv_core::nalgebra::{
     dimension::{Dynamic, U1, U4, U6},
@@ -8,6 +12,94 @@ use cv_core::{
     Bearing, CameraPoint, CameraToCamera, FeatureMatch, Pose, Projective, TriangulatorRelative,
 };
 use levenberg_marquardt::LeastSquaresProblem;
+use ndarray::{s, Array1};
+
+pub fn two_view_nelder_mead(pose: CameraToCamera) -> NelderMead<Array1<f64>, f64> {
+    let original = Array1::from(pose.se3().iter().copied().collect::<Vec<f64>>());
+    let translation_scale = original
+        .slice(s![0..3])
+        .iter()
+        .map(|n| n.powi(2))
+        .sum::<f64>()
+        .sqrt()
+        * 0.5;
+    let mut variants = vec![original; 7];
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..6 {
+        if i < 3 {
+            // Translation simplex must be relative to existing translation.
+            variants[i][i] += translation_scale;
+        } else {
+            // Rotation simplex must be kept within a small rotation (2 pi would be a complete revolution).
+            variants[i][i] += std::f64::consts::PI * 0.01;
+        }
+    }
+    NelderMead::new().with_initial_params(variants)
+}
+
+#[derive(Clone)]
+pub struct TwoViewConstraint<I, T> {
+    loss_cutoff: f64,
+    matches: I,
+    triangulator: T,
+}
+
+impl<I, P, T> TwoViewConstraint<I, T>
+where
+    I: Iterator<Item = FeatureMatch<P>> + Clone,
+    P: Bearing,
+    T: TriangulatorRelative,
+{
+    pub fn new(matches: I, triangulator: T) -> Self {
+        Self {
+            loss_cutoff: 0.01,
+            matches,
+            triangulator,
+        }
+    }
+
+    pub fn loss_cutoff(self, loss_cutoff: f64) -> Self {
+        Self {
+            loss_cutoff,
+            ..self
+        }
+    }
+
+    pub fn residuals(&self, pose: CameraToCamera) -> impl Iterator<Item = f64> + '_
+    where
+        P: Clone,
+    {
+        self.matches.clone().filter_map(move |FeatureMatch(a, b)| {
+            let point = self
+                .triangulator
+                .triangulate_relative(pose, a.clone(), b.clone())?;
+            let point_a_bearing = point.bearing();
+            let point_b_bearing = pose.transform(point).bearing();
+            Some(a.bearing().dot(&point_a_bearing) + b.bearing().dot(&point_b_bearing))
+        })
+    }
+}
+
+impl<I, P, T> ArgminOp for TwoViewConstraint<I, T>
+where
+    I: Iterator<Item = FeatureMatch<P>> + Clone,
+    P: Bearing + Clone,
+    T: TriangulatorRelative + Clone,
+{
+    type Param = Array1<f64>;
+    type Output = f64;
+    type Hessian = ();
+    type Jacobian = ();
+    type Float = f64;
+
+    fn apply(&self, p: &Self::Param) -> Result<Self::Output, Error> {
+        let pose = Pose::from_se3(Vector6::from_row_slice(
+            p.as_slice().expect("param was not contiguous array"),
+        ));
+        let mean: Mean = self.residuals(pose).collect();
+        Ok(mean.mean())
+    }
+}
 
 #[derive(Clone)]
 pub struct TwoViewOptimizer<I, T> {

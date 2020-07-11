@@ -1,4 +1,3 @@
-use alloc::vec::Vec;
 use cv_core::nalgebra::{
     dimension::{Dynamic, U1, U4, U6},
     DMatrix, DVector, Matrix3, VecStorage, Vector4, Vector6,
