@@ -76,7 +76,7 @@ where
             let point_a_bearing = point.bearing();
             let point_b_bearing = pose.transform(point).bearing();
             let residual =
-                2.0 - a.bearing().dot(&point_a_bearing) + b.bearing().dot(&point_b_bearing);
+                2.0 - a.bearing().dot(&point_a_bearing) - b.bearing().dot(&point_b_bearing);
             Some(if residual < self.loss_cutoff {
                 residual
             } else {
