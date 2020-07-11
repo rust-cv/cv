@@ -69,19 +69,25 @@ where
     where
         P: Clone,
     {
-        self.matches.clone().filter_map(move |FeatureMatch(a, b)| {
-            let point = self
+        self.matches.clone().flat_map(move |FeatureMatch(a, b)| {
+            if let Some(pa) = self
                 .triangulator
-                .triangulate_relative(pose, a.clone(), b.clone())?;
-            let point_a_bearing = point.bearing();
-            let point_b_bearing = pose.transform(point).bearing();
-            let residual =
-                2.0 - a.bearing().dot(&point_a_bearing) - b.bearing().dot(&point_b_bearing);
-            Some(if residual < self.loss_cutoff {
-                residual
+                .triangulate_relative(pose, a.clone(), b.clone())
+            {
+                let pb = pose.transform(pa);
+                let sim_a = pa.bearing().dot(&a.bearing());
+                let sim_b = pb.bearing().dot(&b.bearing());
+                let loss = |n: f64| {
+                    if n > self.loss_cutoff {
+                        self.loss_cutoff
+                    } else {
+                        n
+                    }
+                };
+                once(loss(1.0 - sim_a)).chain(once(loss(1.0 - sim_b)))
             } else {
-                self.loss_cutoff
-            })
+                once(0.0).chain(once(0.0))
+            }
         })
     }
 }
