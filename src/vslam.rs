@@ -76,8 +76,6 @@ impl Frame {
 /// A 3d point in space that has been observed on two or more frames
 #[derive(Debug, Clone)]
 struct Landmark {
-    /// The world coordinate of the landmark.
-    point: WorldPoint,
     /// Contains a map from VSlam::views indices to Frame::features indices.
     observances: HashMap<usize, usize>,
 }
@@ -396,7 +394,7 @@ where
         &mut self,
         pair: Pair,
         pose: CameraToCamera,
-        landmarks: Vec<(CameraPoint, FeatureMatch<usize>)>,
+        landmarks: Vec<FeatureMatch<usize>>,
     ) -> usize {
         // Create a new empty reconstruction
         let reconstruction = self.reconstructions.insert(Reconstruction::default());
@@ -413,13 +411,11 @@ where
             landmarks: Default::default(),
         });
         // Add landmarks.
-        for (CameraPoint(point), FeatureMatch(fa, fb)) in landmarks {
-            let point = WorldPoint(point);
+        for FeatureMatch(fa, fb) in landmarks {
             // Create the landmark.
             let lmix = self.reconstructions[reconstruction]
                 .landmarks
                 .insert(Landmark {
-                    point,
                     observances: hashmap! {
                         view_a => fa,
                         view_b => fb,
@@ -459,7 +455,7 @@ where
         b: &'a Frame,
         pose: CameraToCamera,
         matches: impl Iterator<Item = FeatureMatch<usize>> + 'a,
-    ) -> impl Iterator<Item = (CameraPoint, FeatureMatch<usize>)> + 'a {
+    ) -> impl Iterator<Item = FeatureMatch<usize>> + 'a {
         matches.filter_map(move |m| {
             let FeatureMatch(a, b) = FeatureMatch(a.keypoint(m.0), b.keypoint(m.1));
             let point_a = self.triangulator.triangulate_relative(pose, a, b)?;
@@ -471,7 +467,7 @@ where
                     && point_a.z.is_sign_positive()
                     && point_b.z.is_sign_positive())
             {
-                Some((point_a, m))
+                Some(m)
             } else {
                 None
             }
@@ -485,7 +481,7 @@ where
         &self,
         a: &Frame,
         b: &Frame,
-    ) -> Option<(CameraToCamera, Vec<(CameraPoint, FeatureMatch<usize>)>)> {
+    ) -> Option<(CameraToCamera, Vec<FeatureMatch<usize>>)> {
         // A helper to convert an index match to a keypoint match given frame a and b.
         let match_ix_kps = |FeatureMatch(aix, bix)| FeatureMatch(a.keypoint(aix), b.keypoint(bix));
 
@@ -526,14 +522,14 @@ where
             .solve_unscaled(matches.iter().copied().map(match_ix_kps))?;
 
         // Initialize the camera points.
-        let mut matches: Vec<(CameraPoint, FeatureMatch<usize>)> = self
+        let mut matches: Vec<FeatureMatch<usize>> = self
             .camera_to_camera_match_points(a, b, pose, original_matches.iter().copied())
             .collect();
 
         for _ in 0..self.two_view_filter_loop_iterations {
             let opti_matches: Vec<FeatureMatch<NormalizedKeyPoint>> = matches
                 .choose_multiple(&mut *self.rng.borrow_mut(), self.optimization_points)
-                .map(|&(_, m)| m)
+                .copied()
                 .map(match_ix_kps)
                 .collect::<Vec<_>>();
 
@@ -593,7 +589,7 @@ where
         reconstruction: usize,
         frame: &Frame,
     ) -> Option<(WorldToCamera, Vec<FeatureMatch<usize>>)> {
-        let reconstruction = &self.reconstructions[reconstruction];
+        let reconstruction_object = &self.reconstructions[reconstruction];
         info!("find existing landmarks to track camera");
         // Start by trying to match the frame's features to the landmarks in the reconstruction.
         // Get back a bunch of (Reconstruction::landmarks, Frame::features) correspondences.
@@ -604,7 +600,7 @@ where
             .filter_map(|(ix, &(_, descriptor))| {
                 // Find the nearest neighbors.
                 let mut neighbors = [Neighbor::invalid(); 1];
-                let lm_feature_id = reconstruction
+                let lm_feature_id = reconstruction_object
                     .features
                     .nearest(
                         &descriptor,
@@ -614,14 +610,14 @@ where
                     )
                     .first()
                     .cloned()?;
-                let distance = reconstruction
+                let distance = reconstruction_object
                     .features
                     .feature(lm_feature_id.index as u32)
                     .distance(&descriptor);
                 // TODO: Perhaps add symmetric filtering and lowes ratio (by landmark, not by feature) filtering here
                 if distance < self.match_threshold {
                     Some(FeatureMatch(
-                        reconstruction.feature_landmarks[&lm_feature_id.index],
+                        reconstruction_object.feature_landmarks[&lm_feature_id.index],
                         ix,
                     ))
                 } else {
@@ -635,8 +631,11 @@ where
         // Extract the FeatureWorldMatch for each of the features.
         let matches_3d: Vec<FeatureWorldMatch<NormalizedKeyPoint>> = matches
             .iter()
-            .map(|&FeatureMatch(lmix, fix)| {
-                FeatureWorldMatch(frame.features[fix].0, reconstruction.landmarks[lmix].point)
+            .filter_map(|&FeatureMatch(landmark, fix)| {
+                Some(FeatureWorldMatch(
+                    frame.features[fix].0,
+                    self.triangulate_landmark(reconstruction, landmark)?,
+                ))
             })
             .collect();
 
@@ -650,6 +649,8 @@ where
             .consensus
             .borrow_mut()
             .model_inliers(&self.pose_estimator, matches_3d.iter().copied())?;
+
+        // TODO: Add a single-view optimizer here.
 
         // Reconstitute only the inlier matches into a matches vector.
         Some((pose, inliers.into_iter().map(|ix| matches[ix]).collect()))
@@ -673,14 +674,15 @@ where
         min_observances: usize,
         path: impl AsRef<Path>,
     ) {
-        let reconstruction = &self.reconstructions[reconstruction];
+        let reconstruction_object = &self.reconstructions[reconstruction];
         // Output point cloud.
-        let points: Vec<Point3<f64>> = reconstruction
+        let points: Vec<Point3<f64>> = reconstruction_object
             .landmarks
             .iter()
-            .filter_map(|(_, lm)| {
+            .filter_map(|(lmix, lm)| {
                 if lm.observances.len() >= min_observances {
-                    lm.point.point()
+                    self.triangulate_landmark(reconstruction, lmix)
+                        .and_then(Projective::point)
                 } else {
                     None
                 }
@@ -874,6 +876,34 @@ where
         }
     }
 
+    pub fn remove_landmark_observance(
+        &mut self,
+        reconstruction: usize,
+        landmark: usize,
+        view: usize,
+        feature: usize,
+    ) {
+        self.reconstructions[reconstruction].landmarks[landmark]
+            .observances
+            .remove(&view);
+        self.reconstructions[reconstruction].views[view]
+            .landmarks
+            .remove(&feature);
+    }
+
+    pub fn remove_landmark(&mut self, reconstruction: usize, landmark: usize) {
+        let observances: Vec<(usize, usize)> = self.reconstructions[reconstruction].landmarks
+            [landmark]
+            .observances
+            .iter()
+            .map(|(&view, &feature)| (view, feature))
+            .collect();
+
+        for (view, feature) in observances {
+            self.remove_landmark_observance(reconstruction, landmark, view, feature);
+        }
+    }
+
     pub fn filter_observations(&mut self, reconstruction: usize, threshold: f64) {
         info!("filtering reconstruction observations");
         let landmarks: Vec<usize> = self.reconstructions[reconstruction]
@@ -893,40 +923,40 @@ where
             num_observations
         );
         for lmix in landmarks {
-            let point = self.reconstructions[reconstruction].landmarks[lmix].point;
-            let observances: Vec<(usize, usize)> = self.reconstructions[reconstruction].landmarks
-                [lmix]
-                .observances
-                .iter()
-                .map(|(&view, &feature)| (view, feature))
-                .collect();
+            if let Some(point) = self.triangulate_landmark(reconstruction, lmix) {
+                let observances: Vec<(usize, usize)> = self.reconstructions[reconstruction]
+                    .landmarks[lmix]
+                    .observances
+                    .iter()
+                    .map(|(&view, &feature)| (view, feature))
+                    .collect();
 
-            for (view, feature) in observances {
-                let bearing = self.frames[self.reconstructions[reconstruction].views[view].frame]
-                    .features[feature]
-                    .0
-                    .bearing();
-                let view_point = self.reconstructions[reconstruction].views[view]
-                    .pose
-                    .transform(point);
-                if 1.0 - bearing.dot(&view_point.bearing()) > threshold {
-                    // If the observance has too high of a residual, we must remove it from the landmark and the view.
-                    self.reconstructions[reconstruction].landmarks[lmix]
-                        .observances
-                        .remove(&view);
-                    self.reconstructions[reconstruction].views[view]
-                        .landmarks
-                        .remove(&feature);
+                for (view, feature) in observances {
+                    let bearing = self.frames
+                        [self.reconstructions[reconstruction].views[view].frame]
+                        .features[feature]
+                        .0
+                        .bearing();
+                    let view_point = self.reconstructions[reconstruction].views[view]
+                        .pose
+                        .transform(point);
+                    if 1.0 - bearing.dot(&view_point.bearing()) > threshold {
+                        // If the observance has too high of a residual, we must remove it from the landmark and the view.
+                        self.remove_landmark_observance(reconstruction, lmix, view, feature);
+                    }
                 }
-            }
-
-            if self.reconstructions[reconstruction].landmarks[lmix]
-                .observances
-                .len()
-                < 2
-            {
-                // In this case the landmark should be removed, as it no longer has meaning without at least two views.
-                self.reconstructions[reconstruction].landmarks.remove(lmix);
+                if self.reconstructions[reconstruction].landmarks[lmix]
+                    .observances
+                    .len()
+                    < 2
+                {
+                    // In this case the landmark should be removed, as it no longer has meaning without at least two views.
+                    // TODO: This needs to split this observance into its own landmark.
+                    self.reconstructions[reconstruction].landmarks.remove(lmix);
+                }
+            } else {
+                // TODO: This needs to be changed to split the landmark into separate landmarks for each observance.
+                self.remove_landmark(reconstruction, lmix);
             }
         }
 
@@ -964,30 +994,24 @@ where
         );
     }
 
-    pub fn retriangulate_landmarks(&mut self, reconstruction: usize) {
-        info!("filtering reconstruction observations");
-        let landmarks: Vec<usize> = self.reconstructions[reconstruction]
-            .landmarks
-            .iter()
-            .map(|(lmix, _)| lmix)
-            .collect();
-        for lmix in landmarks {
-            if let Some(point) = self.triangulator.triangulate_observances(
-                self.reconstructions[reconstruction].landmarks[lmix]
-                    .observances
-                    .iter()
-                    .map(|(&view, &feature)| {
-                        (
-                            self.reconstructions[reconstruction].views[view].pose,
-                            self.frames[self.reconstructions[reconstruction].views[view].frame]
-                                .features[feature]
-                                .0,
-                        )
-                    }),
-            ) {
-                self.reconstructions[reconstruction].landmarks[lmix].point = point;
-            }
-        }
+    pub fn triangulate_landmark(
+        &self,
+        reconstruction: usize,
+        landmark: usize,
+    ) -> Option<WorldPoint> {
+        self.triangulator.triangulate_observances(
+            self.reconstructions[reconstruction].landmarks[landmark]
+                .observances
+                .iter()
+                .map(|(&view, &feature)| {
+                    (
+                        self.reconstructions[reconstruction].views[view].pose,
+                        self.frames[self.reconstructions[reconstruction].views[view].frame]
+                            .features[feature]
+                            .0,
+                    )
+                }),
+        )
     }
 }
 

@@ -134,14 +134,13 @@ fn main() {
         if let Some(reconstruction) = vslam.insert_frame(feed, &image) {
             if vslam.reconstruction_view_count(reconstruction) >= 3 {
                 for _ in 0..opt.bundle_adjust_filter_iterations {
-                    // If there are three or more views, run global bundle adjust.
+                    // If there are three or more views, run global bundle-adjust.
                     vslam.bundle_adjust_highest_observances(
                         reconstruction,
                         opt.bundle_adjust_landmarks,
                     );
-                    vslam.retriangulate_landmarks(reconstruction);
+                    // Filter observations after running bundle-adjust.
                     vslam.filter_observations(reconstruction, opt.cosine_distance_threshold);
-                    vslam.retriangulate_landmarks(reconstruction);
                 }
             }
         }
