@@ -31,7 +31,7 @@ struct Opt {
     #[structopt(long, default_value = "3")]
     minimum_observances: usize,
     /// The number of landmarks to use in bundle adjust.
-    #[structopt(long, default_value = "42")]
+    #[structopt(long, default_value = "16384")]
     bundle_adjust_landmarks: usize,
     /// The number of iterations to run bundle adjust and filtering globally.
     #[structopt(long, default_value = "2")]
