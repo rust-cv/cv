@@ -22,7 +22,7 @@ pub fn two_view_nelder_mead(pose: CameraToCamera) -> NelderMead<Array1<f64>, f64
         .map(|n| n.powi(2))
         .sum::<f64>()
         .sqrt()
-        * 0.5;
+        * 0.1;
     let mut variants = vec![original; 7];
     #[allow(clippy::needless_range_loop)]
     for i in 0..6 {
