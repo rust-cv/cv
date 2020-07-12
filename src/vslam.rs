@@ -61,6 +61,10 @@ impl Frame {
     fn keypoint(&self, ix: usize) -> NormalizedKeyPoint {
         self.features[ix].0
     }
+
+    fn descriptor(&self, ix: usize) -> &BitArray<64> {
+        &self.features[ix].1
+    }
 }
 
 /// A 3d point in space that has been observed on two or more frames
@@ -138,8 +142,6 @@ pub struct VSlam<C, EE, PE, T, R> {
     two_view_filter_loop_iterations: usize,
     /// The maximum iterations to optimize many views.
     many_view_patience: usize,
-    /// Tracking lowes ratio.
-    tracking_lowes_ratio: f64,
     /// The consensus algorithm
     consensus: RefCell<C>,
     /// The essential matrix estimator
@@ -181,7 +183,6 @@ where
             two_view_std_dev_threshold: 0.00000001,
             two_view_filter_loop_iterations: 2,
             many_view_patience: 1000,
-            tracking_lowes_ratio: 0.5,
             optimization_points: 128,
             consensus: RefCell::new(consensus),
             essential_estimator,
@@ -584,28 +585,32 @@ where
     fn locate_landmark(
         &self,
         reconstruction: usize,
-        descriptor: &BitArray<64>,
+        frame: &Frame,
+        feature: usize,
         searcher: &mut Searcher,
     ) -> Option<usize> {
         // Find the nearest neighbors.
-        let mut neighbors = [Neighbor::invalid(); 2];
-        let neighbors = self.reconstructions[reconstruction]
+        let descriptor = frame.descriptor(feature);
+        let mut neighbors = [Neighbor::invalid(); 1];
+        let best_observation = self.reconstructions[reconstruction]
             .descriptor_observations
-            .nearest(descriptor, 24, searcher, &mut neighbors);
-        let best_observation = neighbors.first().cloned()?;
-        let best_distance = self.reconstructions[reconstruction]
+            .nearest(descriptor, 24, searcher, &mut neighbors)
+            .first()
+            .cloned()?;
+        let best_descriptor = self.reconstructions[reconstruction]
             .descriptor_observations
-            .feature(best_observation.index as u32)
-            .distance(descriptor);
-        let second_observation = neighbors.get(1).cloned()?;
-        let second_distance = self.reconstructions[reconstruction]
-            .descriptor_observations
-            .feature(second_observation.index as u32)
-            .distance(descriptor);
-        // TODO: Add symmetric filtering here in addition to the lowes ratio filtering.
-        if best_distance < self.match_threshold
-            && (best_distance as f64) < second_distance as f64 * self.tracking_lowes_ratio
-        {
+            .feature(best_observation.index as u32);
+        let best_distance = best_descriptor.distance(descriptor);
+
+        // Find the index of the best feature match from the frame to the best landmark descriptor.
+        let symmetric_feature = frame
+            .descriptors()
+            .enumerate()
+            .min_by_key(|(_, other_descriptor)| best_descriptor.distance(other_descriptor))?
+            .0;
+
+        // Ensure the distance is within the threshold and the match is symmetric.
+        if best_distance < self.match_threshold && symmetric_feature == feature {
             let (view, feature) =
                 self.reconstructions[reconstruction].observations[best_observation.index];
             Some(self.reconstructions[reconstruction].views[view].landmarks[feature])
@@ -626,13 +631,10 @@ where
         // Start by trying to match the frame's features to the landmarks in the reconstruction.
         // Get back a bunch of (Reconstruction::landmarks, Frame::features) correspondences.
         let mut searcher = Searcher::default();
-        let matches: Vec<FeatureMatch<usize>> = frame
-            .features
-            .iter()
-            .enumerate()
-            .filter_map(|(ix, (_, descriptor))| {
-                self.locate_landmark(reconstruction, descriptor, &mut searcher)
-                    .map(|landmark| FeatureMatch(landmark, ix))
+        let matches: Vec<FeatureMatch<usize>> = (0..frame.features.len())
+            .filter_map(|feature| {
+                self.locate_landmark(reconstruction, frame, feature, &mut searcher)
+                    .map(|landmark| FeatureMatch(landmark, feature))
             })
             .collect();
 
@@ -658,7 +660,7 @@ where
             .collect();
 
         info!(
-            "estimate the pose of the camera using {} existing landmarks",
+            "estimate the pose of the camera using {} triangulatable landmarks",
             matches_3d.len()
         );
 
