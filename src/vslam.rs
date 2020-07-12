@@ -4,14 +4,12 @@ use cv::{
     camera::pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix, NormalizedKeyPoint},
     feature::akaze,
     knn::hnsw::{Searcher, HNSW},
-    optimize::lm::{LevenbergMarquardt, TerminationReason},
-    Bearing, BitArray, CameraModel, CameraPoint, CameraToCamera, Consensus, Estimator,
-    FeatureMatch, FeatureWorldMatch, Pose, Projective, TriangulatorObservances,
-    TriangulatorRelative, WorldPoint, WorldToCamera,
+    Bearing, BitArray, CameraModel, CameraToCamera, Consensus, Estimator, FeatureMatch,
+    FeatureWorldMatch, Pose, Projective, TriangulatorObservances, TriangulatorRelative, WorldPoint,
+    WorldToCamera,
 };
 use cv_optimize::{
-    many_view_nelder_mead, two_view_nelder_mead, ManyViewConstraint, ManyViewOptimizer,
-    TwoViewConstraint, TwoViewOptimizer,
+    many_view_nelder_mead, two_view_nelder_mead, ManyViewConstraint, TwoViewConstraint,
 };
 use image::DynamicImage;
 use log::*;
@@ -21,14 +19,14 @@ use rand::{seq::SliceRandom, Rng};
 use slab::Slab;
 use space::Neighbor;
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 
 struct OptimizationObserver;
 
 impl<T: ArgminOp> Observe<T> for OptimizationObserver {
     fn observe_iter(&mut self, state: &IterState<T>, _kv: &ArgminKV) -> Result<(), Error> {
-        info!(
+        debug!(
             "on iteration {} out of {} with total evaluations {} and current cost {}",
             state.iter, state.max_iters, state.cost_func_count, state.cost
         );
@@ -56,10 +54,6 @@ struct Frame {
 }
 
 impl Frame {
-    fn keypoints(&self) -> impl Iterator<Item = NormalizedKeyPoint> + Clone + '_ {
-        self.features.iter().map(|&(kp, _)| kp)
-    }
-
     fn descriptors(&self) -> impl Iterator<Item = BitArray<64>> + Clone + '_ {
         self.features.iter().map(|&(_, d)| d)
     }
@@ -67,17 +61,13 @@ impl Frame {
     fn keypoint(&self, ix: usize) -> NormalizedKeyPoint {
         self.features[ix].0
     }
-
-    fn descriptor(&self, ix: usize) -> BitArray<64> {
-        self.features[ix].1
-    }
 }
 
 /// A 3d point in space that has been observed on two or more frames
 #[derive(Debug, Clone)]
 struct Landmark {
     /// Contains a map from VSlam::views indices to Frame::features indices.
-    observances: HashMap<usize, usize>,
+    observations: HashMap<usize, usize>,
 }
 
 /// A frame which has been incorporated into a reconstruction.
@@ -87,8 +77,8 @@ struct View {
     frame: usize,
     /// Pose in the reconstruction of the view
     pose: WorldToCamera,
-    /// A map from Frame::features indices to Reconstruction::landmarks indices
-    landmarks: HashMap<usize, usize>,
+    /// A vector containing the Reconstruction::landmarks indices for each feature in the frame
+    landmarks: Vec<usize>,
 }
 
 /// Frames from a video source
@@ -110,9 +100,9 @@ struct Reconstruction {
     /// The landmarks contained in this reconstruction
     landmarks: Slab<Landmark>,
     /// The HNSW to look up all landmarks in the reconstruction
-    features: HNSW<BitArray<64>>,
-    /// The map from HNSW entries to Reconstruction::landmarks indices
-    feature_landmarks: HashMap<usize, usize>,
+    descriptor_observations: HNSW<BitArray<64>>,
+    /// Vector for each HNSW entry to (Reconstruction::view, Frame::features) indices
+    observations: Vec<(usize, usize)>,
 }
 
 /// Contains the results of a bundle adjust
@@ -130,8 +120,6 @@ pub struct VSlam<C, EE, PE, T, R> {
     reconstructions: Slab<Reconstruction>,
     /// Contains all the frames
     frames: Slab<Frame>,
-    /// Helper for HNSW.
-    searcher: RefCell<Searcher>,
     /// The threshold used for akaze
     akaze_threshold: f64,
     /// The threshold distance below which a match is allowed
@@ -150,6 +138,8 @@ pub struct VSlam<C, EE, PE, T, R> {
     two_view_filter_loop_iterations: usize,
     /// The maximum iterations to optimize many views.
     many_view_patience: usize,
+    /// Tracking lowes ratio.
+    tracking_lowes_ratio: f64,
     /// The consensus algorithm
     consensus: RefCell<C>,
     /// The essential matrix estimator
@@ -183,7 +173,6 @@ where
             feeds: Default::default(),
             reconstructions: Default::default(),
             frames: Default::default(),
-            searcher: Default::default(),
             akaze_threshold: 0.001,
             match_threshold: 64,
             loss_cutoff: 0.05,
@@ -192,6 +181,7 @@ where
             two_view_std_dev_threshold: 0.00000001,
             two_view_filter_loop_iterations: 2,
             many_view_patience: 1000,
+            tracking_lowes_ratio: 0.5,
             optimization_points: 128,
             consensus: RefCell::new(consensus),
             essential_estimator,
@@ -261,16 +251,6 @@ where
         }
     }
 
-    /// Set the maximum iterations of many-view optimization.
-    ///
-    /// Default: `1000`
-    pub fn many_view_patience(self, many_view_patience: usize) -> Self {
-        Self {
-            many_view_patience,
-            ..self
-        }
-    }
-
     /// The threshold of mean cosine distance standard deviation that terminates optimization.
     ///
     /// The smaller this value is the more accurate the output will be, but it will take longer to execute.
@@ -279,6 +259,16 @@ where
     pub fn two_view_std_dev_threshold(self, two_view_std_dev_threshold: f64) -> Self {
         Self {
             two_view_std_dev_threshold,
+            ..self
+        }
+    }
+
+    /// Set the maximum iterations of many-view optimization.
+    ///
+    /// Default: `1000`
+    pub fn many_view_patience(self, many_view_patience: usize) -> Self {
+        Self {
+            many_view_patience,
             ..self
         }
     }
@@ -336,8 +326,8 @@ where
         let (a, b) = self.get_pair(pair).expect("tried to match an invalid pair");
 
         // Add the outcome.
-        let (pose, landmarks) = self.init_reconstruction(a, b)?;
-        Some(self.add_reconstruction(pair, pose, landmarks))
+        let (pose, matches) = self.init_reconstruction(a, b)?;
+        Some(self.add_reconstruction(pair, pose, matches))
     }
 
     /// Attempts to track the camera.
@@ -349,6 +339,21 @@ where
 
         // Add the outcome.
         Some(self.incorporate_frame(reconstruction, frame, pose, landmarks))
+    }
+
+    fn create_landmark_from_observation(
+        &mut self,
+        reconstruction: usize,
+        view: usize,
+        feature: usize,
+    ) -> usize {
+        self.reconstructions[reconstruction]
+            .landmarks
+            .insert(Landmark {
+                observations: hashmap! {
+                    view => feature,
+                },
+            })
     }
 
     /// Incorporate a frame using the precomputed pose and landmark to feature correspondences.
@@ -363,29 +368,49 @@ where
         pose: WorldToCamera,
         landmarks: Vec<FeatureMatch<usize>>,
     ) -> usize {
-        // Create new view.
+        // Create new view (with feature_indices empty initially).
         let view = self.reconstructions[reconstruction].views.insert(View {
             frame,
             pose,
-            landmarks: landmarks
-                .iter()
-                .map(|&FeatureMatch(rlmix, fix)| (fix, rlmix))
-                .collect(),
+            landmarks: vec![],
         });
-        // Add landmark connections where they need to be added.
-        for FeatureMatch(lmix, fix) in landmarks {
-            // Add the observance to the landmark.
-            self.reconstructions[reconstruction].landmarks[lmix]
-                .observances
-                .insert(view, fix);
-            // Add feature to the HNSW.
-            let feature_id = self.reconstructions[reconstruction].features.insert(
-                self.frames[frame].features[fix].1,
-                &mut self.searcher.borrow_mut(),
-            );
+
+        // Retrieve the number of features in the frame.
+        let num_features = self.frames[frame].features.len();
+
+        // Create a map of the existing features to their landmarks.
+        let existing_feature_landmarks: HashMap<usize, usize> = landmarks
+            .into_iter()
+            .map(|FeatureMatch(lmix, fix)| (fix, lmix))
+            .collect();
+
+        // Init a searcher only once to avoid excessive allocation durring k-NN searches.
+        let mut searcher = Searcher::default();
+        // Iterate through all features in the frame.
+        for feature in 0..num_features {
+            // Add the feature to the HNSW.
             self.reconstructions[reconstruction]
-                .feature_landmarks
-                .insert(feature_id as usize, lmix);
+                .descriptor_observations
+                .insert(self.frames[frame].features[feature].1, &mut searcher);
+            // Add the HNSW index to the HNSW index to the feature landmark map.
+            self.reconstructions[reconstruction]
+                .observations
+                .push((view, feature));
+            // Check if the feature is part of an existing landmark.
+            let landmark = if let Some(&landmark) = existing_feature_landmarks.get(&feature) {
+                // Add this observation to the observations of this landmark.
+                self.reconstructions[reconstruction].landmarks[landmark]
+                    .observations
+                    .insert(view, feature);
+                landmark
+            } else {
+                // Create the landmark.
+                self.create_landmark_from_observation(reconstruction, view, feature)
+            };
+            // Add the Reconstruction::landmark index to the feature landmarks vector for this view.
+            self.reconstructions[reconstruction].views[view]
+                .landmarks
+                .push(landmark);
         }
         view
     }
@@ -394,57 +419,29 @@ where
         &mut self,
         pair: Pair,
         pose: CameraToCamera,
-        landmarks: Vec<FeatureMatch<usize>>,
+        matches: Vec<FeatureMatch<usize>>,
     ) -> usize {
         // Create a new empty reconstruction
         let reconstruction = self.reconstructions.insert(Reconstruction::default());
-        // Create view A.
-        let view_a = self.reconstructions[reconstruction].views.insert(View {
-            frame: pair.0,
-            pose: WorldToCamera::identity(),
-            landmarks: Default::default(),
-        });
-        // Create view B.
-        let view_b = self.reconstructions[reconstruction].views.insert(View {
-            frame: pair.1,
-            pose: WorldToCamera(pose.0),
-            landmarks: Default::default(),
-        });
-        // Add landmarks.
-        for FeatureMatch(fa, fb) in landmarks {
-            // Create the landmark.
-            let lmix = self.reconstructions[reconstruction]
-                .landmarks
-                .insert(Landmark {
-                    observances: hashmap! {
-                        view_a => fa,
-                        view_b => fb,
-                    },
-                });
-            // Add the landmark to the two views.
-            self.reconstructions[reconstruction].views[view_a]
-                .landmarks
-                .insert(fa, lmix);
-            self.reconstructions[reconstruction].views[view_b]
-                .landmarks
-                .insert(fb, lmix);
-            // Add feature a to the HNSW.
-            let feature_a_id = self.reconstructions[reconstruction].features.insert(
-                self.frames[pair.0].features[fa].1,
-                &mut self.searcher.borrow_mut(),
-            );
-            self.reconstructions[reconstruction]
-                .feature_landmarks
-                .insert(feature_a_id as usize, lmix);
-            // Add feature b to the HNSW.
-            let feature_b_id = self.reconstructions[reconstruction].features.insert(
-                self.frames[pair.1].features[fb].1,
-                &mut self.searcher.borrow_mut(),
-            );
-            self.reconstructions[reconstruction]
-                .feature_landmarks
-                .insert(feature_b_id as usize, lmix);
-        }
+        // Add frame A to new reconstruction using an empty set of landmarks so all features are added as new landmarks.
+        let view_a = self.incorporate_frame(reconstruction, pair.0, Pose::identity(), vec![]);
+        // Iterate through every match in the matches vector and extract the landmark ID to insert into view_b.
+        let landmarks = matches
+            .into_iter()
+            .map(|FeatureMatch(aix, bix)| {
+                FeatureMatch(
+                    self.reconstructions[reconstruction].views[view_a].landmarks[aix],
+                    bix,
+                )
+            })
+            .collect();
+        // Add frame B to new reconstruction using the extracted landmark, bix pairs.
+        self.incorporate_frame(
+            reconstruction,
+            pair.0,
+            WorldToCamera::from(pose.isometry()),
+            landmarks,
+        );
         reconstruction
     }
 
@@ -581,6 +578,42 @@ where
         Some((pose, matches))
     }
 
+    /// Find the best matching landmark, filtering appropriately.
+    ///
+    /// Returns a Reconstruction::landmark index.
+    fn locate_landmark(
+        &self,
+        reconstruction: usize,
+        descriptor: &BitArray<64>,
+        searcher: &mut Searcher,
+    ) -> Option<usize> {
+        // Find the nearest neighbors.
+        let mut neighbors = [Neighbor::invalid(); 2];
+        let neighbors = self.reconstructions[reconstruction]
+            .descriptor_observations
+            .nearest(descriptor, 24, searcher, &mut neighbors);
+        let best_observation = neighbors.first().cloned()?;
+        let best_distance = self.reconstructions[reconstruction]
+            .descriptor_observations
+            .feature(best_observation.index as u32)
+            .distance(descriptor);
+        let second_observation = neighbors.get(1).cloned()?;
+        let second_distance = self.reconstructions[reconstruction]
+            .descriptor_observations
+            .feature(second_observation.index as u32)
+            .distance(descriptor);
+        // TODO: Add symmetric filtering here in addition to the lowes ratio filtering.
+        if best_distance < self.match_threshold
+            && (best_distance as f64) < second_distance as f64 * self.tracking_lowes_ratio
+        {
+            let (view, feature) =
+                self.reconstructions[reconstruction].observations[best_observation.index];
+            Some(self.reconstructions[reconstruction].views[view].landmarks[feature])
+        } else {
+            None
+        }
+    }
+
     /// Attempts to track the frame in the reconstruction.
     ///
     /// Returns the pose and a vector of indices in the format (Reconstruction::landmarks, Frame::features).
@@ -589,48 +622,33 @@ where
         reconstruction: usize,
         frame: &Frame,
     ) -> Option<(WorldToCamera, Vec<FeatureMatch<usize>>)> {
-        let reconstruction_object = &self.reconstructions[reconstruction];
         info!("find existing landmarks to track camera");
         // Start by trying to match the frame's features to the landmarks in the reconstruction.
         // Get back a bunch of (Reconstruction::landmarks, Frame::features) correspondences.
+        let mut searcher = Searcher::default();
         let matches: Vec<FeatureMatch<usize>> = frame
             .features
             .iter()
             .enumerate()
-            .filter_map(|(ix, &(_, descriptor))| {
-                // Find the nearest neighbors.
-                let mut neighbors = [Neighbor::invalid(); 1];
-                let lm_feature_id = reconstruction_object
-                    .features
-                    .nearest(
-                        &descriptor,
-                        24,
-                        &mut self.searcher.borrow_mut(),
-                        &mut neighbors,
-                    )
-                    .first()
-                    .cloned()?;
-                let distance = reconstruction_object
-                    .features
-                    .feature(lm_feature_id.index as u32)
-                    .distance(&descriptor);
-                // TODO: Perhaps add symmetric filtering and lowes ratio (by landmark, not by feature) filtering here
-                if distance < self.match_threshold {
-                    Some(FeatureMatch(
-                        reconstruction_object.feature_landmarks[&lm_feature_id.index],
-                        ix,
-                    ))
-                } else {
-                    None
-                }
+            .filter_map(|(ix, (_, descriptor))| {
+                self.locate_landmark(reconstruction, descriptor, &mut searcher)
+                    .map(|landmark| FeatureMatch(landmark, ix))
             })
             .collect();
 
-        info!("found {} landmark matches", matches.len());
+        info!("found {} suitable landmark matches", matches.len());
 
         // Extract the FeatureWorldMatch for each of the features.
         let matches_3d: Vec<FeatureWorldMatch<NormalizedKeyPoint>> = matches
             .iter()
+            .filter(|&&FeatureMatch(landmark, _)| {
+                // Only allow landmarks to be triangulated with at least observation.
+                // TODO: Once https://github.com/rust-cv/cv-geom/issues/1 is solved, this wont be necessary.
+                self.reconstructions[reconstruction].landmarks[landmark]
+                    .observations
+                    .len()
+                    > 1
+            })
             .filter_map(|&FeatureMatch(landmark, fix)| {
                 Some(FeatureWorldMatch(
                     frame.features[fix].0,
@@ -644,16 +662,36 @@ where
             matches_3d.len()
         );
 
-        // Estimate the pose matrix and retrieve the inliers
-        let (pose, inliers) = self
+        // Estimate the pose and retrieve the inliers.
+        let pose = self
             .consensus
             .borrow_mut()
-            .model_inliers(&self.pose_estimator, matches_3d.iter().copied())?;
+            .model(&self.pose_estimator, matches_3d.iter().copied())?;
 
         // TODO: Add a single-view optimizer here.
 
-        // Reconstitute only the inlier matches into a matches vector.
-        Some((pose, inliers.into_iter().map(|ix| matches[ix]).collect()))
+        // Filter outlier matches and return all others for inclusion.
+        let matches = matches
+            .into_iter()
+            .filter(|&FeatureMatch(landmark, feature)| {
+                let keypoint = frame.keypoint(feature);
+                self.triangulate_landmark_with_appended_observation(
+                    reconstruction,
+                    landmark,
+                    pose,
+                    keypoint,
+                )
+                .map(|world_point| {
+                    let camera_point = pose.transform(world_point);
+                    let bearing = keypoint.bearing();
+                    let residual = 1.0 - bearing.dot(&camera_point.bearing());
+                    residual.is_finite() && residual < self.cosine_distance_threshold
+                })
+                .unwrap_or(false)
+            })
+            .collect();
+
+        Some((pose, matches))
     }
 
     fn kps_descriptors(
@@ -680,7 +718,7 @@ where
             .landmarks
             .iter()
             .filter_map(|(lmix, lm)| {
-                if lm.observances.len() >= min_observances {
+                if lm.observations.len() >= min_observances {
                     self.triangulate_landmark(reconstruction, lmix)
                         .and_then(Projective::point)
                 } else {
@@ -727,15 +765,18 @@ where
             // First, we want to find the landmarks with the most observances to optimize the reconstruction.
             // Start by putting all the landmark indices into a BTreeMap with the key as their observances and the value the index.
             let mut landmarks_by_observances: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
-            for (observance_num, lmix) in reconstruction
+            for (observation_num, lmix) in reconstruction
                 .landmarks
                 .iter()
-                .map(|(lmix, lm)| (lm.observances.len(), lmix))
+                .map(|(lmix, lm)| (lm.observations.len(), lmix))
             {
-                landmarks_by_observances
-                    .entry(observance_num)
-                    .or_default()
-                    .push(lmix);
+                // Only add landmarks with more than 1 observation (otherwise they cant be triangulated).
+                if observation_num > 1 {
+                    landmarks_by_observances
+                        .entry(observation_num)
+                        .or_default()
+                        .push(lmix);
+                }
             }
 
             info!(
@@ -772,7 +813,7 @@ where
                 .copied()
                 .flat_map(|lmix| {
                     reconstruction.landmarks[lmix]
-                        .observances
+                        .observations
                         .iter()
                         .map(|(&view, _)| view)
                 })
@@ -790,7 +831,7 @@ where
                         .iter()
                         .copied()
                         .map(|view| {
-                            lm.observances.get(&view).map(|&feature| {
+                            lm.observations.get(&view).map(|&feature| {
                                 self.frames[reconstruction.views[view].frame].features[feature]
                                     .0
                                     .bearing()
@@ -855,10 +896,6 @@ where
         }
     }
 
-    pub fn num_reconstructions(&self) -> usize {
-        self.reconstructions.len()
-    }
-
     pub fn reconstruction_view_count(&self, reconstruction: usize) -> usize {
         self.reconstructions
             .get(reconstruction)
@@ -876,31 +913,49 @@ where
         }
     }
 
-    pub fn remove_landmark_observance(
-        &mut self,
-        reconstruction: usize,
-        landmark: usize,
-        view: usize,
-        feature: usize,
-    ) {
-        self.reconstructions[reconstruction].landmarks[landmark]
-            .observances
-            .remove(&view);
-        self.reconstructions[reconstruction].views[view]
-            .landmarks
-            .remove(&feature);
+    /// Splits the observation into its own landmark.
+    ///
+    /// Returns the landmark ID (new or old, as necessary).
+    fn split_observation(&mut self, reconstruction: usize, view: usize, feature: usize) -> usize {
+        // Check if this is the only observation in the landmark.
+        let old_landmark = self.reconstructions[reconstruction].views[view].landmarks[feature];
+        if self.reconstructions[reconstruction].landmarks[old_landmark]
+            .observations
+            .len()
+            != 1
+        {
+            // Since this wasnt the only observation in the landmark, we can split it.
+            // Remove the observation from the old_landmark.
+            self.reconstructions[reconstruction].landmarks[old_landmark]
+                .observations
+                .remove(&view);
+            // Create the new landmark.
+            let new_landmark = self.reconstructions[reconstruction]
+                .landmarks
+                .insert(Landmark {
+                    observations: hashmap! {
+                        view => feature,
+                    },
+                });
+            // Assign the landmark ID to the observation.
+            self.reconstructions[reconstruction].views[view].landmarks[feature] = new_landmark;
+            new_landmark
+        } else {
+            old_landmark
+        }
     }
 
-    pub fn remove_landmark(&mut self, reconstruction: usize, landmark: usize) {
-        let observances: Vec<(usize, usize)> = self.reconstructions[reconstruction].landmarks
+    /// Splits all observations in the landmark into their own separate landmarks.
+    fn split_landmark(&mut self, reconstruction: usize, landmark: usize) {
+        let observations: Vec<(usize, usize)> = self.reconstructions[reconstruction].landmarks
             [landmark]
-            .observances
+            .observations
             .iter()
             .map(|(&view, &feature)| (view, feature))
             .collect();
-
-        for (view, feature) in observances {
-            self.remove_landmark_observance(reconstruction, landmark, view, feature);
+        // Don't split the first observation off, as it can stay as this landmark.
+        for &(view, feature) in &observations[1..] {
+            self.split_observation(reconstruction, view, feature);
         }
     }
 
@@ -915,23 +970,23 @@ where
         let num_observations: usize = self.reconstructions[reconstruction]
             .landmarks
             .iter()
-            .map(|(_, lm)| lm.observances.len())
+            .map(|(_, lm)| lm.observations.len())
             .sum();
         info!(
             "started with {} landmarks and {} observations",
             landmarks.len(),
             num_observations
         );
-        for lmix in landmarks {
-            if let Some(point) = self.triangulate_landmark(reconstruction, lmix) {
-                let observances: Vec<(usize, usize)> = self.reconstructions[reconstruction]
-                    .landmarks[lmix]
-                    .observances
+        for landmark in landmarks {
+            if let Some(point) = self.triangulate_landmark(reconstruction, landmark) {
+                let observations: Vec<(usize, usize)> = self.reconstructions[reconstruction]
+                    .landmarks[landmark]
+                    .observations
                     .iter()
                     .map(|(&view, &feature)| (view, feature))
                     .collect();
 
-                for (view, feature) in observances {
+                for (view, feature) in observations {
                     let bearing = self.frames
                         [self.reconstructions[reconstruction].views[view].frame]
                         .features[feature]
@@ -940,52 +995,22 @@ where
                     let view_point = self.reconstructions[reconstruction].views[view]
                         .pose
                         .transform(point);
-                    if 1.0 - bearing.dot(&view_point.bearing()) > threshold {
-                        // If the observance has too high of a residual, we must remove it from the landmark and the view.
-                        self.remove_landmark_observance(reconstruction, lmix, view, feature);
+                    let residual = 1.0 - bearing.dot(&view_point.bearing());
+                    if !residual.is_finite() || residual > threshold {
+                        // If the observation has too high of a residual or not finite, we must remove it from the landmark and the view.
+                        self.split_observation(reconstruction, view, feature);
                     }
                 }
-                if self.reconstructions[reconstruction].landmarks[lmix]
-                    .observances
-                    .len()
-                    < 2
-                {
-                    // In this case the landmark should be removed, as it no longer has meaning without at least two views.
-                    // TODO: This needs to split this observance into its own landmark.
-                    self.reconstructions[reconstruction].landmarks.remove(lmix);
-                }
             } else {
-                // TODO: This needs to be changed to split the landmark into separate landmarks for each observance.
-                self.remove_landmark(reconstruction, lmix);
+                self.split_landmark(reconstruction, landmark);
             }
         }
-
-        info!("rebuilding HNSW");
-
-        // Rebuild the HNSW of this reconstruction.
-        let mut features = HNSW::new();
-        let mut feature_landmarks = HashMap::new();
-        for (lmix, lm) in self.reconstructions[reconstruction].landmarks.iter() {
-            for (&view, &feature) in lm.observances.iter() {
-                let fix = features.insert(
-                    self.frames[self.reconstructions[reconstruction].views[view].frame].features
-                        [feature]
-                        .1,
-                    &mut self.searcher.borrow_mut(),
-                );
-                feature_landmarks.insert(fix as usize, lmix);
-            }
-        }
-
-        // Assign the new HNSW and feature_landmarks map.
-        self.reconstructions[reconstruction].features = features;
-        self.reconstructions[reconstruction].feature_landmarks = feature_landmarks;
 
         // Log the data after filtering.
         let num_observations: usize = self.reconstructions[reconstruction]
             .landmarks
             .iter()
-            .map(|(_, lm)| lm.observances.len())
+            .map(|(_, lm)| lm.observations.len())
             .sum();
         info!(
             "ended with {} landmarks and {} observations",
@@ -999,9 +1024,40 @@ where
         reconstruction: usize,
         landmark: usize,
     ) -> Option<WorldPoint> {
+        // TODO: Don't need to check this once https://github.com/rust-cv/cv-geom/issues/1 is fixed.
+        if self.reconstructions[reconstruction].landmarks[landmark]
+            .observations
+            .len()
+            >= 2
+        {
+            self.triangulator.triangulate_observances(
+                self.reconstructions[reconstruction].landmarks[landmark]
+                    .observations
+                    .iter()
+                    .map(|(&view, &feature)| {
+                        (
+                            self.reconstructions[reconstruction].views[view].pose,
+                            self.frames[self.reconstructions[reconstruction].views[view].frame]
+                                .features[feature]
+                                .0,
+                        )
+                    }),
+            )
+        } else {
+            None
+        }
+    }
+
+    pub fn triangulate_landmark_with_appended_observation(
+        &self,
+        reconstruction: usize,
+        landmark: usize,
+        pose: WorldToCamera,
+        keypoint: NormalizedKeyPoint,
+    ) -> Option<WorldPoint> {
         self.triangulator.triangulate_observances(
             self.reconstructions[reconstruction].landmarks[landmark]
-                .observances
+                .observations
                 .iter()
                 .map(|(&view, &feature)| {
                     (
@@ -1010,7 +1066,8 @@ where
                             .features[feature]
                             .0,
                     )
-                }),
+                })
+                .chain(std::iter::once((pose, keypoint))),
         )
     }
 }

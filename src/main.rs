@@ -27,9 +27,9 @@ struct Opt {
     /// The number of points to use in optimization.
     #[structopt(long, default_value = "16384")]
     optimization_points: usize,
-    /// The number of observances required to export a landmark to PLY.
+    /// The number of observations required to export a landmark to PLY.
     #[structopt(long, default_value = "3")]
-    minimum_observances: usize,
+    minimum_observations: usize,
     /// The number of landmarks to use in bundle adjust.
     #[structopt(long, default_value = "16384")]
     bundle_adjust_landmarks: usize,
@@ -67,6 +67,9 @@ struct Opt {
     /// The smaller this value is the more accurate the output will be, but it will take longer to execute.
     #[structopt(long, default_value = "0.00000001")]
     two_view_std_dev_threshold: f64,
+    /// The maximum number of times to run many-view optimization.
+    #[structopt(long, default_value = "1000")]
+    many_view_patience: usize,
     /// The x focal length
     #[structopt(long, default_value = "984.2439")]
     x_focal: f64,
@@ -123,6 +126,7 @@ fn main() {
     .cosine_distance_threshold(opt.cosine_distance_threshold)
     .two_view_patience(opt.two_view_patience)
     .two_view_std_dev_threshold(opt.two_view_std_dev_threshold)
+    .many_view_patience(opt.many_view_patience)
     .loss_cutoff(opt.loss_cutoff);
 
     // Add the feed.
@@ -149,6 +153,6 @@ fn main() {
     // Export the first match
     if let Some(path) = opt.output {
         vslam.filter_observations(0, opt.export_cosine_distance_threshold);
-        vslam.export_reconstruction(0, opt.minimum_observances, path);
+        vslam.export_reconstruction(0, opt.minimum_observations, path);
     }
 }
