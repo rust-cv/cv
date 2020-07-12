@@ -25,7 +25,7 @@ struct Opt {
     #[structopt(short, long, default_value = "64")]
     match_threshold: usize,
     /// The number of points to use in optimization.
-    #[structopt(long, default_value = "128")]
+    #[structopt(long, default_value = "16384")]
     optimization_points: usize,
     /// The number of observances required to export a landmark to PLY.
     #[structopt(long, default_value = "3")]
@@ -33,11 +33,14 @@ struct Opt {
     /// The number of landmarks to use in bundle adjust.
     #[structopt(long, default_value = "42")]
     bundle_adjust_landmarks: usize,
+    /// The number of iterations to run bundle adjust and filtering globally.
+    #[structopt(long, default_value = "5")]
+    bundle_adjust_filter_iterations: usize,
     /// The threshold for ARRSAC in cosine distance.
-    #[structopt(short, long, default_value = "0.01")]
+    #[structopt(short, long, default_value = "0.001")]
     arrsac_threshold: f64,
     /// The threshold for AKAZE.
-    #[structopt(short = "z", long, default_value = "0.0003")]
+    #[structopt(short = "z", long, default_value = "0.001")]
     akaze_threshold: f64,
     /// Loss cutoff.
     ///
@@ -51,14 +54,19 @@ struct Opt {
     /// The threshold for reprojection error in cosine distance.
     ///
     /// When this is exceeded, points are filtered from the reconstruction, so set this sufficiently high.
-    #[structopt(long, default_value = "0.05")]
+    #[structopt(long, default_value = "0.0001")]
     cosine_distance_threshold: f64,
     /// The threshold for reprojection error in cosine distance when the pointcloud is exported.
-    #[structopt(long, default_value = "0.005")]
+    #[structopt(long, default_value = "0.0001")]
     export_cosine_distance_threshold: f64,
-    /// The maximum number of times to run Levenberg-Marquardt.
+    /// The maximum number of times to run two-view optimization.
     #[structopt(long, default_value = "1000")]
-    patience: usize,
+    two_view_patience: usize,
+    /// The threshold of mean cosine distance standard deviation that terminates optimization.
+    ///
+    /// The smaller this value is the more accurate the output will be, but it will take longer to execute.
+    #[structopt(long, default_value = "0.00000001")]
+    two_view_std_dev_threshold: f64,
     /// The x focal length
     #[structopt(long, default_value = "984.2439")]
     x_focal: f64,
@@ -75,7 +83,7 @@ struct Opt {
     #[structopt(long, default_value = "0.0")]
     skew: f64,
     /// The K1 radial distortion
-    #[structopt(long, default_value = "-0.007151")]
+    #[structopt(long, default_value = "-0.010584")]
     radial_distortion: f64,
     /// Output PLY file to deposit point cloud
     #[structopt(short, long)]
@@ -113,7 +121,8 @@ fn main() {
     .match_threshold(opt.match_threshold)
     .optimization_points(opt.optimization_points)
     .cosine_distance_threshold(opt.cosine_distance_threshold)
-    .patience(opt.patience)
+    .two_view_patience(opt.two_view_patience)
+    .two_view_std_dev_threshold(opt.two_view_std_dev_threshold)
     .loss_cutoff(opt.loss_cutoff);
 
     // Add the feed.
@@ -124,12 +133,16 @@ fn main() {
         let image = image::open(path).expect("failed to load image");
         if let Some(reconstruction) = vslam.insert_frame(feed, &image) {
             if vslam.reconstruction_view_count(reconstruction) >= 3 {
-                // If there are three or more views, run global bundle adjust.
-                vslam
-                    .bundle_adjust_highest_observances(reconstruction, opt.bundle_adjust_landmarks);
-                vslam.retriangulate_landmarks(reconstruction);
-                vslam.filter_observations(reconstruction, opt.cosine_distance_threshold);
-                vslam.retriangulate_landmarks(reconstruction);
+                for _ in 0..opt.bundle_adjust_filter_iterations {
+                    // If there are three or more views, run global bundle adjust.
+                    vslam.bundle_adjust_highest_observances(
+                        reconstruction,
+                        opt.bundle_adjust_landmarks,
+                    );
+                    vslam.retriangulate_landmarks(reconstruction);
+                    vslam.filter_observations(reconstruction, opt.cosine_distance_threshold);
+                    vslam.retriangulate_landmarks(reconstruction);
+                }
             }
         }
     }

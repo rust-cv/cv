@@ -21,6 +21,8 @@ slab = "0.4.2"
 ahash = "0.3.8"
 maplit = "1.0.2"
 space = "0.10.3"
+argmin = "0.3.1"
+ndarray = "0.13.1"
 
 [profile.release]
 lto = "fat"

@@ -1,4 +1,5 @@
-use cv::nalgebra::{Point3, Unit, Vector3};
+use argmin::core::{ArgminKV, ArgminOp, Error, Executor, IterState, Observe, ObserverMode};
+use cv::nalgebra::{Point3, Unit, Vector3, Vector6};
 use cv::{
     camera::pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix, NormalizedKeyPoint},
     feature::akaze,
@@ -8,16 +9,29 @@ use cv::{
     FeatureMatch, FeatureWorldMatch, Pose, Projective, TriangulatorObservances,
     TriangulatorRelative, WorldPoint, WorldToCamera,
 };
-use cv_optimize::{ManyViewOptimizer, TwoViewOptimizer};
+use cv_optimize::{two_view_nelder_mead, ManyViewOptimizer, TwoViewConstraint, TwoViewOptimizer};
 use image::DynamicImage;
 use log::*;
 use maplit::hashmap;
+use ndarray::array;
 use rand::{seq::SliceRandom, Rng};
 use slab::Slab;
 use space::Neighbor;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
+
+struct OptimizationObserver;
+
+impl<T: ArgminOp> Observe<T> for OptimizationObserver {
+    fn observe_iter(&mut self, state: &IterState<T>, _kv: &ArgminKV) -> Result<(), Error> {
+        info!(
+            "on iteration {} out of {} with total evaluations {} and current cost {}",
+            state.iter, state.max_iters, state.cost_func_count, state.cost
+        );
+        Ok(())
+    }
+}
 
 type Features = Vec<(NormalizedKeyPoint, BitArray<64>)>;
 
@@ -129,10 +143,12 @@ pub struct VSlam<C, EE, PE, T, R> {
     loss_cutoff: f64,
     /// The maximum cosine distance permitted in a valid match
     cosine_distance_threshold: f64,
-    /// The maximum iterations to run Levenberg-Marquardt solver
-    patience: usize,
-    /// The maximum iterations to run Levenberg-Marquardt and filtering
-    lm_filter_loop_iterations: usize,
+    /// The maximum iterations to optimize two-views.
+    two_view_patience: usize,
+    /// The threshold of mean cosine distance standard deviation that terminates optimization.
+    two_view_std_dev_threshold: f64,
+    /// The maximum iterations to run two-view optimization and filtering
+    two_view_filter_loop_iterations: usize,
     /// The consensus algorithm
     consensus: RefCell<C>,
     /// The essential matrix estimator
@@ -171,8 +187,9 @@ where
             match_threshold: 64,
             loss_cutoff: 0.05,
             cosine_distance_threshold: 0.001,
-            patience: 1000,
-            lm_filter_loop_iterations: 5,
+            two_view_patience: 1000,
+            two_view_std_dev_threshold: 0.00000001,
+            two_view_filter_loop_iterations: 2,
             optimization_points: 128,
             consensus: RefCell::new(consensus),
             essential_estimator,
@@ -232,11 +249,26 @@ where
         }
     }
 
-    /// Set the maximum iterations of Levenberg-Marquardt.
+    /// Set the maximum iterations of two-view optimization.
     ///
     /// Default: `1000`
-    pub fn patience(self, patience: usize) -> Self {
-        Self { patience, ..self }
+    pub fn two_view_patience(self, two_view_patience: usize) -> Self {
+        Self {
+            two_view_patience,
+            ..self
+        }
+    }
+
+    /// The threshold of mean cosine distance standard deviation that terminates optimization.
+    ///
+    /// The smaller this value is the more accurate the output will be, but it will take longer to execute.
+    ///
+    /// Default: `0.00000001`
+    pub fn two_view_std_dev_threshold(self, two_view_std_dev_threshold: f64) -> Self {
+        Self {
+            two_view_std_dev_threshold,
+            ..self
+        }
     }
 
     /// Adds a new feed with the given intrinsics.
@@ -484,7 +516,7 @@ where
             .camera_to_camera_match_points(a, b, pose, original_matches.iter().copied())
             .collect();
 
-        for _ in 0..self.lm_filter_loop_iterations {
+        for _ in 0..self.two_view_filter_loop_iterations {
             let opti_matches: Vec<FeatureMatch<NormalizedKeyPoint>> = matches
                 .choose_multiple(&mut *self.rng.borrow_mut(), self.optimization_points)
                 .map(|&(_, m)| m)
@@ -492,23 +524,35 @@ where
                 .collect::<Vec<_>>();
 
             info!(
-                "performing Levenberg-Marquardt on {} matches out of {}",
+                "performing Nelder-Mead optimization on pose using {} matches out of {}",
                 opti_matches.len(),
                 matches.len()
             );
 
-            let lm = LevenbergMarquardt::new().with_patience(self.patience);
-            let (tvo, termination) = lm.minimize(
-                TwoViewOptimizer::new(
-                    opti_matches.iter().copied(),
-                    pose,
-                    self.triangulator.clone(),
-                )
-                .loss_cutoff(self.loss_cutoff),
-            );
-            pose = tvo.pose;
+            let solver = two_view_nelder_mead(pose).sd_tolerance(self.two_view_std_dev_threshold);
+            let constraint =
+                TwoViewConstraint::new(opti_matches.iter().copied(), self.triangulator.clone())
+                    .loss_cutoff(self.loss_cutoff);
 
-            info!("Levenberg-Marquardt: {:?}", termination);
+            // The initial parameter is empty becasue nelder mead is passed its own initial parameter directly.
+            let opti_state = Executor::new(constraint, solver, array![])
+                .add_observer(OptimizationObserver, ObserverMode::Always)
+                .max_iters(self.two_view_patience as u64)
+                .run()
+                .expect("two-view optimization failed")
+                .state;
+
+            info!(
+                "extracted pose with mean capped cosine distance of {}",
+                opti_state.best_cost
+            );
+
+            pose = Pose::from_se3(Vector6::from_row_slice(
+                opti_state
+                    .best_param
+                    .as_slice()
+                    .expect("param was not contiguous array"),
+            ));
 
             // Filter outlier matches based on cosine distance.
             matches = self
