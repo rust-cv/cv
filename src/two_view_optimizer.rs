@@ -52,7 +52,7 @@ where
 {
     pub fn new(matches: I, triangulator: T) -> Self {
         Self {
-            loss_cutoff: 0.01,
+            loss_cutoff: 0.001,
             matches,
             triangulator,
         }
@@ -135,7 +135,7 @@ where
             .collect();
         Self {
             pose,
-            loss_cutoff: 0.01,
+            loss_cutoff: 0.001,
             matches,
             points,
             triangulator,
