@@ -37,7 +37,7 @@ pub fn many_view_nelder_mead(poses: Vec<WorldToCamera>) -> NelderMead<Array2<f64
         let subi = i % 6;
         if subi < 3 {
             // Translation simplex must be relative to existing translation.
-            variants[i][(pose, subi)] += translation_scale.mean();
+            variants[i][(pose, subi)] += translation_scale.mean() * 0.1;
         } else {
             // Rotation simplex must be kept within a small rotation (2 pi would be a complete revolution).
             variants[i][(pose, subi)] += std::f64::consts::PI * 0.01;
