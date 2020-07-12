@@ -34,7 +34,7 @@ struct Opt {
     #[structopt(long, default_value = "42")]
     bundle_adjust_landmarks: usize,
     /// The number of iterations to run bundle adjust and filtering globally.
-    #[structopt(long, default_value = "5")]
+    #[structopt(long, default_value = "2")]
     bundle_adjust_filter_iterations: usize,
     /// The threshold for ARRSAC in cosine distance.
     #[structopt(short, long, default_value = "0.001")]

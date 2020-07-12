@@ -477,7 +477,7 @@ dependencies = [
 [[package]]
 name = "cv-optimize"
 version = "0.1.0"
-source = "git+https://github.com/rust-cv/cv-optimize.git#e746e3e34928f38d1e2c6fec414d26dbf48351c0"
+source = "git+https://github.com/rust-cv/cv-optimize.git#338895c44ed7f46e604916bef1b9cd52c0fc9d7a"
 dependencies = [
  "argmin",
  "average",

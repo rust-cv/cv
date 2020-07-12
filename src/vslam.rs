@@ -9,11 +9,14 @@ use cv::{
     FeatureMatch, FeatureWorldMatch, Pose, Projective, TriangulatorObservances,
     TriangulatorRelative, WorldPoint, WorldToCamera,
 };
-use cv_optimize::{two_view_nelder_mead, ManyViewOptimizer, TwoViewConstraint, TwoViewOptimizer};
+use cv_optimize::{
+    many_view_nelder_mead, two_view_nelder_mead, ManyViewConstraint, ManyViewOptimizer,
+    TwoViewConstraint, TwoViewOptimizer,
+};
 use image::DynamicImage;
 use log::*;
 use maplit::hashmap;
-use ndarray::array;
+use ndarray::{array, Array2};
 use rand::{seq::SliceRandom, Rng};
 use slab::Slab;
 use space::Neighbor;
@@ -120,8 +123,6 @@ pub struct BundleAdjust {
     reconstruction: usize,
     /// Maps VSlam::views IDs to poses
     poses: Vec<(usize, WorldToCamera)>,
-    /// Maps VSlam::landmark IDs to points
-    points: Vec<(usize, WorldPoint)>,
 }
 
 pub struct VSlam<C, EE, PE, T, R> {
@@ -143,12 +144,14 @@ pub struct VSlam<C, EE, PE, T, R> {
     loss_cutoff: f64,
     /// The maximum cosine distance permitted in a valid match
     cosine_distance_threshold: f64,
-    /// The maximum iterations to optimize two-views.
+    /// The maximum iterations to optimize two views.
     two_view_patience: usize,
     /// The threshold of mean cosine distance standard deviation that terminates optimization.
     two_view_std_dev_threshold: f64,
     /// The maximum iterations to run two-view optimization and filtering
     two_view_filter_loop_iterations: usize,
+    /// The maximum iterations to optimize many views.
+    many_view_patience: usize,
     /// The consensus algorithm
     consensus: RefCell<C>,
     /// The essential matrix estimator
@@ -190,6 +193,7 @@ where
             two_view_patience: 1000,
             two_view_std_dev_threshold: 0.00000001,
             two_view_filter_loop_iterations: 2,
+            many_view_patience: 1000,
             optimization_points: 128,
             consensus: RefCell::new(consensus),
             essential_estimator,
@@ -255,6 +259,16 @@ where
     pub fn two_view_patience(self, two_view_patience: usize) -> Self {
         Self {
             two_view_patience,
+            ..self
+        }
+    }
+
+    /// Set the maximum iterations of many-view optimization.
+    ///
+    /// Default: `1000`
+    pub fn many_view_patience(self, many_view_patience: usize) -> Self {
+        Self {
+            many_view_patience,
             ..self
         }
     }
@@ -792,43 +806,49 @@ where
                 .collect();
 
             info!(
-                "performing Levenberg-Marquardt on best {} landmarks and {} views",
-                opti_landmarks.len(),
+                "performing Nelder-Mead optimization on {} poses with {} landmarks",
                 views.len(),
+                opti_landmarks.len(),
             );
 
-            let levenberg_marquardt = LevenbergMarquardt::new();
-            let (mvo, termination) = levenberg_marquardt.minimize(
-                ManyViewOptimizer::new(
-                    poses,
-                    observances.iter().map(|v| v.iter().copied()),
-                    self.triangulator.clone(),
-                )
-                .loss_cutoff(self.loss_cutoff),
-            );
-            let poses = mvo.poses;
-            let points = mvo.points;
+            let solver = many_view_nelder_mead(poses).sd_tolerance(self.two_view_std_dev_threshold);
+            let constraint = ManyViewConstraint::new(
+                observances.iter().map(|v| v.iter().copied()),
+                self.triangulator.clone(),
+            )
+            .loss_cutoff(self.loss_cutoff);
+
+            // The initial parameter is empty becasue nelder mead is passed its own initial parameter directly.
+            let opti_state = Executor::new(constraint, solver, Array2::zeros((0, 0)))
+                .add_observer(OptimizationObserver, ObserverMode::Always)
+                .max_iters(self.many_view_patience as u64)
+                .run()
+                .expect("many-view optimization failed")
+                .state;
 
             info!(
-                "Levenberg-Marquardt terminated with reason {:?}",
-                termination
+                "extracted poses with mean capped cosine distance of {}",
+                opti_state.best_cost
             );
+
+            let poses: Vec<WorldToCamera> = opti_state
+                .best_param
+                .outer_iter()
+                .map(|arr| {
+                    Pose::from_se3(Vector6::from_row_slice(
+                        arr.as_slice().expect("param was not contiguous array"),
+                    ))
+                })
+                .collect();
 
             BundleAdjust {
                 reconstruction: reconstruction_ix,
                 poses: views.iter().copied().zip(poses).collect(),
-                points: opti_landmarks
-                    .iter()
-                    .copied()
-                    .zip(points)
-                    .filter_map(|(rlmix, point)| Some((rlmix, point?)))
-                    .collect(),
             }
         } else {
             BundleAdjust {
                 reconstruction: reconstruction_ix,
                 poses: vec![],
-                points: vec![],
             }
         }
     }
@@ -848,13 +868,9 @@ where
         let BundleAdjust {
             reconstruction,
             poses,
-            points,
         } = bundle_adjust;
         for (view, pose) in poses {
             self.reconstructions[reconstruction].views[view].pose = pose;
-        }
-        for (lmix, point) in points {
-            self.reconstructions[reconstruction].landmarks[lmix].point = point;
         }
     }
 
