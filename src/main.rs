@@ -65,7 +65,7 @@ struct Opt {
     /// The threshold of mean cosine distance standard deviation that terminates optimization.
     ///
     /// The smaller this value is the more accurate the output will be, but it will take longer to execute.
-    #[structopt(long, default_value = "0.000000001")]
+    #[structopt(long, default_value = "0.0000000001")]
     two_view_std_dev_threshold: f64,
     /// The maximum number of landmarks to use for sample consensus of the pose of the camera during tracking.
     ///
