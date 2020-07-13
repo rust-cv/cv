@@ -140,7 +140,7 @@ pub struct VSlam<C, EE, PE, T, R> {
     two_view_std_dev_threshold: f64,
     /// The maximum iterations to run two-view optimization and filtering
     two_view_filter_loop_iterations: usize,
-    /// The maximum number of landmarks to match when tracking.
+    /// The maximum number of landmarks to use for pose estimation during tracking.
     track_landmarks: usize,
     /// The maximum iterations to optimize many views.
     many_view_patience: usize,
@@ -184,7 +184,7 @@ where
             two_view_patience: 2000,
             two_view_std_dev_threshold: 0.00000001,
             two_view_filter_loop_iterations: 2,
-            track_landmarks: 16384,
+            track_landmarks: 4096,
             many_view_patience: 1000,
             optimization_points: 8192,
             consensus: RefCell::new(consensus),
@@ -263,6 +263,19 @@ where
     pub fn two_view_std_dev_threshold(self, two_view_std_dev_threshold: f64) -> Self {
         Self {
             two_view_std_dev_threshold,
+            ..self
+        }
+    }
+
+    /// The maximum number of landmarks to use for sample consensus of the pose of the camera during tracking.
+    ///
+    /// This doesn't affect the number of points in the reconstruction, just the points used for tracking.
+    /// This has significantly diminishing returns after a certain point.
+    ///
+    /// Default: `4096`
+    pub fn track_landmarks(self, track_landmarks: usize) -> Self {
+        Self {
+            track_landmarks,
             ..self
         }
     }
@@ -633,32 +646,31 @@ where
         info!("find existing landmarks to track camera");
         // Start by trying to match the frame's features to the landmarks in the reconstruction.
         // Get back a bunch of (Reconstruction::landmarks, Frame::features) correspondences.
-        // Shuffle them to prevent order bias (will only pull from top of image) and then limit it to track_landmarks
-        // to save time.
         let mut searcher = Searcher::default();
-        let mut shuffled_features: Vec<usize> = (0..frame.features.len()).collect();
-        shuffled_features.shuffle(&mut *self.rng.borrow_mut());
-        let matches: Vec<FeatureMatch<usize>> = shuffled_features
-            .into_iter()
+        let matches: Vec<FeatureMatch<usize>> = (0..frame.features.len())
             .filter_map(|feature| {
                 self.locate_landmark(reconstruction, frame, feature, &mut searcher)
                     .map(|landmark| FeatureMatch(landmark, feature))
             })
-            .take(self.track_landmarks)
             .collect();
 
         info!("found {} suitable landmark matches", matches.len());
 
+        // Require three observations, unless only two is possible.
+        let required_observations = if self.reconstructions[reconstruction].views.len() >= 3 {
+            3
+        } else {
+            2
+        };
+
         // Extract the FeatureWorldMatch for each of the features.
         let matches_3d: Vec<FeatureWorldMatch<NormalizedKeyPoint>> = matches
-            .iter()
+            .choose_multiple(&mut *self.rng.borrow_mut(), matches.len())
             .filter(|&&FeatureMatch(landmark, _)| {
-                // Only allow landmarks to be triangulated with at least observation.
-                // TODO: Once https://github.com/rust-cv/cv-geom/issues/1 is solved, this wont be necessary.
                 self.reconstructions[reconstruction].landmarks[landmark]
                     .observations
                     .len()
-                    > 1
+                    >= required_observations
             })
             .filter_map(|&FeatureMatch(landmark, fix)| {
                 Some(FeatureWorldMatch(
@@ -666,6 +678,7 @@ where
                     self.triangulate_landmark(reconstruction, landmark)?,
                 ))
             })
+            .take(self.track_landmarks)
             .collect();
 
         info!(

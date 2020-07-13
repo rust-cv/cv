@@ -67,6 +67,12 @@ struct Opt {
     /// The smaller this value is the more accurate the output will be, but it will take longer to execute.
     #[structopt(long, default_value = "0.000000001")]
     two_view_std_dev_threshold: f64,
+    /// The maximum number of landmarks to use for sample consensus of the pose of the camera during tracking.
+    ///
+    /// This doesn't affect the number of points in the reconstruction, just the points used for tracking.
+    /// This has significantly diminishing returns after a certain point.
+    #[structopt(long, default_value = "4096")]
+    track_landmarks: usize,
     /// The maximum number of times to run many-view optimization.
     #[structopt(long, default_value = "2000")]
     many_view_patience: usize,
@@ -126,6 +132,7 @@ fn main() {
     .cosine_distance_threshold(opt.cosine_distance_threshold)
     .two_view_patience(opt.two_view_patience)
     .two_view_std_dev_threshold(opt.two_view_std_dev_threshold)
+    .track_landmarks(opt.track_landmarks)
     .many_view_patience(opt.many_view_patience)
     .loss_cutoff(opt.loss_cutoff);
 
