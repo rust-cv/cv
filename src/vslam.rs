@@ -140,7 +140,7 @@ pub struct VSlam<C, EE, PE, T, R> {
     two_view_std_dev_threshold: f64,
     /// The maximum iterations to run two-view optimization and filtering
     two_view_filter_loop_iterations: usize,
-    /// The maximum number of landmarks to use to estimate the pose of the camera when tracking.
+    /// The maximum number of landmarks to match when tracking.
     track_landmarks: usize,
     /// The maximum iterations to optimize many views.
     many_view_patience: usize,
@@ -184,7 +184,7 @@ where
             two_view_patience: 2000,
             two_view_std_dev_threshold: 0.00000001,
             two_view_filter_loop_iterations: 2,
-            track_landmarks: 8192,
+            track_landmarks: 16384,
             many_view_patience: 1000,
             optimization_points: 8192,
             consensus: RefCell::new(consensus),
