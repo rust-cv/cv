@@ -25,13 +25,13 @@ struct Opt {
     #[structopt(short, long, default_value = "64")]
     match_threshold: usize,
     /// The number of points to use in optimization.
-    #[structopt(long, default_value = "16384")]
+    #[structopt(long, default_value = "8192")]
     optimization_points: usize,
     /// The number of observations required to export a landmark to PLY.
     #[structopt(long, default_value = "3")]
     minimum_observations: usize,
     /// The number of landmarks to use in bundle adjust.
-    #[structopt(long, default_value = "16384")]
+    #[structopt(long, default_value = "8192")]
     bundle_adjust_landmarks: usize,
     /// The number of iterations to run bundle adjust and filtering globally.
     #[structopt(long, default_value = "2")]
@@ -49,23 +49,23 @@ struct Opt {
     /// Decreasing this value causes the tail ends of the cosine distance squared to flatten out, reducing the impact of outliers.
     ///
     /// Make this value around cosine_distance_threshold and arrsac_threshold.
-    #[structopt(long, default_value = "0.01")]
+    #[structopt(long, default_value = "0.0001")]
     loss_cutoff: f64,
     /// The threshold for reprojection error in cosine distance.
     ///
-    /// When this is exceeded, points are filtered from the reconstruction, so set this sufficiently high.
-    #[structopt(long, default_value = "0.0001")]
+    /// When this is exceeded, points are filtered from the reconstruction.
+    #[structopt(long, default_value = "0.00005")]
     cosine_distance_threshold: f64,
     /// The threshold for reprojection error in cosine distance when the pointcloud is exported.
-    #[structopt(long, default_value = "0.0001")]
+    #[structopt(long, default_value = "0.00005")]
     export_cosine_distance_threshold: f64,
     /// The maximum number of times to run two-view optimization.
-    #[structopt(long, default_value = "1000")]
+    #[structopt(long, default_value = "2000")]
     two_view_patience: usize,
     /// The threshold of mean cosine distance standard deviation that terminates optimization.
     ///
     /// The smaller this value is the more accurate the output will be, but it will take longer to execute.
-    #[structopt(long, default_value = "0.00000001")]
+    #[structopt(long, default_value = "0.000000003")]
     two_view_std_dev_threshold: f64,
     /// The maximum number of times to run many-view optimization.
     #[structopt(long, default_value = "1000")]

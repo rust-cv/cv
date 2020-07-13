@@ -477,7 +477,7 @@ dependencies = [
 [[package]]
 name = "cv-optimize"
 version = "0.1.0"
-source = "git+https://github.com/rust-cv/cv-optimize.git#338895c44ed7f46e604916bef1b9cd52c0fc9d7a"
+source = "git+https://github.com/rust-cv/cv-optimize.git#086a95478fea77825c771f6b72afee0535e2a489"
 dependencies = [
  "argmin",
  "average",
@@ -1664,9 +1664,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "1.0.33"
+version = "1.0.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8d5d96e8cbb005d6959f119f773bfaebb5684296108fb32600c00cde305b2cd"
+checksum = "936cae2873c940d92e697597c5eee105fb570cd5689c695806f672883653349b"
 dependencies = [
  "proc-macro2",
  "quote 1.0.7",

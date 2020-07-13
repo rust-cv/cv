@@ -140,6 +140,8 @@ pub struct VSlam<C, EE, PE, T, R> {
     two_view_std_dev_threshold: f64,
     /// The maximum iterations to run two-view optimization and filtering
     two_view_filter_loop_iterations: usize,
+    /// The maximum number of landmarks to use to estimate the pose of the camera when tracking.
+    track_landmarks: usize,
     /// The maximum iterations to optimize many views.
     many_view_patience: usize,
     /// The consensus algorithm
@@ -178,12 +180,13 @@ where
             akaze_threshold: 0.001,
             match_threshold: 64,
             loss_cutoff: 0.05,
-            cosine_distance_threshold: 0.001,
-            two_view_patience: 1000,
+            cosine_distance_threshold: 0.00005,
+            two_view_patience: 2000,
             two_view_std_dev_threshold: 0.00000001,
             two_view_filter_loop_iterations: 2,
+            track_landmarks: 8192,
             many_view_patience: 1000,
-            optimization_points: 128,
+            optimization_points: 8192,
             consensus: RefCell::new(consensus),
             essential_estimator,
             pose_estimator,
@@ -392,7 +395,7 @@ where
             // Add the feature to the HNSW.
             self.reconstructions[reconstruction]
                 .descriptor_observations
-                .insert(self.frames[frame].features[feature].1, &mut searcher);
+                .insert(*self.frames[frame].descriptor(feature), &mut searcher);
             // Add the HNSW index to the HNSW index to the feature landmark map.
             self.reconstructions[reconstruction]
                 .observations
@@ -439,7 +442,7 @@ where
         // Add frame B to new reconstruction using the extracted landmark, bix pairs.
         self.incorporate_frame(
             reconstruction,
-            pair.0,
+            pair.1,
             WorldToCamera::from(pose.isometry()),
             landmarks,
         );
@@ -630,12 +633,18 @@ where
         info!("find existing landmarks to track camera");
         // Start by trying to match the frame's features to the landmarks in the reconstruction.
         // Get back a bunch of (Reconstruction::landmarks, Frame::features) correspondences.
+        // Shuffle them to prevent order bias (will only pull from top of image) and then limit it to track_landmarks
+        // to save time.
         let mut searcher = Searcher::default();
-        let matches: Vec<FeatureMatch<usize>> = (0..frame.features.len())
+        let mut shuffled_features: Vec<usize> = (0..frame.features.len()).collect();
+        shuffled_features.shuffle(&mut *self.rng.borrow_mut());
+        let matches: Vec<FeatureMatch<usize>> = shuffled_features
+            .into_iter()
             .filter_map(|feature| {
                 self.locate_landmark(reconstruction, frame, feature, &mut searcher)
                     .map(|landmark| FeatureMatch(landmark, feature))
             })
+            .take(self.track_landmarks)
             .collect();
 
         info!("found {} suitable landmark matches", matches.len());
@@ -772,8 +781,8 @@ where
                 .iter()
                 .map(|(lmix, lm)| (lm.observations.len(), lmix))
             {
-                // Only add landmarks with more than 1 observation (otherwise they cant be triangulated).
-                if observation_num > 1 {
+                // Only add landmarks with at least 3 observations.
+                if observation_num >= 3 {
                     landmarks_by_observances
                         .entry(observation_num)
                         .or_default()
