@@ -1083,10 +1083,23 @@ where
         landmark_a: usize,
         landmark_b: usize,
     ) -> Option<usize> {
+        // If the same view appears in each landmark, then that means two different features from the same view
+        // would appear in the resulting landmark, which is invalid.
+        let duplicate_view =
+            self.landmark_observations(reconstruction, landmark_a)
+                .any(|(view_a, _)| {
+                    self.landmark_observations(reconstruction, landmark_b)
+                        .any(|(view_b, _)| view_a == view_b)
+                });
+        if duplicate_view {
+            // We got a duplicate view, so return none.
+            return None;
+        }
         // Get an iterator over all the observations in both landmarks.
         let all_observations = self
             .landmark_observations(reconstruction, landmark_a)
             .chain(self.landmark_observations(reconstruction, landmark_b));
+
         // Triangulate the point which would be the combination of all landmarks.
         let point = self.triangulate_observations(reconstruction, all_observations.clone())?;
 
