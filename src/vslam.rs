@@ -12,6 +12,7 @@ use cv_optimize::{
     many_view_nelder_mead, two_view_nelder_mead, ManyViewConstraint, TwoViewConstraint,
 };
 use image::DynamicImage;
+use itertools::Itertools;
 use log::*;
 use maplit::hashmap;
 use ndarray::{array, Array2};
@@ -134,6 +135,8 @@ pub struct VSlam<C, EE, PE, T, R> {
     loss_cutoff: f64,
     /// The maximum cosine distance permitted in a valid match
     cosine_distance_threshold: f64,
+    /// The threshold of all observations in a landmark relative to another landmark to merge the two.
+    merge_cosine_distance_threshold: f64,
     /// The maximum iterations to optimize two views.
     two_view_patience: usize,
     /// The threshold of mean cosine distance standard deviation that terminates optimization.
@@ -180,12 +183,13 @@ where
             akaze_threshold: 0.001,
             match_threshold: 64,
             loss_cutoff: 0.05,
-            cosine_distance_threshold: 0.00005,
+            cosine_distance_threshold: 0.00001,
+            merge_cosine_distance_threshold: 0.000005,
             two_view_patience: 2000,
-            two_view_std_dev_threshold: 0.00000001,
-            two_view_filter_loop_iterations: 2,
+            two_view_std_dev_threshold: 0.0000000001,
+            two_view_filter_loop_iterations: 3,
             track_landmarks: 4096,
-            many_view_patience: 1000,
+            many_view_patience: 2000,
             optimization_points: 8192,
             consensus: RefCell::new(consensus),
             essential_estimator,
@@ -196,8 +200,6 @@ where
     }
 
     /// Set the akaze threshold.
-    ///
-    /// Default: `0.001`
     pub fn akaze_threshold(self, akaze_threshold: f64) -> Self {
         Self {
             akaze_threshold,
@@ -206,8 +208,6 @@ where
     }
 
     /// Set the match threshold.
-    ///
-    /// Default: `64`
     pub fn match_threshold(self, match_threshold: usize) -> Self {
         Self {
             match_threshold,
@@ -216,8 +216,6 @@ where
     }
 
     /// Set the number of points used for optimization of matching.
-    ///
-    /// Default: `16`
     pub fn optimization_points(self, optimization_points: usize) -> Self {
         Self {
             optimization_points,
@@ -226,8 +224,6 @@ where
     }
 
     /// Set the amount to limit the loss at (lowering reduces the impact of outliers).
-    ///
-    /// Default: `0.05`
     pub fn loss_cutoff(self, loss_cutoff: f64) -> Self {
         Self {
             loss_cutoff,
@@ -236,8 +232,6 @@ where
     }
 
     /// Set the maximum cosine distance allowed as a match residual.
-    ///
-    /// Default: `0.001`
     pub fn cosine_distance_threshold(self, cosine_distance_threshold: f64) -> Self {
         Self {
             cosine_distance_threshold,
@@ -245,9 +239,16 @@ where
         }
     }
 
+    /// The minimum cosine distance that the maximum cosine distance of all observations in a landamark can have
+    /// with another landmark before the landmarks are merged.
+    pub fn merge_cosine_distance_threshold(self, merge_cosine_distance_threshold: f64) -> Self {
+        Self {
+            merge_cosine_distance_threshold,
+            ..self
+        }
+    }
+
     /// Set the maximum iterations of two-view optimization.
-    ///
-    /// Default: `1000`
     pub fn two_view_patience(self, two_view_patience: usize) -> Self {
         Self {
             two_view_patience,
@@ -1011,17 +1012,8 @@ where
                     .collect();
 
                 for (view, feature) in observations {
-                    let bearing = self.frames
-                        [self.reconstructions[reconstruction].views[view].frame]
-                        .features[feature]
-                        .0
-                        .bearing();
-                    let view_point = self.reconstructions[reconstruction].views[view]
-                        .pose
-                        .transform(point);
-                    let residual = 1.0 - bearing.dot(&view_point.bearing());
-                    if !residual.is_finite() || residual > threshold {
-                        // If the observation has too high of a residual or not finite, we must remove it from the landmark and the view.
+                    if !self.is_observation_good(reconstruction, view, feature, point, threshold) {
+                        // If the observation is bad, we must remove it from the landmark and the view.
                         self.split_observation(reconstruction, view, feature);
                     }
                 }
@@ -1041,6 +1033,102 @@ where
             self.reconstructions[reconstruction].landmarks.len(),
             num_observations
         );
+    }
+
+    pub fn is_observation_good(
+        &self,
+        reconstruction: usize,
+        view: usize,
+        feature: usize,
+        point: WorldPoint,
+        threshold: f64,
+    ) -> bool {
+        let bearing = self.frames[self.reconstructions[reconstruction].views[view].frame].features
+            [feature]
+            .0
+            .bearing();
+        let view_point = self.reconstructions[reconstruction].views[view]
+            .pose
+            .transform(point);
+        let residual = 1.0 - bearing.dot(&view_point.bearing());
+        // If the observation is finite and has a low enough residual, it is good.
+        residual.is_finite() && residual < threshold
+    }
+
+    /// Merges two landmarks unconditionally. Returns the new landmark ID.
+    fn merge_landmarks(
+        &mut self,
+        reconstruction: usize,
+        landmark_a: usize,
+        landmark_b: usize,
+    ) -> usize {
+        let old_landmark = self.reconstructions[reconstruction]
+            .landmarks
+            .remove(landmark_b);
+        for (view, feature) in old_landmark.observations {
+            // We must start by updating the landmark in the view for this feature.
+            self.reconstructions[reconstruction].views[view].landmarks[feature] = landmark_a;
+            // Add the observation to landmark A.
+            self.reconstructions[reconstruction].landmarks[landmark_a]
+                .observations
+                .insert(view, feature);
+        }
+        landmark_a
+    }
+
+    /// Attempts to merge two landmarks. If it succeeds, it returns the landmark ID.
+    fn try_merge_landmarks(
+        &mut self,
+        reconstruction: usize,
+        landmark_a: usize,
+        landmark_b: usize,
+    ) -> Option<usize> {
+        // Get an iterator over all the observations in both landmarks.
+        let all_observations = self
+            .landmark_observations(reconstruction, landmark_a)
+            .chain(self.landmark_observations(reconstruction, landmark_b));
+        // Triangulate the point which would be the combination of all landmarks.
+        let point = self.triangulate_observations(reconstruction, all_observations.clone())?;
+
+        // Determine if all observations would be good if merged.
+        let all_good = all_observations.clone().all(|(view, feature)| {
+            self.is_observation_good(
+                reconstruction,
+                view,
+                feature,
+                point,
+                self.merge_cosine_distance_threshold,
+            )
+        });
+        // Non-lexical lifetimes failed me.
+        drop(all_observations);
+
+        if all_good {
+            // If they would all be good, merge them.
+            Some(self.merge_landmarks(reconstruction, landmark_a, landmark_b))
+        } else {
+            // If they would not all be good, dont merge them.
+            None
+        }
+    }
+
+    pub fn merge_nearby_landmarks(&mut self, reconstruction: usize) {
+        let landmarks: Vec<usize> = self.reconstructions[reconstruction]
+            .landmarks
+            .iter()
+            .map(|(ix, _)| ix)
+            .collect();
+        for (landmark_a, landmark_b) in landmarks.iter().copied().tuple_combinations() {
+            if self.reconstructions[reconstruction]
+                .landmarks
+                .contains(landmark_a)
+                && self.reconstructions[reconstruction]
+                    .landmarks
+                    .contains(landmark_b)
+            {
+                self.try_merge_landmarks(reconstruction, landmark_a, landmark_b);
+            }
+        }
     }
 
     pub fn triangulate_landmark(
@@ -1093,6 +1181,35 @@ where
                 })
                 .chain(std::iter::once((pose, keypoint))),
         )
+    }
+
+    /// Retrieves the copied observations iterator from a landmark.
+    pub fn landmark_observations(
+        &self,
+        reconstruction: usize,
+        landmark: usize,
+    ) -> impl Iterator<Item = (usize, usize)> + Clone + '_ {
+        self.reconstructions[reconstruction].landmarks[landmark]
+            .observations
+            .iter()
+            .map(|(&view, &feature)| (view, feature))
+    }
+
+    /// Triangulates a landmark with observations added. An observation is a (view, feature) pair.
+    pub fn triangulate_observations(
+        &self,
+        reconstruction: usize,
+        observations: impl Iterator<Item = (usize, usize)>,
+    ) -> Option<WorldPoint> {
+        self.triangulator
+            .triangulate_observances(observations.map(|(view, feature)| {
+                (
+                    self.reconstructions[reconstruction].views[view].pose,
+                    self.frames[self.reconstructions[reconstruction].views[view].frame].features
+                        [feature]
+                        .0,
+                )
+            }))
     }
 }
 

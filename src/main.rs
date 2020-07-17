@@ -54,10 +54,13 @@ struct Opt {
     /// The threshold for reprojection error in cosine distance.
     ///
     /// When this is exceeded, points are filtered from the reconstruction.
-    #[structopt(long, default_value = "0.00002")]
+    #[structopt(long, default_value = "0.00001")]
     cosine_distance_threshold: f64,
+    /// The minimum reprojection error in cosine distance that all observations must have to merge two landmarks together.
+    #[structopt(long, default_value = "0.000005")]
+    merge_cosine_distance_threshold: f64,
     /// The threshold for reprojection error in cosine distance when the pointcloud is exported.
-    #[structopt(long, default_value = "0.00002")]
+    #[structopt(long, default_value = "0.00001")]
     export_cosine_distance_threshold: f64,
     /// The maximum number of times to run two-view optimization.
     #[structopt(long, default_value = "2000")]
@@ -130,6 +133,7 @@ fn main() {
     .match_threshold(opt.match_threshold)
     .optimization_points(opt.optimization_points)
     .cosine_distance_threshold(opt.cosine_distance_threshold)
+    .merge_cosine_distance_threshold(opt.merge_cosine_distance_threshold)
     .two_view_patience(opt.two_view_patience)
     .two_view_std_dev_threshold(opt.two_view_std_dev_threshold)
     .track_landmarks(opt.track_landmarks)
@@ -152,6 +156,8 @@ fn main() {
                     );
                     // Filter observations after running bundle-adjust.
                     vslam.filter_observations(reconstruction, opt.cosine_distance_threshold);
+                    // Merge landmarks.
+                    vslam.merge_nearby_landmarks(reconstruction);
                 }
             }
         }
