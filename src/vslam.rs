@@ -1126,6 +1126,7 @@ where
     }
 
     pub fn merge_nearby_landmarks(&mut self, reconstruction: usize) {
+        info!("merging reconstruction landmarks");
         // Only take landmarks with at least two observations.
         let landmarks: Vec<usize> = self.reconstructions[reconstruction]
             .landmarks
@@ -1133,6 +1134,7 @@ where
             .filter(|(_, lm)| lm.observations.len() >= 2)
             .map(|(ix, _)| ix)
             .collect();
+        let mut num_merged = 0usize;
         for (landmark_a, landmark_b) in landmarks.iter().copied().tuple_combinations() {
             // Check if the landmarks still both exist.
             if self.reconstructions[reconstruction]
@@ -1141,10 +1143,14 @@ where
                 && self.reconstructions[reconstruction]
                     .landmarks
                     .contains(landmark_b)
+                && self
+                    .try_merge_landmarks(reconstruction, landmark_a, landmark_b)
+                    .is_some()
             {
-                self.try_merge_landmarks(reconstruction, landmark_a, landmark_b);
+                num_merged += 1;
             }
         }
+        info!("merged {} landmarks", num_merged);
     }
 
     pub fn triangulate_landmark(
