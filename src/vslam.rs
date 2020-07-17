@@ -1113,12 +1113,15 @@ where
     }
 
     pub fn merge_nearby_landmarks(&mut self, reconstruction: usize) {
+        // Only take landmarks with at least two observations.
         let landmarks: Vec<usize> = self.reconstructions[reconstruction]
             .landmarks
             .iter()
+            .filter(|(_, lm)| lm.observations.len() >= 2)
             .map(|(ix, _)| ix)
             .collect();
         for (landmark_a, landmark_b) in landmarks.iter().copied().tuple_combinations() {
+            // Check if the landmarks still both exist.
             if self.reconstructions[reconstruction]
                 .landmarks
                 .contains(landmark_a)
