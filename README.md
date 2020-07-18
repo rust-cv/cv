@@ -113,6 +113,14 @@ To support computer vision tooling, the following will be implemented:
       * [ ] Potree file format ([GitHub](https://github.com/potree/potree/))
     * [ ] PLY files ([Wikipedia](https://en.wikipedia.org/wiki/PLY_(file_format)))
 
+To support computer vision tooling, the following will be implemented:
+
+* [ ] Point clouds ([Wikipedia](https://en.wikipedia.org/wiki/Point_cloud))
+  * [ ] Display tool
+    * [ ] LoD refinement ([Wikipedia](https://en.wikipedia.org/wiki/Level_of_detail))
+      * [ ] Potree file format ([GitHub](https://github.com/potree/potree/))
+    * [ ] PLY files ([Wikipedia](https://en.wikipedia.org/wiki/PLY_(file_format)))
+
 ## Credits
 
 [TheiaSfM](https://github.com/sweeneychris/TheiaSfM) and all of its authors can be thanked as their abstractions are direct inspiration for this crate. In some cases, the names of some abstractions may be borrowed directly if they are consistent. You can find the TheiaSfM documentation [here](http://www.theia-sfm.org/api.html).
