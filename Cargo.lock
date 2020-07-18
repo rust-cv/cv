@@ -608,6 +608,7 @@ version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ed1e761351b56f54eb9dcd0cfaca9fd0daecf93918e1cfc01c8a3d26ee7adcd"
 dependencies = [
+ "serde",
  "typenum",
 ]
 
@@ -658,6 +659,7 @@ checksum = "96282e96bfcd3da0d3aa9938bedf1e50df3269b6db08b4876d2da0bb1a0841cf"
 dependencies = [
  "ahash",
  "autocfg",
+ "serde",
 ]
 
 [[package]]
@@ -690,6 +692,7 @@ dependencies = [
  "rand_core 0.5.1",
  "rand_pcg",
  "rustc-hash",
+ "serde",
  "space",
  "typenum",
 ]
@@ -1430,6 +1433,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "16abd0c1b639e9eb4d7c50c0b8100b0d0f849be2349829c740fe8e6eb4816429"
 dependencies = [
  "rand_core 0.5.1",
+ "serde",
 ]
 
 [[package]]
@@ -1753,6 +1757,9 @@ name = "space"
 version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3636aa32575d028a20b6e6816f2ae5a73218b2a9d673279e5842670778bd91dc"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "strsim"
@@ -1952,6 +1959,7 @@ dependencies = [
  "cv",
  "cv-optimize",
  "float-ord",
+ "hnsw",
  "image",
  "imageproc",
  "itertools",
