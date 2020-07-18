@@ -1,23 +1,17 @@
 # cv-core
 
-[![Discord][dci]][dcl] [![Crates.io][ci]][cl] ![MIT/Apache][li] [![docs.rs][di]][dl] ![LoC][lo] ![Tests][btl] ![Lints][bll] ![no_std][bnl]
+[![Discord][dci]][dcl] [![Crates.io][ci]][cl] ![MIT/Apache][li] [![docs.rs][di]][dl]
 
 [ci]: https://img.shields.io/crates/v/cv-core.svg
 [cl]: https://crates.io/crates/cv-core/
 
-[li]: https://img.shields.io/crates/l/specs.svg?maxAge=2592000
+[li]: https://img.shields.io/badge/License-MIT-yellow.svg
 
 [di]: https://docs.rs/cv-core/badge.svg
 [dl]: https://docs.rs/cv-core/
 
-[lo]: https://tokei.rs/b1/github/rust-cv/cv-core?category=code
-
 [dci]: https://img.shields.io/discord/550706294311485440.svg?logo=discord&colorB=7289DA
 [dcl]: https://discord.gg/d32jaam
-
-[btl]: https://github.com/rust-cv/cv-core/workflows/unit%20tests/badge.svg
-[bll]: https://github.com/rust-cv/cv-core/workflows/lints/badge.svg
-[bnl]: https://github.com/rust-cv/cv-core/workflows/no-std/badge.svg
 
 This library provides common abstractions and types for computer vision (CV) in Rust.
 All the crates in the rust-cv ecosystem that have or depend on CV types depend on this crate.

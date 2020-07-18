@@ -1,23 +1,18 @@
 # lambda-twist
 
-[![Discord][dci]][dcl] [![Crates.io][ci]][cl] ![MIT/Apache][li] [![docs.rs][di]][dl] ![LoC][lo] ![Tests][btl] ![Lints][bll] ![no_std][bnl]
+[![Discord][dci]][dcl] [![Crates.io][ci]][cl] [![MPL 2.0][li]][lil] [![docs.rs][di]][dl]
 
 [ci]: https://img.shields.io/crates/v/lambda-twist.svg
 [cl]: https://crates.io/crates/lambda-twist/
 
-[li]: https://img.shields.io/crates/l/specs.svg?maxAge=2592000
+[li]: https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg
+[lil]: https://opensource.org/licenses/MPL-2.0
 
 [di]: https://docs.rs/lambda-twist/badge.svg
 [dl]: https://docs.rs/lambda-twist/
 
-[lo]: https://tokei.rs/b1/github/rust-cv/lambda-twist?category=code
-
 [dci]: https://img.shields.io/discord/550706294311485440.svg?logo=discord&colorB=7289DA
 [dcl]: https://discord.gg/d32jaam
-
-[btl]: https://github.com/rust-cv/lambda-twist/workflows/unit%20tests/badge.svg
-[bll]: https://github.com/rust-cv/lambda-twist/workflows/lints/badge.svg
-[bnl]: https://github.com/rust-cv/lambda-twist/workflows/no-std/badge.svg
 
 Relative camera pose from three 3d to 2d correspondences
 

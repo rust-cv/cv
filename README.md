@@ -1,11 +1,9 @@
 # Rust CV
 
-[![Discord][dci]][dcl] [![Crates.io][ci]][cl] ![MIT/Apache][li] [![docs.rs][di]][dl] ![LoC][lo] ![Tests][btl] ![Lints][bll]
+[![Discord][dci]][dcl] [![Crates.io][ci]][cl] [![docs.rs][di]][dl] ![LoC][lo] ![Tests][btl] ![Lints][bll]
 
 [ci]: https://img.shields.io/crates/v/cv.svg
 [cl]: https://crates.io/crates/cv/
-
-[li]: https://img.shields.io/crates/l/specs.svg?maxAge=2592000
 
 [di]: https://docs.rs/cv/badge.svg
 [dl]: https://docs.rs/cv/
@@ -22,6 +20,10 @@ Rust CV is a project to implement computer vision algorithms, abstractions, and 
 
 This repository contains all computer vision crates for Rust CV in a mono-repo, including utilities as well as libraries. When updating libraries, all the crates in this repository should build for a PR to be accepted. Rust CV also maintains some other crates that are related to Computer Vision as well, which are located in the GitHub organization, not in this repository.
 
+Each crate has its own associated license. Rust CV is comprised of different open source licenses, mostly MIT. See the crate directories for their individual licenses.
+
+The old repositories that are now in this repo are all archived, but still exist to find tagged versions, assocated commits, and issues.
+
 ## What is computer vision
 
 Many people are familiar with covolutional neural networks and machine learning in computer vision, but computer vision is much more than that. Computer Vision broadly encompases image processing, photogrammetry, and pattern recognition. Machine learning can be used in all of these domains (e.g. denoisers, depth map prediction, and face detection), but it is not required.
@@ -30,7 +32,7 @@ Many people are familiar with covolutional neural networks and machine learning 
 
 One of the first things that Rust CV focused on was algorithms in the domain of photogrammetry. Today, Rust now has enough photogrammetry algorithms to perform SfM and visual SLAM. Weakness still exists within image processing and pattern recognition domains.
 
-Here are some of the domains of computer vision that Rust CV intends to persue along with examples of the domain (not all algorithms below live within the Rust CV organization, and some of these may exist and are unknown):
+Here are some of the domains of computer vision that Rust CV intends to persue along with examples of the domain (not all algorithms below live within the Rust CV organization, and some of these may exist and are unknown; some things may have changed since this was last updated):
 
 * [ ] Image processing ([Wikipedia](https://en.wikipedia.org/wiki/Digital_image_processing))
   * [ ] Diffusion & blur
@@ -64,7 +66,7 @@ Here are some of the domains of computer vision that Rust CV intends to persue a
       * [x] [Brute force](https://docs.rs/space/0.10.3/space/fn.linear_knn.html) (for camera traking with binary features)
       * [x] [HNSW](https://docs.rs/hnsw/0.6.1/hnsw/struct.HNSW.html) (for loop closure)
     * [ ] Filtering strategies
-      * [ ] Symmetric matching (exists [within vslam-sandbox](https://github.com/rust-cv/vslam-sandbox/blob/0a0bd760ceee2da38f0626a8a8678b9e98a657e1/src/main.rs#L59-L75))
+      * [ ] Symmetric matching (exists [within cv-reconstruction](https://github.com/rust-cv/cv/blob/58444de1cb174622ac34cc705ab9142e081f412c/cv-reconstruction/src/lib.rs#L1337))
       * [ ] Lowe's ratio test matching
   * [ ] Geometric verification (utilized abstractions in [sample-consensus](https://docs.rs/sample-consensus/0.2.0/sample_consensus/))
     * [ ] [Consensus algorithms](https://docs.rs/sample-consensus/0.2.0/sample_consensus/trait.Consensus.html)

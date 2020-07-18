@@ -1,16 +1,14 @@
 # cv
 
-[![Discord][dci]][dcl] [![Crates.io][ci]][cl] ![MIT/Apache][li] [![docs.rs][di]][dl] ![LoC][lo]
+[![Discord][dci]][dcl] [![Crates.io][ci]][cl] ![MIT/Apache][li] [![docs.rs][di]][dl]
 
 [ci]: https://img.shields.io/crates/v/cv.svg
 [cl]: https://crates.io/crates/cv/
 
-[li]: https://img.shields.io/crates/l/specs.svg?maxAge=2592000
+[li]: https://img.shields.io/badge/License-MIT-yellow.svg
 
 [di]: https://docs.rs/cv/badge.svg
 [dl]: https://docs.rs/cv/
-
-[lo]: https://tokei.rs/b1/github/rust-cv/cv?category=code
 
 [dci]: https://img.shields.io/discord/550706294311485440.svg?logo=discord&colorB=7289DA
 [dcl]: https://discord.gg/d32jaam
