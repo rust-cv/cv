@@ -1,5 +1,23 @@
 # Rust CV
 
+[![Discord][dci]][dcl] [![Crates.io][ci]][cl] ![MIT/Apache][li] [![docs.rs][di]][dl] ![LoC][lo] ![Tests][btl] ![Lints][bll]
+
+[ci]: https://img.shields.io/crates/v/cv.svg
+[cl]: https://crates.io/crates/cv/
+
+[li]: https://img.shields.io/crates/l/specs.svg?maxAge=2592000
+
+[di]: https://docs.rs/cv/badge.svg
+[dl]: https://docs.rs/cv/
+
+[lo]: https://tokei.rs/b1/github/rust-cv/cv?category=code
+
+[dci]: https://img.shields.io/discord/550706294311485440.svg?logo=discord&colorB=7289DA
+[dcl]: https://discord.gg/d32jaam
+
+[btl]: https://github.com/rust-cv/cv/workflows/unit%20tests/badge.svg
+[bll]: https://github.com/rust-cv/cv/workflows/lints/badge.svg
+
 Rust CV is a project to implement computer vision algorithms, abstractions, and systems in Rust.
 
 This repository contains all computer vision crates for Rust CV in a mono-repo, including utilities as well as libraries. When updating libraries, all the crates in this repository should build for a PR to be accepted. Rust CV also maintains some other crates that are related to Computer Vision as well, which are located in the GitHub organization, not in this repository.
