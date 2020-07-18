@@ -9,4 +9,5 @@ members = [
     "akaze",
     "eight-point",
     "lambda-twist",
+    "kpshow",
 ]
