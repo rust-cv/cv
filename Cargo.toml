@@ -8,4 +8,5 @@ members = [
     "cv-optimize",
     "akaze",
     "eight-point",
+    "lambda-twist",
 ]
