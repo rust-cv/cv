@@ -16,7 +16,7 @@
 [btl]: https://github.com/rust-cv/cv/workflows/unit%20tests/badge.svg
 [bll]: https://github.com/rust-cv/cv/workflows/lints/badge.svg
 
-Rust CV is a project to implement computer vision algorithms, abstractions, and systems in Rust.
+Rust CV is a project to implement computer vision algorithms, abstractions, and systems in Rust. `#[no_std]` is supported where possible.
 
 This repository contains all computer vision crates for Rust CV in a mono-repo, including utilities as well as libraries. When updating libraries, all the crates in this repository should build for a PR to be accepted. Rust CV also maintains some other crates that are related to Computer Vision as well, which are located in the GitHub organization, not in this repository.
 
