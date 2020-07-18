@@ -21,8 +21,8 @@ See `tests/estimate_pose.rs` for a demonstration on how to use this crate.
 
 This crate adds several optimizations (using ndarray) to the original implementation and integrates directly into the rust-cv ecosystem for ease-of-use. This crate does not currently use threading to speed anything up, but it might be added as a Cargo feature in the future.
 
-The original implementation can be found here: https://github.com/pablofdezalc/akaze
+The original implementation can be found here: <https://github.com/pablofdezalc/akaze>
 
-The previous rust implementation can be found here: https://github.com/indianajohn/akaze-rust
+The previous rust implementation can be found here: <https://github.com/indianajohn/akaze-rust>
 
-The main site for the algorithm is normally [here](http://www.robesafe.com/personal/pablo.alcantarilla/kaze.html), but it was down, so I found another link to the paper: http://www.bmva.org/bmvc/2013/Papers/paper0013/paper0013.pdf
+The main site for the algorithm is normally [here](http://www.robesafe.com/personal/pablo.alcantarilla/kaze.html), but it was down, so I found another link to the paper: <http://www.bmva.org/bmvc/2013/Papers/paper0013/paper0013.pdf>
