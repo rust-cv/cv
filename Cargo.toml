@@ -3,4 +3,5 @@
 members = [
     "cv",
     "cv-core",
+    "cv-geom",
 ]
