@@ -11,4 +11,5 @@ members = [
     "lambda-twist",
     "kpshow",
     "nister-stewenius",
+    "vslam-sandbox",
 ]
