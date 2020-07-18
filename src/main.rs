@@ -54,13 +54,13 @@ struct Opt {
     /// The threshold for reprojection error in cosine distance.
     ///
     /// When this is exceeded, points are filtered from the reconstruction.
-    #[structopt(long, default_value = "0.00001")]
+    #[structopt(long, default_value = "0.00002")]
     cosine_distance_threshold: f64,
     /// The minimum reprojection error in cosine distance that all observations must have to merge two landmarks together.
-    #[structopt(long, default_value = "0.000005")]
+    #[structopt(long, default_value = "0.00001")]
     merge_cosine_distance_threshold: f64,
     /// The threshold for reprojection error in cosine distance when the pointcloud is exported.
-    #[structopt(long, default_value = "0.00001")]
+    #[structopt(long, default_value = "0.00002")]
     export_cosine_distance_threshold: f64,
     /// The maximum number of times to run two-view optimization.
     #[structopt(long, default_value = "2000")]

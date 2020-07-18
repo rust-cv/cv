@@ -399,7 +399,7 @@ where
         // Create a map of the existing features to their landmarks.
         let existing_feature_landmarks: HashMap<usize, usize> = landmarks
             .into_iter()
-            .map(|FeatureMatch(lmix, fix)| (fix, lmix))
+            .map(|FeatureMatch(landmark, feature)| (feature, landmark))
             .collect();
 
         // Init a searcher only once to avoid excessive allocation durring k-NN searches.
@@ -655,6 +655,17 @@ where
             })
             .collect();
 
+        info!("removing any landmarks which matched more than one feature");
+        // Create counts of how often each landmark appears.
+        let mut landmark_counts: HashMap<usize, usize> = HashMap::new();
+        for &FeatureMatch(landmark, _) in &matches {
+            *landmark_counts.entry(landmark).or_default() += 1;
+        }
+        let matches: Vec<FeatureMatch<usize>> = matches
+            .into_iter()
+            .filter(|&FeatureMatch(landmark, _)| landmark_counts[&landmark] == 1)
+            .collect();
+
         info!("found {} suitable landmark matches", matches.len());
 
         // Require three observations, unless only two is possible.
@@ -805,7 +816,7 @@ where
             }
 
             info!(
-                "found landmarks with (observances, num) of {:?}",
+                "found landmarks with (observations, num) of {:?}",
                 landmarks_by_observances
                     .iter()
                     .map(|(ob, v)| (ob, v.len()))
@@ -947,13 +958,16 @@ where
         if self.reconstructions[reconstruction].landmarks[old_landmark]
             .observations
             .len()
-            != 1
+            >= 2
         {
             // Since this wasnt the only observation in the landmark, we can split it.
             // Remove the observation from the old_landmark.
-            self.reconstructions[reconstruction].landmarks[old_landmark]
-                .observations
-                .remove(&view);
+            assert_eq!(
+                self.reconstructions[reconstruction].landmarks[old_landmark]
+                    .observations
+                    .remove(&view),
+                Some(feature)
+            );
             // Create the new landmark.
             let new_landmark = self.reconstructions[reconstruction]
                 .landmarks
@@ -972,11 +986,8 @@ where
 
     /// Splits all observations in the landmark into their own separate landmarks.
     fn split_landmark(&mut self, reconstruction: usize, landmark: usize) {
-        let observations: Vec<(usize, usize)> = self.reconstructions[reconstruction].landmarks
-            [landmark]
-            .observations
-            .iter()
-            .map(|(&view, &feature)| (view, feature))
+        let observations: Vec<(usize, usize)> = self
+            .landmark_observations(reconstruction, landmark)
             .collect();
         // Don't split the first observation off, as it can stay as this landmark.
         for &(view, feature) in &observations[1..] {
@@ -991,24 +1002,22 @@ where
             .iter()
             .map(|(lmix, _)| lmix)
             .collect();
+
         // Log the data before filtering.
-        let num_observations: usize = self.reconstructions[reconstruction]
+        let num_triangulatable_landmarks: usize = self.reconstructions[reconstruction]
             .landmarks
             .iter()
-            .map(|(_, lm)| lm.observations.len())
-            .sum();
+            .filter(|&(_, lm)| lm.observations.len() >= 2)
+            .count();
         info!(
-            "started with {} landmarks and {} observations",
-            landmarks.len(),
-            num_observations
+            "started with {} triangulatable landmarks",
+            num_triangulatable_landmarks,
         );
+
         for landmark in landmarks {
             if let Some(point) = self.triangulate_landmark(reconstruction, landmark) {
-                let observations: Vec<(usize, usize)> = self.reconstructions[reconstruction]
-                    .landmarks[landmark]
-                    .observations
-                    .iter()
-                    .map(|(&view, &feature)| (view, feature))
+                let observations: Vec<(usize, usize)> = self
+                    .landmark_observations(reconstruction, landmark)
                     .collect();
 
                 for (view, feature) in observations {
@@ -1023,15 +1032,14 @@ where
         }
 
         // Log the data after filtering.
-        let num_observations: usize = self.reconstructions[reconstruction]
+        let num_triangulatable_landmarks: usize = self.reconstructions[reconstruction]
             .landmarks
             .iter()
-            .map(|(_, lm)| lm.observations.len())
-            .sum();
+            .filter(|&(_, lm)| lm.observations.len() >= 2)
+            .count();
         info!(
-            "ended with {} landmarks and {} observations",
-            self.reconstructions[reconstruction].landmarks.len(),
-            num_observations
+            "ended with {} triangulatable landmarks",
+            num_triangulatable_landmarks,
         );
     }
 
@@ -1069,9 +1077,10 @@ where
             // We must start by updating the landmark in the view for this feature.
             self.reconstructions[reconstruction].views[view].landmarks[feature] = landmark_a;
             // Add the observation to landmark A.
-            self.reconstructions[reconstruction].landmarks[landmark_a]
+            assert!(self.reconstructions[reconstruction].landmarks[landmark_a]
                 .observations
-                .insert(view, feature);
+                .insert(view, feature)
+                .is_none());
         }
         landmark_a
     }
@@ -1164,18 +1173,9 @@ where
             .len()
             >= 2
         {
-            self.triangulator.triangulate_observances(
-                self.reconstructions[reconstruction].landmarks[landmark]
-                    .observations
-                    .iter()
-                    .map(|(&view, &feature)| {
-                        (
-                            self.reconstructions[reconstruction].views[view].pose,
-                            self.frames[self.reconstructions[reconstruction].views[view].frame]
-                                .features[feature]
-                                .0,
-                        )
-                    }),
+            self.triangulate_observations(
+                reconstruction,
+                self.landmark_observations(reconstruction, landmark),
             )
         } else {
             None
@@ -1190,10 +1190,8 @@ where
         keypoint: NormalizedKeyPoint,
     ) -> Option<WorldPoint> {
         self.triangulator.triangulate_observances(
-            self.reconstructions[reconstruction].landmarks[landmark]
-                .observations
-                .iter()
-                .map(|(&view, &feature)| {
+            self.landmark_observations(reconstruction, landmark)
+                .map(|(view, feature)| {
                     (
                         self.reconstructions[reconstruction].views[view].pose,
                         self.frames[self.reconstructions[reconstruction].views[view].frame]
@@ -1205,7 +1203,7 @@ where
         )
     }
 
-    /// Retrieves the copied observations iterator from a landmark.
+    /// Retrieves the (view, feature) iterator from a landmark.
     pub fn landmark_observations(
         &self,
         reconstruction: usize,
@@ -1232,6 +1230,43 @@ where
                         .0,
                 )
             }))
+    }
+
+    /// Use this gratuitously to help debug.
+    ///
+    /// This is useful when the system gets into an inconsistent state due to an internal
+    /// bug. This kind of issue can't be tracked down by debugging, since you have to rewind
+    /// backwards and look for connections between data to understand where the issue went wrong.
+    /// By using this, you can observe errors as they accumulate in the system to better track them down.
+    pub fn sanity_check(&self, reconstruction: usize) {
+        info!("SANITY CHECK: checking to see if all view landmarks still exist");
+        for view in self.reconstructions[reconstruction]
+            .views
+            .iter()
+            .map(|(view, _)| view)
+        {
+            for (feature, &landmark) in self.reconstructions[reconstruction].views[view]
+                .landmarks
+                .iter()
+                .enumerate()
+            {
+                if !self.reconstructions[reconstruction]
+                    .landmarks
+                    .contains(landmark)
+                {
+                    error!("SANITY CHECK FAILURE: landmark associated with reconstruction {}, view {}, and feature {} does not exist, it was landmark {}", reconstruction, view, feature, landmark);
+                } else if self.reconstructions[reconstruction].landmarks[landmark]
+                    .observations
+                    .get(&view)
+                    != Some(&feature)
+                {
+                    error!("SANITY CHECK FAILURE: landmark associated with reconstruction {}, view {}, and feature {} does not contain the feature as an observation, instead found feature {:?}", reconstruction, view, feature, self.reconstructions[reconstruction].landmarks[landmark]
+                    .observations
+                    .get(&view));
+                }
+            }
+        }
+        info!("SANITY CHECK ENDED");
     }
 }
 
