@@ -120,7 +120,7 @@ where
                         let pc = pose.transform(pw);
                         Some(loss(1.0 - lm.as_ref()?.bearing().dot(&pc.bearing())))
                     };
-                    res().unwrap_or(0.0)
+                    res().unwrap_or(self.loss_cutoff)
                 })
             })
     }

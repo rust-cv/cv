@@ -86,7 +86,7 @@ where
                 };
                 once(loss(1.0 - sim_a)).chain(once(loss(1.0 - sim_b)))
             } else {
-                once(0.0).chain(once(0.0))
+                once(self.loss_cutoff).chain(once(self.loss_cutoff))
             }
         })
     }
