@@ -10,4 +10,5 @@ members = [
     "eight-point",
     "lambda-twist",
     "kpshow",
+    "nister-stewenius",
 ]
