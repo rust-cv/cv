@@ -7,4 +7,5 @@ members = [
     "cv-pinhole",
     "cv-optimize",
     "akaze",
+    "eight-point",
 ]
