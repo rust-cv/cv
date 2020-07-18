@@ -1,8 +1,0 @@
-# Cargo
-/target
-Cargo.lock
-
-# Flamegraph
-perf.data
-perf.data.old
-flamegraph.svg
