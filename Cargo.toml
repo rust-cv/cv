@@ -5,4 +5,5 @@ members = [
     "cv-core",
     "cv-geom",
     "cv-pinhole",
+    "cv-optimize",
 ]
