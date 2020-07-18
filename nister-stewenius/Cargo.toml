@@ -1,0 +1,14 @@
+[package]
+name = "nister-stewenius"
+version = "0.1.0"
+authors = ["Geordon Worley <vadixidav@gmail.com>"]
+edition = "2018"
+license = "MIT"
+
+[dependencies]
+cv-core = "0.4.0"
+float-ord = "0.2.0"
+
+[dev-dependencies]
+itertools = "0.8.2"
+nalgebra = "0.19.0"
