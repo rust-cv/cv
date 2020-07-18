@@ -1,0 +1,14 @@
+[package]
+name = "cv-optimize"
+version = "0.1.0"
+authors = ["Geordon Worley <vadixidav@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+levenberg-marquardt = "0.5.2"
+cv-core = "0.15.0"
+nalgebra = { version = "0.21.1", features = ["alloc"], default-features = false }
+num-traits = "0.2.12"
+argmin = { version = "0.3.1", features = ["ndarrayl"]}
+ndarray = "0.13.1"
+average = "0.10.4"
