@@ -17,7 +17,7 @@ alloc = []
 
 [dependencies]
 cv-core = { version = "0.15.0", path = "../cv-core" }
-derive_more = "0.99.8"
+derive_more = "0.99.9"
 num-traits = { version = "0.2.12", default-features = false }
 float-ord = "0.2.0"
 

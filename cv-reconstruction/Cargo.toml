@@ -13,7 +13,7 @@ eight-point = { version = "0.8.0", path = "../eight-point" }
 lambda-twist = { version = "0.7.0", path = "../lambda-twist" }
 cv-optimize = { version = "0.1.0", path = "../cv-optimize" }
 akaze = { version = "0.7.0", path = "../akaze" }
-hnsw = { version = "0.6.1" }
+hnsw = "0.6.1"
 space = "0.10.3"
 slab = "0.4.2"
 rand = "0.7.3"
