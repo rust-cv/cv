@@ -1,5 +1,5 @@
 use argmin::core::{ArgminKV, ArgminOp, Error, Executor, IterState, Observe, ObserverMode};
-use cv::nalgebra::{Point3, Unit, Vector3, Vector6};
+use cv::nalgebra::{Unit, Vector3, Vector6};
 use cv::{
     camera::pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix, NormalizedKeyPoint},
     feature::akaze,
@@ -12,7 +12,7 @@ use cv_optimize::{
     many_view_nelder_mead, two_view_nelder_mead, ManyViewConstraint, TwoViewConstraint,
 };
 use image::DynamicImage;
-use itertools::Itertools;
+use itertools::{izip, Itertools};
 use log::*;
 use maplit::hashmap;
 use ndarray::{array, Array2};
@@ -35,7 +35,13 @@ impl<T: ArgminOp> Observe<T> for OptimizationObserver {
     }
 }
 
-type Features = Vec<(NormalizedKeyPoint, BitArray<64>)>;
+struct Feature {
+    keypoint: NormalizedKeyPoint,
+    descriptor: BitArray<64>,
+    color: [u8; 3],
+}
+
+type Features = Vec<Feature>;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Pair(usize, usize);
@@ -56,15 +62,19 @@ struct Frame {
 
 impl Frame {
     fn descriptors(&self) -> impl Iterator<Item = BitArray<64>> + Clone + '_ {
-        self.features.iter().map(|&(_, d)| d)
+        self.features.iter().map(|f| f.descriptor)
     }
 
     fn keypoint(&self, ix: usize) -> NormalizedKeyPoint {
-        self.features[ix].0
+        self.features[ix].keypoint
     }
 
     fn descriptor(&self, ix: usize) -> &BitArray<64> {
-        &self.features[ix].1
+        &self.features[ix].descriptor
+    }
+
+    fn color(&self, ix: usize) -> [u8; 3] {
+        self.features[ix].color
     }
 }
 
@@ -684,9 +694,9 @@ where
                     .len()
                     >= required_observations
             })
-            .filter_map(|&FeatureMatch(landmark, fix)| {
+            .filter_map(|&FeatureMatch(landmark, feature)| {
                 Some(FeatureWorldMatch(
-                    frame.features[fix].0,
+                    frame.keypoint(feature),
                     self.triangulate_landmark(reconstruction, landmark)?,
                 ))
             })
@@ -735,11 +745,43 @@ where
         intrinsics: &CameraIntrinsicsK1Distortion,
         image: &DynamicImage,
     ) -> Features {
-        let (kps, ds) = akaze::Akaze::new(self.akaze_threshold).extract(image);
-        kps.into_iter()
-            .zip(ds)
-            .map(|(kp, d)| (intrinsics.calibrate(kp), d))
-            .collect()
+        let (keypoints, descriptors) = akaze::Akaze::new(self.akaze_threshold).extract(image);
+        let rbg_image = image.to_rgb();
+
+        // Use bicubic interpolation to extract colors from the image.
+        let colors: Vec<[u8; 3]> = keypoints
+            .iter()
+            .map(|kp| {
+                use image::Rgb;
+                let (x, y) = kp.point;
+                let Rgb(color) =
+                    crate::bicubic::interpolate_bicubic(&rbg_image, x, y, Rgb([0, 0, 0]));
+                color
+            })
+            .collect();
+
+        // Calibrate keypoint and combine into features.
+        izip!(
+            keypoints.into_iter().map(|kp| intrinsics.calibrate(kp)),
+            descriptors,
+            colors
+        )
+        .map(|(keypoint, descriptor, color)| Feature {
+            keypoint,
+            descriptor,
+            color,
+        })
+        .collect()
+    }
+
+    pub fn view_feature_color(
+        &self,
+        reconstruction: usize,
+        view: usize,
+        feature: usize,
+    ) -> [u8; 3] {
+        let frame = self.reconstructions[reconstruction].views[view].frame;
+        self.frames[frame].color(feature)
     }
 
     pub fn export_reconstruction(
@@ -750,19 +792,23 @@ where
     ) {
         let reconstruction_object = &self.reconstructions[reconstruction];
         // Output point cloud.
-        let points: Vec<Point3<f64>> = reconstruction_object
+        let points_and_colors = reconstruction_object
             .landmarks
             .iter()
             .filter_map(|(lmix, lm)| {
                 if lm.observations.len() >= min_observances {
                     self.triangulate_landmark(reconstruction, lmix)
                         .and_then(Projective::point)
+                        .map(|p| {
+                            let (&view, &feature) = lm.observations.iter().next().unwrap();
+                            (p, self.view_feature_color(reconstruction, view, feature))
+                        })
                 } else {
                     None
                 }
             })
             .collect();
-        crate::export::export(std::fs::File::create(path).unwrap(), points);
+        crate::export::export(std::fs::File::create(path).unwrap(), points_and_colors);
     }
 
     /// Optimizes the entire reconstruction.
@@ -868,8 +914,8 @@ where
                         .copied()
                         .map(|view| {
                             lm.observations.get(&view).map(|&feature| {
-                                self.frames[reconstruction.views[view].frame].features[feature]
-                                    .0
+                                self.frames[reconstruction.views[view].frame]
+                                    .keypoint(feature)
                                     .bearing()
                             })
                         })
@@ -1051,9 +1097,8 @@ where
         point: WorldPoint,
         threshold: f64,
     ) -> bool {
-        let bearing = self.frames[self.reconstructions[reconstruction].views[view].frame].features
-            [feature]
-            .0
+        let bearing = self.frames[self.reconstructions[reconstruction].views[view].frame]
+            .keypoint(feature)
             .bearing();
         let view_point = self.reconstructions[reconstruction].views[view]
             .pose
@@ -1195,8 +1240,7 @@ where
                     (
                         self.reconstructions[reconstruction].views[view].pose,
                         self.frames[self.reconstructions[reconstruction].views[view].frame]
-                            .features[feature]
-                            .0,
+                            .keypoint(feature),
                     )
                 })
                 .chain(std::iter::once((pose, keypoint))),
@@ -1225,9 +1269,8 @@ where
             .triangulate_observances(observations.map(|(view, feature)| {
                 (
                     self.reconstructions[reconstruction].views[view].pose,
-                    self.frames[self.reconstructions[reconstruction].views[view].frame].features
-                        [feature]
-                        .0,
+                    self.frames[self.reconstructions[reconstruction].views[view].frame]
+                        .keypoint(feature),
                 )
             }))
     }

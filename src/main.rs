@@ -1,3 +1,4 @@
+mod bicubic;
 mod export;
 mod vslam;
 
@@ -63,7 +64,7 @@ struct Opt {
     #[structopt(long, default_value = "0.00002")]
     export_cosine_distance_threshold: f64,
     /// The maximum number of times to run two-view optimization.
-    #[structopt(long, default_value = "2000")]
+    #[structopt(long, default_value = "8000")]
     two_view_patience: usize,
     /// The threshold of mean cosine distance standard deviation that terminates optimization.
     ///

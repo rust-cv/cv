@@ -6,7 +6,7 @@ use ply_rs::ply::{
 use ply_rs::writer::Writer;
 use std::io::Write;
 
-pub fn export(mut writer: impl Write, points: Vec<Point3<f64>>) {
+pub fn export(mut writer: impl Write, points_and_colors: Vec<(Point3<f64>, [u8; 3])>) {
     // crete a ply objet
     let mut ply = Ply::<DefaultElement>::new();
     ply.header.encoding = Encoding::Ascii;
@@ -23,16 +23,25 @@ pub fn export(mut writer: impl Write, points: Vec<Point3<f64>>) {
     point_element.properties.add(p);
     let p = PropertyDef::new("z".to_string(), PropertyType::Scalar(ScalarType::Double));
     point_element.properties.add(p);
+    let p = PropertyDef::new("red".to_string(), PropertyType::Scalar(ScalarType::UChar));
+    point_element.properties.add(p);
+    let p = PropertyDef::new("green".to_string(), PropertyType::Scalar(ScalarType::UChar));
+    point_element.properties.add(p);
+    let p = PropertyDef::new("blue".to_string(), PropertyType::Scalar(ScalarType::UChar));
+    point_element.properties.add(p);
     ply.header.elements.add(point_element);
 
     // Add data
-    let points: Vec<_> = points
+    let points: Vec<_> = points_and_colors
         .into_iter()
-        .map(|p| {
+        .map(|(p, [r, g, b])| {
             let mut point = DefaultElement::new();
             point.insert("x".to_string(), Property::Double(p.x));
             point.insert("y".to_string(), Property::Double(p.y));
             point.insert("z".to_string(), Property::Double(p.z));
+            point.insert("red".to_string(), Property::UChar(r));
+            point.insert("green".to_string(), Property::UChar(g));
+            point.insert("blue".to_string(), Property::UChar(b));
             point
         })
         .collect();
