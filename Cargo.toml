@@ -6,4 +6,5 @@ members = [
     "cv-geom",
     "cv-pinhole",
     "cv-optimize",
+    "akaze",
 ]
