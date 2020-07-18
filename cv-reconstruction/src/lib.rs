@@ -4,18 +4,18 @@ mod export;
 pub use export::*;
 
 use argmin::core::{ArgminKV, ArgminOp, Error, Executor, IterState, Observe, ObserverMode};
-use cv::nalgebra::{Unit, Vector3, Vector6};
-use cv::{
-    camera::pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix, NormalizedKeyPoint},
-    feature::akaze,
-    knn::hnsw::{Searcher, HNSW},
-    Bearing, BitArray, CameraModel, CameraToCamera, Consensus, Estimator, FeatureMatch,
-    FeatureWorldMatch, Pose, Projective, TriangulatorObservances, TriangulatorRelative, WorldPoint,
-    WorldToCamera,
+use bitarray::BitArray;
+use cv_core::nalgebra::{Unit, Vector3, Vector6};
+use cv_core::{
+    sample_consensus::{Consensus, Estimator},
+    Bearing, CameraModel, CameraToCamera, FeatureMatch, FeatureWorldMatch, Pose, Projective,
+    TriangulatorObservances, TriangulatorRelative, WorldPoint, WorldToCamera,
 };
 use cv_optimize::{
     many_view_nelder_mead, two_view_nelder_mead, ManyViewConstraint, TwoViewConstraint,
 };
+use cv_pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix, NormalizedKeyPoint};
+use hnsw::{Searcher, HNSW};
 use image::DynamicImage;
 use itertools::{izip, Itertools};
 use log::*;

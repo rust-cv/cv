@@ -26,7 +26,7 @@ use cv_core::nalgebra::{
     dimension::{U10, U20, U3, U4, U5, U9},
     DimName, Matrix3, MatrixMN, MatrixN, Vector4, VectorN,
 };
-use cv_core::{EssentialMatrix, NormalizedKeyPoint};
+use cv_pinhole::{EssentialMatrix, NormalizedKeyPoint};
 
 const EIGEN_CONVERGENCE: f64 = 1e-6;
 const EIGEN_ITERATIONS: usize = 50;
@@ -49,8 +49,8 @@ fn encode_epipolar_equation(
     let mut out: MatrixMN<f64, U5, U9> = nalgebra::zero();
     for i in 0..U5::dim() {
         let mut row = VectorN::<f64, U9>::zeros();
-        let ap = a[i].epipolar_point().0.coords;
-        let bp = b[i].epipolar_point().0.coords;
+        let ap = a[i].virtual_image_point().coords;
+        let bp = b[i].virtual_image_point().coords;
         for j in 0..3 {
             let v = ap[j] * bp;
             row.fixed_rows_mut::<U3>(3 * j).copy_from(&v);

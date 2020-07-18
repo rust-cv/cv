@@ -14,3 +14,17 @@ members = [
     "vslam-sandbox",
     "cv-reconstruction",
 ]
+
+[profile.dev]
+# The tests take a very long time without optimization.
+opt-level = 3
+
+[profile.bench]
+# Necessary to generate flamegraphs
+debug = true
+codegen-units = 1
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+debug = true

@@ -30,12 +30,12 @@ alloc = [
 ]
 
 [dependencies]
-cv-core = "0.15.0"
-cv-pinhole = { optional = true, version = "0.6.0" }
-cv-geom = { optional = true, version = "0.7.0" }
-eight-point = { optional = true, version = "0.8.0" }
-lambda-twist = { optional = true, version = "0.7.0" }
-akaze = { optional = true, version = "0.7.0" }
+cv-core = { version = "0.15.0", path = "../cv-core" }
+cv-pinhole = { optional = true, version = "0.6.0", path = "../cv-pinhole" }
+cv-geom = { optional = true, version = "0.7.0", path = "../cv-geom" }
+eight-point = { optional = true, version = "0.8.0", path = "../eight-point" }
+lambda-twist = { optional = true, version = "0.7.0", path = "../lambda-twist" }
+akaze = { optional = true, version = "0.7.0", path = "../akaze" }
 space = { version = "0.10.3", optional = true }
 hnsw = { version = "0.6.1", optional = true }
 levenberg-marquardt = { version = "0.5.2", optional = true }

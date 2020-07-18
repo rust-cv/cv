@@ -5,9 +5,15 @@ authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-cv = "0.6.0"
 argmin = "0.3.1"
+cv-core = { version = "0.15.0", path = "../cv-core" }
+cv-pinhole = { version = "0.6.0", path = "../cv-pinhole" }
+cv-geom = { version = "0.7.0", path = "../cv-geom" }
+eight-point = { version = "0.8.0", path = "../eight-point" }
+lambda-twist = { version = "0.7.0", path = "../lambda-twist" }
 cv-optimize = { version = "0.1.0", path = "../cv-optimize" }
+akaze = { version = "0.7.0", path = "../akaze" }
+hnsw = { version = "0.6.1" }
 space = "0.10.3"
 slab = "0.4.2"
 rand = "0.7.3"
@@ -19,3 +25,4 @@ image = "0.23.7"
 ply-rs = "0.1.2"
 imageproc = "0.21.0"
 conv = "0.3.3"
+bitarray = { version = "0.2.3", features = ["space"] }

@@ -16,13 +16,13 @@ default = []
 alloc = []
 
 [dependencies]
-cv-core = "0.15.0"
+cv-core = { version = "0.15.0", path = "../cv-core" }
 derive_more = "0.99.8"
 num-traits = { version = "0.2.12", default-features = false }
 float-ord = "0.2.0"
 
 [dev-dependencies]
-cv-geom = "0.7.0"
+cv-geom = { version = "0.7.0", path = "../cv-geom" }
 
 [package.metadata.docs.rs]
 all-features = true

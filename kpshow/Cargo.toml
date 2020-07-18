@@ -5,7 +5,7 @@ authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+akaze = { version = "0.7.0", path = "../akaze" }
 structopt = "0.3.14"
-akaze = "0.3.1"
 image = { version = "0.23.4", features = ["png", "jpeg"] }
 imageproc = "0.20.0"
