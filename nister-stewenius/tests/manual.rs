@@ -1,6 +1,6 @@
 use cv_core::nalgebra::{
     dimension::{U3, U8, U9},
-    Isometry3, Matrix3, MatrixMN, MatrixN, UnitQuaternion, Vector2, Vector3, VectorN,
+    Isometry3, Matrix3, MatrixMN, UnitQuaternion, Vector2, Vector3, VectorN,
 };
 use cv_core::sample_consensus::Model;
 use cv_core::{
@@ -28,7 +28,7 @@ fn to_eight(a: [NormalizedKeyPoint; SAMPLE_POINTS]) -> [NormalizedKeyPoint; 8] {
 
 #[test]
 fn five_points_nullspace_basis() {
-    let (_, _, kpa, kpb, kpr, _) = some_test_data();
+    let (_, _, kpa, kpb, _, _) = some_test_data();
     let e_basis = nister_stewenius::five_points_nullspace_basis(&to_five(kpa), &to_five(kpb))
         .expect("unable to compute nullspace basis");
     for s in 0..4 {

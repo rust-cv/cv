@@ -1,3 +1,8 @@
+mod bicubic;
+mod export;
+
+pub use export::*;
+
 use argmin::core::{ArgminKV, ArgminOp, Error, Executor, IterState, Observe, ObserverMode};
 use cv::nalgebra::{Unit, Vector3, Vector6};
 use cv::{
@@ -55,6 +60,7 @@ impl Pair {
 
 struct Frame {
     /// A VSlam::feeds index
+    #[allow(dead_code)]
     feed: usize,
     /// The keypoints and corresponding descriptors observed on this frame
     features: Features,
@@ -754,8 +760,7 @@ where
             .map(|kp| {
                 use image::Rgb;
                 let (x, y) = kp.point;
-                let Rgb(color) =
-                    crate::bicubic::interpolate_bicubic(&rbg_image, x, y, Rgb([0, 0, 0]));
+                let Rgb(color) = bicubic::interpolate_bicubic(&rbg_image, x, y, Rgb([0, 0, 0]));
                 color
             })
             .collect();

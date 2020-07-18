@@ -12,4 +12,5 @@ members = [
     "kpshow",
     "nister-stewenius",
     "vslam-sandbox",
+    "cv-reconstruction",
 ]

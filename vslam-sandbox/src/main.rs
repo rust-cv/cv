@@ -1,7 +1,3 @@
-mod bicubic;
-mod export;
-mod vslam;
-
 use cv::{
     camera::pinhole::{CameraIntrinsics, CameraIntrinsicsK1Distortion},
     consensus::Arrsac,
@@ -11,11 +7,11 @@ use cv::{
 
 use cv::nalgebra::{Point2, Vector2};
 
+use cv_reconstruction::*;
 use rand::SeedableRng;
 use rand_pcg::Pcg64;
 use std::path::PathBuf;
 use structopt::StructOpt;
-use vslam::*;
 
 #[derive(StructOpt, Clone)]
 #[structopt(name = "vslam-sandbox", about = "A tool for testing vslam algorithms")]

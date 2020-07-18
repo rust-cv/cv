@@ -1,0 +1,21 @@
+[package]
+name = "cv-reconstruction"
+version = "0.1.0"
+authors = ["Geordon Worley <vadixidav@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+cv = "0.6.0"
+argmin = "0.3.1"
+cv-optimize = { version = "0.1.0", path = "../cv-optimize" }
+space = "0.10.3"
+slab = "0.4.2"
+rand = "0.7.3"
+ndarray = "0.13.1"
+maplit = "1.0.2"
+log = "0.4.11"
+itertools = "0.9.0"
+image = "0.23.7"
+ply-rs = "0.1.2"
+imageproc = "0.21.0"
+conv = "0.3.3"
