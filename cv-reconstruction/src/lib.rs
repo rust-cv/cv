@@ -153,6 +153,8 @@ pub struct VSlam<C, EE, PE, T, R> {
     cosine_distance_threshold: f64,
     /// The threshold of all observations in a landmark relative to another landmark to merge the two.
     merge_cosine_distance_threshold: f64,
+    /// The cosine distance threshold during initialization.
+    two_view_cosine_distance_threshold: f64,
     /// The maximum iterations to optimize two views.
     two_view_patience: usize,
     /// The threshold of mean cosine distance standard deviation that terminates optimization.
@@ -201,6 +203,7 @@ where
             loss_cutoff: 0.05,
             cosine_distance_threshold: 0.00001,
             merge_cosine_distance_threshold: 0.000005,
+            two_view_cosine_distance_threshold: 0.0001,
             two_view_patience: 2000,
             two_view_std_dev_threshold: 0.0000000001,
             two_view_filter_loop_iterations: 3,
@@ -260,6 +263,17 @@ where
     pub fn merge_cosine_distance_threshold(self, merge_cosine_distance_threshold: f64) -> Self {
         Self {
             merge_cosine_distance_threshold,
+            ..self
+        }
+    }
+
+    /// Set the cosine distance threshold used during init.
+    pub fn two_view_cosine_distance_threshold(
+        self,
+        two_view_cosine_distance_threshold: f64,
+    ) -> Self {
+        Self {
+            two_view_cosine_distance_threshold,
             ..self
         }
     }
@@ -494,7 +508,7 @@ where
             let residual = 1.0 - point_a.bearing().dot(&a.bearing()) + 1.0
                 - point_b.bearing().dot(&b.bearing());
             if residual.is_finite()
-                && (residual < self.cosine_distance_threshold
+                && (residual < self.two_view_cosine_distance_threshold
                     && point_a.z.is_sign_positive()
                     && point_b.z.is_sign_positive())
             {

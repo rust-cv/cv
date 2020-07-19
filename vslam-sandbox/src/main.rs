@@ -46,18 +46,23 @@ struct Opt {
     /// Decreasing this value causes the tail ends of the cosine distance squared to flatten out, reducing the impact of outliers.
     ///
     /// Make this value around cosine_distance_threshold and arrsac_threshold.
-    #[structopt(long, default_value = "0.00005")]
+    #[structopt(long, default_value = "0.00002")]
     loss_cutoff: f64,
+    /// The threshold for reprojection error in cosine distance on init.
+    ///
+    /// When this is exceeded, points are filtered from the reconstruction.
+    #[structopt(long, default_value = "0.0005")]
+    two_view_cosine_distance_threshold: f64,
     /// The threshold for reprojection error in cosine distance.
     ///
     /// When this is exceeded, points are filtered from the reconstruction.
-    #[structopt(long, default_value = "0.00002")]
+    #[structopt(long, default_value = "0.00001")]
     cosine_distance_threshold: f64,
     /// The minimum reprojection error in cosine distance that all observations must have to merge two landmarks together.
-    #[structopt(long, default_value = "0.00001")]
+    #[structopt(long, default_value = "0.000002")]
     merge_cosine_distance_threshold: f64,
     /// The threshold for reprojection error in cosine distance when the pointcloud is exported.
-    #[structopt(long, default_value = "0.00002")]
+    #[structopt(long, default_value = "0.000005")]
     export_cosine_distance_threshold: f64,
     /// The maximum number of times to run two-view optimization.
     #[structopt(long, default_value = "8000")]
@@ -65,7 +70,7 @@ struct Opt {
     /// The threshold of mean cosine distance standard deviation that terminates optimization.
     ///
     /// The smaller this value is the more accurate the output will be, but it will take longer to execute.
-    #[structopt(long, default_value = "0.0000000001")]
+    #[structopt(long, default_value = "0.00000000001")]
     two_view_std_dev_threshold: f64,
     /// The maximum number of landmarks to use for sample consensus of the pose of the camera during tracking.
     ///
@@ -74,7 +79,7 @@ struct Opt {
     #[structopt(long, default_value = "4096")]
     track_landmarks: usize,
     /// The maximum number of times to run many-view optimization.
-    #[structopt(long, default_value = "2000")]
+    #[structopt(long, default_value = "4000")]
     many_view_patience: usize,
     /// The x focal length
     #[structopt(long, default_value = "984.2439")]
@@ -131,6 +136,7 @@ fn main() {
     .optimization_points(opt.optimization_points)
     .cosine_distance_threshold(opt.cosine_distance_threshold)
     .merge_cosine_distance_threshold(opt.merge_cosine_distance_threshold)
+    .two_view_cosine_distance_threshold(opt.two_view_cosine_distance_threshold)
     .two_view_patience(opt.two_view_patience)
     .two_view_std_dev_threshold(opt.two_view_std_dev_threshold)
     .track_landmarks(opt.track_landmarks)
