@@ -18,7 +18,7 @@ use cv_optimize::{
 use cv_pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix, NormalizedKeyPoint};
 use hnsw::{Searcher, HNSW};
 use image::DynamicImage;
-use itertools::izip;
+use itertools::{izip, Itertools};
 use log::*;
 use maplit::hashmap;
 use ndarray::{array, Array2};
@@ -1201,6 +1201,26 @@ where
         let residual = 1.0 - bearing.dot(&view_point.bearing());
         // If the observation is finite and has a low enough residual, it is good.
         residual.is_finite() && residual < threshold
+    }
+
+    /// This checks if a landmark is sufficiently robust by determining if any pair of observations
+    /// of this landmark have a cosine distance (in world space) greater than or equal to `minimum_cosine_distance`.
+    pub fn is_landmark_robust(
+        &self,
+        reconstruction: usize,
+        landmark: usize,
+        minimum_cosine_distance: f64,
+    ) -> bool {
+        self.landmark_observations(reconstruction, landmark)
+            .map(|(view, feature)| {
+                let pose = self.view_pose(reconstruction, view).inverse();
+                pose.isometry()
+                    * self
+                        .view_keypoint(reconstruction, view, feature)
+                        .to_homogeneous()
+            })
+            .tuple_combinations()
+            .any(|(bearing_a, bearing_b)| 1.0 - bearing_a.dot(&bearing_b) > minimum_cosine_distance)
     }
 
     /// Merges two landmarks unconditionally. Returns the new landmark ID.
