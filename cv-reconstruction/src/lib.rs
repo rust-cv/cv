@@ -881,7 +881,8 @@ where
     pub fn export_reconstruction(
         &self,
         reconstruction: usize,
-        min_observances: usize,
+        minimum_observances: usize,
+        minimum_cosine_distance: f64,
         path: impl AsRef<Path>,
     ) {
         let reconstruction_object = &self.reconstructions[reconstruction];
@@ -889,12 +890,14 @@ where
         let points_and_colors = reconstruction_object
             .landmarks
             .iter()
-            .filter_map(|(lmix, lm)| {
-                if lm.observations.len() >= min_observances {
-                    self.triangulate_landmark(reconstruction, lmix)
+            .filter_map(|(landmark, lm_object)| {
+                if lm_object.observations.len() >= minimum_observances
+                    && self.is_landmark_robust(reconstruction, landmark, minimum_cosine_distance)
+                {
+                    self.triangulate_landmark(reconstruction, landmark)
                         .and_then(Projective::point)
                         .map(|p| {
-                            let (&view, &feature) = lm.observations.iter().next().unwrap();
+                            let (&view, &feature) = lm_object.observations.iter().next().unwrap();
                             (p, self.view_color(reconstruction, view, feature))
                         })
                 } else {

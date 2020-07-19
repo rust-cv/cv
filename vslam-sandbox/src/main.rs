@@ -59,6 +59,11 @@ struct Opt {
     /// The threshold for reprojection error in cosine distance when the pointcloud is exported.
     #[structopt(long, default_value = "0.000005")]
     export_cosine_distance_threshold: f64,
+    /// The minimum cosine distance between any pair of observations required on a landmark which is exported.
+    ///
+    /// Use this to reduce the outliers when exporting.
+    #[structopt(long, default_value = "0.0005")]
+    export_minimum_cosine_distance: f64,
     /// The threshold of mean cosine distance standard deviation that terminates optimization.
     ///
     /// The smaller this value is the more accurate the output will be, but it will take longer to execute.
@@ -181,6 +186,11 @@ fn main() {
     // Export the first match
     if let Some(path) = opt.output {
         vslam.filter_observations(0, opt.export_cosine_distance_threshold);
-        vslam.export_reconstruction(0, opt.minimum_observations, path);
+        vslam.export_reconstruction(
+            0,
+            opt.minimum_observations,
+            opt.export_minimum_cosine_distance,
+            path,
+        );
     }
 }
