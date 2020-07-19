@@ -17,7 +17,7 @@ use cv_optimize::{
 use cv_pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix, NormalizedKeyPoint};
 use hnsw::{Searcher, HNSW};
 use image::DynamicImage;
-use itertools::{izip, Itertools};
+use itertools::izip;
 use log::*;
 use maplit::hashmap;
 use ndarray::{array, Array2};
@@ -1199,28 +1199,50 @@ where
     }
 
     pub fn merge_nearby_landmarks(&mut self, reconstruction: usize) {
+        use rstar::primitives::PointWithData;
+        use rstar::RTree;
+        type LandmarkPoint = PointWithData<usize, [f64; 3]>;
         info!("merging reconstruction landmarks");
         // Only take landmarks with at least two observations.
-        let landmarks: Vec<usize> = self.reconstructions[reconstruction]
+        let landmarks: Vec<LandmarkPoint> = self.reconstructions[reconstruction]
             .landmarks
             .iter()
-            .filter(|(_, lm)| lm.observations.len() >= 2)
-            .map(|(ix, _)| ix)
+            .filter_map(|(landmark, _)| {
+                self.triangulate_landmark(reconstruction, landmark)
+                    .and_then(|wp| {
+                        wp.point()
+                            .map(|p| LandmarkPoint::new(landmark, [p.x, p.y, p.z]))
+                    })
+            })
             .collect();
+        let landmark_index: RTree<LandmarkPoint> = RTree::bulk_load(landmarks.clone());
+
         let mut num_merged = 0usize;
-        for (landmark_a, landmark_b) in landmarks.iter().copied().tuple_combinations() {
-            // Check if the landmarks still both exist.
+        for landmark_point_a in landmarks {
+            // Check if landmark a still exists.
             if self.reconstructions[reconstruction]
                 .landmarks
-                .contains(landmark_a)
-                && self.reconstructions[reconstruction]
-                    .landmarks
-                    .contains(landmark_b)
-                && self
-                    .try_merge_landmarks(reconstruction, landmark_a, landmark_b)
-                    .is_some()
+                .contains(landmark_point_a.data)
             {
-                num_merged += 1;
+                // If the landmark still exists, search its nearest neighbors (up to 4, the first is itself).
+                let position: &[f64; 3] = landmark_point_a.position();
+                for landmark_point_b in landmark_index.nearest_neighbor_iter(position).take(5) {
+                    // Check if it is not matched to itself, if landmark b still exists, and if merging was successful.
+                    if landmark_point_a.data != landmark_point_b.data
+                        && self.reconstructions[reconstruction]
+                            .landmarks
+                            .contains(landmark_point_b.data)
+                        && self
+                            .try_merge_landmarks(
+                                reconstruction,
+                                landmark_point_a.data,
+                                landmark_point_b.data,
+                            )
+                            .is_some()
+                    {
+                        num_merged += 1;
+                    }
+                }
             }
         }
         info!("merged {} landmarks", num_merged);
