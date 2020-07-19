@@ -37,10 +37,10 @@ pub fn many_view_nelder_mead(poses: Vec<WorldToCamera>) -> NelderMead<Array2<f64
         let subi = i % 6;
         if subi < 3 {
             // Translation simplex must be relative to existing translation.
-            variants[i][(pose, subi)] += translation_scale.mean() * 0.1;
+            variants[i][(pose, subi)] += translation_scale.mean() * 0.01;
         } else {
             // Rotation simplex must be kept within a small rotation (2 pi would be a complete revolution).
-            variants[i][(pose, subi)] += std::f64::consts::PI * 0.01;
+            variants[i][(pose, subi)] += std::f64::consts::PI * 0.001;
         }
     }
     NelderMead::new().with_initial_params(variants)
@@ -120,7 +120,8 @@ where
                         let pc = pose.transform(pw);
                         Some(loss(1.0 - lm.as_ref()?.bearing().dot(&pc.bearing())))
                     };
-                    res().unwrap_or(self.loss_cutoff)
+                    // Return a residual of 0.0 if the landmark didnt exist in this pose.
+                    res().unwrap_or(0.0)
                 })
             })
     }

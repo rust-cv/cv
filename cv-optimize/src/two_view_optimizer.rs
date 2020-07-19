@@ -22,7 +22,7 @@ pub fn two_view_nelder_mead(pose: CameraToCamera) -> NelderMead<Array1<f64>, f64
         .map(|n| n.powi(2))
         .sum::<f64>()
         .sqrt()
-        * 0.1;
+        * 0.001;
     let mut variants = vec![original; 7];
     #[allow(clippy::needless_range_loop)]
     for i in 0..6 {
@@ -31,7 +31,7 @@ pub fn two_view_nelder_mead(pose: CameraToCamera) -> NelderMead<Array1<f64>, f64
             variants[i][i] += translation_scale;
         } else {
             // Rotation simplex must be kept within a small rotation (2 pi would be a complete revolution).
-            variants[i][i] += std::f64::consts::PI * 0.01;
+            variants[i][i] += std::f64::consts::PI * 0.0001;
         }
     }
     NelderMead::new().with_initial_params(variants)

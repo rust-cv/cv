@@ -12,7 +12,8 @@ use cv_core::{
     TriangulatorObservances, TriangulatorRelative, WorldPoint, WorldToCamera,
 };
 use cv_optimize::{
-    many_view_nelder_mead, two_view_nelder_mead, ManyViewConstraint, TwoViewConstraint,
+    many_view_nelder_mead, single_view_nelder_mead, two_view_nelder_mead, ManyViewConstraint,
+    SingleViewConstraint, TwoViewConstraint,
 };
 use cv_pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix, NormalizedKeyPoint};
 use hnsw::{Searcher, HNSW};
@@ -30,11 +31,14 @@ use std::path::Path;
 
 struct OptimizationObserver;
 
-impl<T: ArgminOp> Observe<T> for OptimizationObserver {
+impl<T: ArgminOp> Observe<T> for OptimizationObserver
+where
+    T::Param: std::fmt::Debug,
+{
     fn observe_iter(&mut self, state: &IterState<T>, _kv: &ArgminKV) -> Result<(), Error> {
         debug!(
-            "on iteration {} out of {} with total evaluations {} and current cost {}",
-            state.iter, state.max_iters, state.cost_func_count, state.cost
+            "on iteration {} out of {} with total evaluations {} and current cost {}, params {:?}",
+            state.iter, state.max_iters, state.cost_func_count, state.cost, state.param
         );
         Ok(())
     }
@@ -153,11 +157,15 @@ pub struct VSlam<C, EE, PE, T, R> {
     cosine_distance_threshold: f64,
     /// The threshold of all observations in a landmark relative to another landmark to merge the two.
     merge_cosine_distance_threshold: f64,
+    /// The maximum iterations to optimize one view.
+    single_view_patience: usize,
+    /// The threshold of mean cosine distance standard deviation that terminates single-view optimization.
+    single_view_std_dev_threshold: f64,
     /// The cosine distance threshold during initialization.
     two_view_cosine_distance_threshold: f64,
     /// The maximum iterations to optimize two views.
     two_view_patience: usize,
-    /// The threshold of mean cosine distance standard deviation that terminates optimization.
+    /// The threshold of mean cosine distance standard deviation that terminates two-view optimization.
     two_view_std_dev_threshold: f64,
     /// The maximum iterations to run two-view optimization and filtering
     two_view_filter_loop_iterations: usize,
@@ -165,6 +173,8 @@ pub struct VSlam<C, EE, PE, T, R> {
     track_landmarks: usize,
     /// The maximum iterations to optimize many views.
     many_view_patience: usize,
+    /// The threshold of mean cosine distance standard deviation that terminates many-view optimization.
+    many_view_std_dev_threshold: f64,
     /// The consensus algorithm
     consensus: RefCell<C>,
     /// The essential matrix estimator
@@ -203,12 +213,15 @@ where
             loss_cutoff: 0.05,
             cosine_distance_threshold: 0.00001,
             merge_cosine_distance_threshold: 0.000005,
+            single_view_patience: 8000,
+            single_view_std_dev_threshold: 0.0000000001,
             two_view_cosine_distance_threshold: 0.0001,
             two_view_patience: 2000,
             two_view_std_dev_threshold: 0.0000000001,
             two_view_filter_loop_iterations: 3,
             track_landmarks: 4096,
             many_view_patience: 2000,
+            many_view_std_dev_threshold: 0.00000001,
             optimization_points: 8192,
             consensus: RefCell::new(consensus),
             essential_estimator,
@@ -267,6 +280,24 @@ where
         }
     }
 
+    /// Set the maximum iterations of single-view optimization.
+    pub fn single_view_patience(self, single_view_patience: usize) -> Self {
+        Self {
+            single_view_patience,
+            ..self
+        }
+    }
+
+    /// The threshold of mean cosine distance standard deviation that terminates optimization.
+    ///
+    /// The smaller this value is the more accurate the output will be, but it will take longer to execute.
+    pub fn single_view_std_dev_threshold(self, single_view_std_dev_threshold: f64) -> Self {
+        Self {
+            single_view_std_dev_threshold,
+            ..self
+        }
+    }
+
     /// Set the cosine distance threshold used during init.
     pub fn two_view_cosine_distance_threshold(
         self,
@@ -289,8 +320,6 @@ where
     /// The threshold of mean cosine distance standard deviation that terminates optimization.
     ///
     /// The smaller this value is the more accurate the output will be, but it will take longer to execute.
-    ///
-    /// Default: `0.00000001`
     pub fn two_view_std_dev_threshold(self, two_view_std_dev_threshold: f64) -> Self {
         Self {
             two_view_std_dev_threshold,
@@ -317,6 +346,16 @@ where
     pub fn many_view_patience(self, many_view_patience: usize) -> Self {
         Self {
             many_view_patience,
+            ..self
+        }
+    }
+
+    /// The threshold of mean cosine distance standard deviation that terminates optimization.
+    ///
+    /// The smaller this value is the more accurate the output will be, but it will take longer to execute.
+    pub fn many_view_std_dev_threshold(self, many_view_std_dev_threshold: f64) -> Self {
+        Self {
+            many_view_std_dev_threshold,
             ..self
         }
     }
@@ -416,6 +455,10 @@ where
         pose: WorldToCamera,
         landmarks: Vec<FeatureMatch<usize>>,
     ) -> usize {
+        info!(
+            "incorporating frame {} into reconstruction {}",
+            frame, reconstruction
+        );
         // Create new view (with feature_indices empty initially).
         let view = self.reconstructions[reconstruction].views.insert(View {
             frame,
@@ -460,6 +503,7 @@ where
                 .landmarks
                 .push(landmark);
         }
+        info!("incorporated frame as view {}", view);
         view
     }
 
@@ -734,14 +778,36 @@ where
             .borrow_mut()
             .model(&self.pose_estimator, matches_3d.iter().copied())?;
 
-        // TODO: Add a single-view optimizer here.
+        // Create solver and constraint for single-view optimizer.
+        let solver = single_view_nelder_mead(pose).sd_tolerance(self.single_view_std_dev_threshold);
+        let constraint = SingleViewConstraint::new(matches_3d).loss_cutoff(self.loss_cutoff);
+
+        // The initial parameter is empty becasue nelder mead is passed its own initial parameter directly.
+        let opti_state = Executor::new(constraint, solver, array![])
+            .add_observer(OptimizationObserver, ObserverMode::Always)
+            .max_iters(self.single_view_patience as u64)
+            .run()
+            .expect("single-view optimization failed")
+            .state;
+
+        info!(
+            "extracted single-view pose with mean capped cosine distance of {}",
+            opti_state.best_cost
+        );
+
+        let pose = Pose::from_se3(Vector6::from_row_slice(
+            opti_state
+                .best_param
+                .as_slice()
+                .expect("param was not contiguous array"),
+        ));
 
         // Filter outlier matches and return all others for inclusion.
         let matches = matches
             .into_iter()
             .filter(|&FeatureMatch(landmark, feature)| {
                 let keypoint = frame.keypoint(feature);
-                self.triangulate_landmark_with_appended_observation(
+                self.triangulate_landmark_with_appended_observation_and_verify_existing_observations(
                     reconstruction,
                     landmark,
                     pose,
@@ -793,14 +859,23 @@ where
         .collect()
     }
 
-    pub fn view_feature_color(
+    pub fn view_pose(&self, reconstruction: usize, view: usize) -> WorldToCamera {
+        self.reconstructions[reconstruction].views[view].pose
+    }
+
+    pub fn view_color(&self, reconstruction: usize, view: usize, feature: usize) -> [u8; 3] {
+        let frame = self.reconstructions[reconstruction].views[view].frame;
+        self.frames[frame].color(feature)
+    }
+
+    pub fn view_keypoint(
         &self,
         reconstruction: usize,
         view: usize,
         feature: usize,
-    ) -> [u8; 3] {
+    ) -> NormalizedKeyPoint {
         let frame = self.reconstructions[reconstruction].views[view].frame;
-        self.frames[frame].color(feature)
+        self.frames[frame].keypoint(feature)
     }
 
     pub fn export_reconstruction(
@@ -820,7 +895,7 @@ where
                         .and_then(Projective::point)
                         .map(|p| {
                             let (&view, &feature) = lm.observations.iter().next().unwrap();
-                            (p, self.view_feature_color(reconstruction, view, feature))
+                            (p, self.view_color(reconstruction, view, feature))
                         })
                 } else {
                     None
@@ -955,7 +1030,8 @@ where
                 opti_landmarks.len(),
             );
 
-            let solver = many_view_nelder_mead(poses).sd_tolerance(self.two_view_std_dev_threshold);
+            let solver =
+                many_view_nelder_mead(poses).sd_tolerance(self.many_view_std_dev_threshold);
             let constraint = ManyViewConstraint::new(
                 observances.iter().map(|v| v.iter().copied()),
                 self.triangulator.clone(),
@@ -1286,6 +1362,31 @@ where
                 })
                 .chain(std::iter::once((pose, keypoint))),
         )
+    }
+
+    pub fn triangulate_landmark_with_appended_observation_and_verify_existing_observations(
+        &self,
+        reconstruction: usize,
+        landmark: usize,
+        pose: WorldToCamera,
+        keypoint: NormalizedKeyPoint,
+    ) -> Option<WorldPoint> {
+        self.triangulate_landmark_with_appended_observation(
+            reconstruction,
+            landmark,
+            pose,
+            keypoint,
+        )
+        .filter(|world_point| {
+            self.landmark_observations(reconstruction, landmark)
+                .all(|(view, feature)| {
+                    let pose = self.view_pose(reconstruction, view);
+                    let camera_point = pose.transform(*world_point);
+                    let keypoint = self.view_keypoint(reconstruction, view, feature);
+                    let residual = 1.0 - keypoint.bearing().dot(&camera_point.bearing());
+                    residual.is_finite() && residual < self.cosine_distance_threshold
+                })
+        })
     }
 
     /// Retrieves the (view, feature) iterator from a landmark.
