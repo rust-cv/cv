@@ -151,6 +151,8 @@ pub struct VSlam<C, EE, PE, T, R> {
     match_threshold: usize,
     /// The number of points to use in optimization of matches
     optimization_points: usize,
+    /// The minimum cosine distance required of a landmark for it to be considered robust enough for optimization
+    optimization_minimum_cosine_distance: f64,
     /// The cutoff for the loss function
     loss_cutoff: f64,
     /// The maximum cosine distance permitted in a valid match
@@ -210,6 +212,8 @@ where
             frames: Default::default(),
             akaze_threshold: 0.001,
             match_threshold: 64,
+            optimization_points: 8192,
+            optimization_minimum_cosine_distance: 0.0005,
             loss_cutoff: 0.05,
             cosine_distance_threshold: 0.00001,
             merge_cosine_distance_threshold: 0.000005,
@@ -222,7 +226,6 @@ where
             track_landmarks: 4096,
             many_view_patience: 2000,
             many_view_std_dev_threshold: 0.00000001,
-            optimization_points: 8192,
             consensus: RefCell::new(consensus),
             essential_estimator,
             pose_estimator,
@@ -757,6 +760,11 @@ where
                     .observations
                     .len()
                     >= required_observations
+                    && self.is_landmark_robust(
+                        reconstruction,
+                        landmark,
+                        self.optimization_minimum_cosine_distance,
+                    )
             })
             .filter_map(|&FeatureMatch(landmark, feature)| {
                 Some(FeatureWorldMatch(
@@ -931,31 +939,35 @@ where
         reconstruction: usize,
         num_landmarks: usize,
     ) -> BundleAdjust {
-        let reconstruction_ix = reconstruction;
-        let reconstruction = &self.reconstructions[reconstruction];
         // At least one landmark exists or the unwraps below will fail.
-        if !reconstruction.landmarks.is_empty() {
+        if !self.reconstructions[reconstruction].landmarks.is_empty() {
             info!(
                 "attempting to extract {} landmarks from a total of {}",
                 num_landmarks,
-                reconstruction.landmarks.len(),
+                self.reconstructions[reconstruction].landmarks.len(),
             );
 
             // First, we want to find the landmarks with the most observances to optimize the reconstruction.
             // Start by putting all the landmark indices into a BTreeMap with the key as their observances and the value the index.
             let mut landmarks_by_observances: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
-            for (observation_num, lmix) in reconstruction
+            for (observations, landmark) in self.reconstructions[reconstruction]
                 .landmarks
                 .iter()
-                .map(|(lmix, lm)| (lm.observations.len(), lmix))
+                .map(|(landmark, lm)| (lm.observations.len(), landmark))
+                .filter(|&(observations, landmark)| {
+                    observations >= 3
+                        && self.is_landmark_robust(
+                            reconstruction,
+                            landmark,
+                            self.optimization_minimum_cosine_distance,
+                        )
+                })
             {
                 // Only add landmarks with at least 3 observations.
-                if observation_num >= 3 {
-                    landmarks_by_observances
-                        .entry(observation_num)
-                        .or_default()
-                        .push(lmix);
-                }
+                landmarks_by_observances
+                    .entry(observations)
+                    .or_default()
+                    .push(landmark);
             }
 
             info!(
@@ -991,7 +1003,7 @@ where
                 .iter()
                 .copied()
                 .flat_map(|lmix| {
-                    reconstruction.landmarks[lmix]
+                    self.reconstructions[reconstruction].landmarks[lmix]
                         .observations
                         .iter()
                         .map(|(&view, _)| view)
@@ -1005,13 +1017,13 @@ where
                 .iter()
                 .copied()
                 .map(|lmix| {
-                    let lm = &reconstruction.landmarks[lmix];
+                    let lm = &self.reconstructions[reconstruction].landmarks[lmix];
                     views
                         .iter()
                         .copied()
                         .map(|view| {
                             lm.observations.get(&view).map(|&feature| {
-                                self.frames[reconstruction.views[view].frame]
+                                self.frames[self.reconstructions[reconstruction].views[view].frame]
                                     .keypoint(feature)
                                     .bearing()
                             })
@@ -1024,7 +1036,7 @@ where
             let poses: Vec<WorldToCamera> = views
                 .iter()
                 .copied()
-                .map(|view| reconstruction.views[view].pose)
+                .map(|view| self.reconstructions[reconstruction].views[view].pose)
                 .collect();
 
             info!(
@@ -1065,12 +1077,12 @@ where
                 .collect();
 
             BundleAdjust {
-                reconstruction: reconstruction_ix,
+                reconstruction,
                 poses: views.iter().copied().zip(poses).collect(),
             }
         } else {
             BundleAdjust {
-                reconstruction: reconstruction_ix,
+                reconstruction,
                 poses: vec![],
             }
         }
