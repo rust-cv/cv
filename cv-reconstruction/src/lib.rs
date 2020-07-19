@@ -1217,10 +1217,7 @@ where
         self.landmark_observations(reconstruction, landmark)
             .map(|(view, feature)| {
                 let pose = self.view_pose(reconstruction, view).inverse();
-                pose.isometry()
-                    * self
-                        .view_keypoint(reconstruction, view, feature)
-                        .to_homogeneous()
+                pose.isometry() * self.view_keypoint(reconstruction, view, feature).bearing()
             })
             .tuple_combinations()
             .any(|(bearing_a, bearing_b)| 1.0 - bearing_a.dot(&bearing_b) > minimum_cosine_distance)
