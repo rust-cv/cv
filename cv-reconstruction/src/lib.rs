@@ -152,7 +152,7 @@ pub struct VSlam<C, EE, PE, T, R> {
     /// The number of points to use in optimization of matches
     optimization_points: usize,
     /// The minimum cosine distance required of a landmark for it to be considered robust enough for optimization
-    optimization_minimum_cosine_distance: f64,
+    incidence_minimum_cosine_distance: f64,
     /// The cutoff for the loss function
     loss_cutoff: f64,
     /// The maximum cosine distance permitted in a valid match
@@ -213,7 +213,7 @@ where
             akaze_threshold: 0.001,
             match_threshold: 64,
             optimization_points: 8192,
-            optimization_minimum_cosine_distance: 0.0005,
+            incidence_minimum_cosine_distance: 0.0001,
             loss_cutoff: 0.05,
             cosine_distance_threshold: 0.00001,
             merge_cosine_distance_threshold: 0.000005,
@@ -459,8 +459,10 @@ where
         landmarks: Vec<FeatureMatch<usize>>,
     ) -> usize {
         info!(
-            "incorporating frame {} into reconstruction {}",
-            frame, reconstruction
+            "incorporating frame {} into reconstruction {} with {} pre-existing landmarks",
+            frame,
+            reconstruction,
+            landmarks.len(),
         );
         // Create new view (with feature_indices empty initially).
         let view = self.reconstructions[reconstruction].views.insert(View {
@@ -552,12 +554,16 @@ where
             let FeatureMatch(a, b) = FeatureMatch(a.keypoint(m.0), b.keypoint(m.1));
             let point_a = self.triangulator.triangulate_relative(pose, a, b)?;
             let point_b = pose.transform(point_a);
+            let camera_b_bearing_a = pose.isometry() * a.bearing();
+            let camera_b_bearing_b = b.bearing();
             let residual = 1.0 - point_a.bearing().dot(&a.bearing()) + 1.0
                 - point_b.bearing().dot(&b.bearing());
+            let incidence_cosine_distance = 1.0 - camera_b_bearing_a.dot(&camera_b_bearing_b);
             if residual.is_finite()
                 && (residual < self.two_view_cosine_distance_threshold
                     && point_a.z.is_sign_positive()
-                    && point_b.z.is_sign_positive())
+                    && point_b.z.is_sign_positive()
+                    && incidence_cosine_distance > self.incidence_minimum_cosine_distance)
             {
                 Some(m)
             } else {
@@ -763,7 +769,7 @@ where
                     && self.is_landmark_robust(
                         reconstruction,
                         landmark,
-                        self.optimization_minimum_cosine_distance,
+                        self.incidence_minimum_cosine_distance,
                     )
             })
             .filter_map(|&FeatureMatch(landmark, feature)| {
@@ -959,7 +965,7 @@ where
                         && self.is_landmark_robust(
                             reconstruction,
                             landmark,
-                            self.optimization_minimum_cosine_distance,
+                            self.incidence_minimum_cosine_distance,
                         )
                 })
             {
@@ -996,6 +1002,17 @@ where
                     // Add everything from the bucket.
                     opti_landmarks.extend(bucket.iter().copied());
                 }
+            }
+
+            if opti_landmarks.len() < 32 {
+                info!(
+                    "insufficient landmarks ({}), need 32; skipping bundle adjust",
+                    opti_landmarks.len()
+                );
+                return BundleAdjust {
+                    reconstruction,
+                    poses: vec![],
+                };
             }
 
             // Find all the view IDs corresponding to the landmarks.
@@ -1183,6 +1200,54 @@ where
                     }
                 }
             } else {
+                self.split_landmark(reconstruction, landmark);
+            }
+        }
+
+        // Log the data after filtering.
+        let num_triangulatable_landmarks: usize = self.reconstructions[reconstruction]
+            .landmarks
+            .iter()
+            .filter(|&(_, lm)| lm.observations.len() >= 2)
+            .count();
+        info!(
+            "ended with {} triangulatable landmarks",
+            num_triangulatable_landmarks,
+        );
+    }
+
+    /// Filters landmarks that arent robust via observation incidence angle.
+    ///
+    /// This filtering stage is optional, and omitting it can be beneficial
+    /// when you want to potentially keep landmarks that are very far in the distance.
+    /// Triangulating them will still be erroneous, but you can compute the direction these
+    /// landmarks are in with relatively good accuracy.
+    pub fn filter_non_robust_landmarks(&mut self, reconstruction: usize) {
+        info!("filtering non-robust landmarks");
+        let landmarks: Vec<usize> = self.reconstructions[reconstruction]
+            .landmarks
+            .iter()
+            .map(|(lmix, _)| lmix)
+            .collect();
+
+        // Log the data before filtering.
+        let num_triangulatable_landmarks: usize = self.reconstructions[reconstruction]
+            .landmarks
+            .iter()
+            .filter(|&(_, lm)| lm.observations.len() >= 2)
+            .count();
+        info!(
+            "started with {} triangulatable landmarks",
+            num_triangulatable_landmarks,
+        );
+
+        // Split any landmark that isnt robust.
+        for landmark in landmarks {
+            if !self.is_landmark_robust(
+                reconstruction,
+                landmark,
+                self.incidence_minimum_cosine_distance,
+            ) {
                 self.split_landmark(reconstruction, landmark);
             }
         }

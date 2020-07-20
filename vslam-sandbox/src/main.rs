@@ -62,7 +62,7 @@ struct Opt {
     /// The minimum cosine distance between any pair of observations required on a landmark which is exported.
     ///
     /// Use this to reduce the outliers when exporting.
-    #[structopt(long, default_value = "0.0005")]
+    #[structopt(long, default_value = "0.0001")]
     export_minimum_cosine_distance: f64,
     /// The threshold of mean cosine distance standard deviation that terminates optimization.
     ///
@@ -94,7 +94,7 @@ struct Opt {
     /// The threshold of mean cosine distance standard deviation that terminates optimization.
     ///
     /// The smaller this value is the more accurate the output will be, but it will take longer to execute.
-    #[structopt(long, default_value = "0.00000000001")]
+    #[structopt(long, default_value = "0.000000000001")]
     many_view_std_dev_threshold: f64,
     /// The x focal length
     #[structopt(long, default_value = "984.2439")]
