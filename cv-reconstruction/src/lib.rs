@@ -781,6 +781,38 @@ where
             .take(self.track_landmarks)
             .collect();
 
+        let matches_3d = if matches_3d.len() < 32 && required_observations == 3 {
+            info!("unable to find enough 3d matches with 3 observations, trying 2");
+            matches
+                .choose_multiple(&mut *self.rng.borrow_mut(), matches.len())
+                .filter(|&&FeatureMatch(landmark, _)| {
+                    self.reconstructions[reconstruction].landmarks[landmark]
+                        .observations
+                        .len()
+                        >= 2
+                        && self.is_landmark_robust(
+                            reconstruction,
+                            landmark,
+                            self.incidence_minimum_cosine_distance,
+                        )
+                })
+                .filter_map(|&FeatureMatch(landmark, feature)| {
+                    Some(FeatureWorldMatch(
+                        frame.keypoint(feature),
+                        self.triangulate_landmark(reconstruction, landmark)?,
+                    ))
+                })
+                .take(self.track_landmarks)
+                .collect()
+        } else {
+            matches_3d
+        };
+
+        if matches_3d.len() < 32 {
+            info!("unable to find enough 3d matches to track frame");
+            return None;
+        }
+
         info!(
             "estimate the pose of the camera using {} triangulatable landmarks",
             matches_3d.len()

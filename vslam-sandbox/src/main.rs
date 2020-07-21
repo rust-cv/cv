@@ -112,7 +112,7 @@ struct Opt {
     #[structopt(long, default_value = "0.0")]
     skew: f64,
     /// The K1 radial distortion
-    #[structopt(long, default_value = "-0.010584")]
+    #[structopt(long, default_value = "-0.3728755")]
     radial_distortion: f64,
     /// Output PLY file to deposit point cloud
     #[structopt(short, long)]

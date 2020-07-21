@@ -49,7 +49,8 @@ pub fn many_view_nelder_mead(poses: Vec<WorldToCamera>) -> NelderMead<Array2<f64
 #[derive(Clone)]
 pub struct ManyViewConstraint<B, T> {
     loss_cutoff: f64,
-    landmarks: Vec<Vec<Option<B>>>,
+    // Stored as a list of landmarks, each of which contains a list of observations in (view, bearing) format.
+    landmarks: Vec<Vec<(usize, B)>>,
     triangulator: T,
 }
 
@@ -72,7 +73,14 @@ where
         O: Iterator<Item = Option<B>>,
         T: TriangulatorObservances,
     {
-        let landmarks = landmarks.map(|observances| observances.collect()).collect();
+        let landmarks = landmarks
+            .map(|observances| {
+                observances
+                    .enumerate()
+                    .filter_map(|(view, bearing)| bearing.map(|bearing| (view, bearing)))
+                    .collect()
+            })
+            .collect();
         Self {
             loss_cutoff: 0.01,
             landmarks,
@@ -99,31 +107,41 @@ where
             }
         };
         let poses_res = poses.clone();
-        self.landmarks
-            .iter()
-            .filter_map(move |observations| {
-                let point = self.triangulator.triangulate_observances(
-                    poses
-                        .clone()
-                        .zip(observations)
-                        .filter_map(|(pose, observance)| {
-                            // Create a tuple of the pose with its corresponding observance.
-                            observance.clone().map(move |observance| (pose, observance))
+        self.landmarks.iter().flat_map(move |observations| {
+            if let Some(world_point) =
+                self.triangulator
+                    .triangulate_observances(observations.iter().map(|(view, bearing)| {
+                        (
+                        poses.clone().nth(*view).expect(
+                            "unexpected pose requested in landmark passed to ManyViewConstraint",
+                        ),
+                        bearing.clone(),
+                    )
+                    }))
+            {
+                let poses_res = poses_res.clone();
+                itertools::Either::Left(
+                    observations
+                        .iter()
+                        .map(move |(view, bearing)| {
+                            (
+                        poses_res.clone().nth(*view).expect(
+                            "unexpected pose requested in landmark passed to ManyViewConstraint",
+                        ),
+                        bearing.clone(),
+                    )
+                        })
+                        .map(move |(pose, lm)| {
+                            let camera_point = pose.transform(world_point);
+                            loss(1.0 - lm.bearing().dot(&camera_point.bearing()))
                         }),
-                )?;
-                Some((point, observations))
-            })
-            .flat_map(move |(pw, lms)| {
-                poses_res.clone().zip(lms.iter()).map(move |(pose, lm)| {
-                    // TODO: Once try blocks get added, this should be replaced with a try block.
-                    let res = || -> Option<f64> {
-                        let pc = pose.transform(pw);
-                        Some(loss(1.0 - lm.as_ref()?.bearing().dot(&pc.bearing())))
-                    };
-                    // Return a residual of 0.0 if the landmark didnt exist in this pose.
-                    res().unwrap_or(0.0)
-                })
-            })
+                )
+            } else {
+                itertools::Either::Right(
+                    std::iter::repeat(self.loss_cutoff).take(observations.len()),
+                )
+            }
+        })
     }
 }
 

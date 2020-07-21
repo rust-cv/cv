@@ -12,3 +12,4 @@ num-traits = "0.2.12"
 argmin = { version = "0.3.1", features = ["ndarrayl"] }
 ndarray = "0.13.1"
 average = "0.10.4"
+itertools = "0.9.0"
