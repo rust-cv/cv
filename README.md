@@ -88,6 +88,8 @@ Here are some of the domains of computer vision that Rust CV intends to persue a
         * [ ] With residual for [feature matches](https://docs.rs/cv-core/0.10.0/cv_core/struct.FeatureMatch.html)
       * [ ] Homography matrix ([Wikipedia](https://en.wikipedia.org/wiki/Homography_(computer_vision)))
         * [ ] With residual for [feature matches](https://docs.rs/cv-core/0.10.0/cv_core/struct.FeatureMatch.html)
+      * [ ] Trifocal Tensor ([Wikipedia](https://en.wikipedia.org/wiki/Trifocal_tensor))
+        * [ ] With residual for three-feature matches (not currently in cv-core, as there is no trifocal tensor yet)
     * [ ] [PnP](https://github.com/rust-cv/pnp) (estimation, outlier filtering, and optimization) (incomplete)
   * [ ] Image registration ([Wikipedia](https://en.wikipedia.org/wiki/Image_registration))
   * [ ] Real-time depth-map estimation (for direct visual odometry algorithms that require it) ([Wikipedia](https://en.wikipedia.org/wiki/Depth_map))
