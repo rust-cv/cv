@@ -5,6 +5,9 @@ use nalgebra::{
 };
 use sample_consensus::Model;
 
+#[cfg(feature = "serde-serialize")]
+use serde::{Deserialize, Serialize};
+
 /// This trait is implemented by all the different poses in this library:
 ///
 /// * [`CameraToWorld`] - Transforms [`CameraPoint`] into [`WorldPoint`]
@@ -174,6 +177,7 @@ fn pose_jacobian_self<P: Pose>(
 /// This maps [`WorldPoint`] into [`CameraPoint`], changing an absolute position into
 /// a vector relative to the camera.
 #[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, From, Into)]
+#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct WorldToCamera(pub IsometryMatrix3<f64>);
 
 impl Pose for WorldToCamera {
@@ -204,6 +208,7 @@ where
 /// This transforms camera points (with depth as `z`) into world coordinates.
 /// This also tells you where the camera is located and oriented in the world.
 #[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, From, Into)]
+#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct CameraToWorld(pub IsometryMatrix3<f64>);
 
 impl Pose for CameraToWorld {
@@ -229,6 +234,7 @@ impl Pose for CameraToWorld {
 ///
 /// Note that this is a left-handed coordinate space.
 #[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, From, Into)]
+#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct CameraToCamera(pub IsometryMatrix3<f64>);
 
 impl Pose for CameraToCamera {

@@ -1,6 +1,9 @@
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use nalgebra::{Point3, Unit, Vector3, Vector4};
 
+#[cfg(feature = "serde-serialize")]
+use serde::{Deserialize, Serialize};
+
 /// This trait is implemented for homogeneous projective 3d coordinate.
 pub trait Projective: From<Vector4<f64>> + Clone + Copy {
     /// Retrieve the homogeneous vector.
@@ -42,6 +45,7 @@ pub trait Projective: From<Vector4<f64>> + Clone + Copy {
 /// from the optical center of the camera. The unit of distance of a `CameraPoint` is
 /// unspecified and relative to the current reconstruction.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
+#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct CameraPoint(pub Vector4<f64>);
 
 impl Projective for CameraPoint {
@@ -84,6 +88,7 @@ impl Projective for CameraPoint {
 /// between the two reconstructions using an optimizer. APIs will eventually be added to perform this operation
 /// as well.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
+#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct WorldPoint(pub Vector4<f64>);
 
 impl Projective for WorldPoint {

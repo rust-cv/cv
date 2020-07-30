@@ -2,6 +2,9 @@ use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use nalgebra::{Matrix3, Matrix4, Rotation3, Unit, Vector3};
 use num_traits::Float;
 
+#[cfg(feature = "serde-serialize")]
+use serde::{Deserialize, Serialize};
+
 /// Contains a member of the lie algebra so(3), a representation of the tangent space
 /// of 3d rotation. This is also known as the lie algebra of the 3d rotation group SO(3).
 ///
@@ -10,6 +13,7 @@ use num_traits::Float;
 /// In all other cases, a rotation matrix should be used to store rotations, since the
 /// conversion to and from a rotation matrix is non-trivial.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
+#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct Skew3(pub Vector3<f64>);
 
 impl Skew3 {

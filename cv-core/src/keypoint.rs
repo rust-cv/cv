@@ -1,6 +1,9 @@
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use nalgebra::Point2;
 
+#[cfg(feature = "serde-serialize")]
+use serde::{Deserialize, Serialize};
+
 /// Allows the retrieval of the point on the image the feature came from.
 pub trait ImagePoint {
     /// Retrieves the point on the image
@@ -15,6 +18,7 @@ pub trait ImagePoint {
 /// This can be a type from a camera model crate (like `cv-pinhole`), or
 /// it can be the `Unit<Vector3<f64>>` type, which implements bearing.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
+#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct KeyPoint(pub Point2<f64>);
 
 impl ImagePoint for KeyPoint {
