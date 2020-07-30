@@ -14,12 +14,15 @@ readme = "README.md"
 [features]
 default = []
 alloc = []
+serde-serialize = ["serde", "nalgebra/serde-serialize"]
 
 [dependencies]
 cv-core = { version = "0.15.0", path = "../cv-core" }
 derive_more = "0.99.9"
 num-traits = { version = "0.2.12", default-features = false }
 float-ord = "0.2.0"
+serde = { version = "1.0.114", features = ["derive"], default-features = false, optional = true }
+nalgebra = { version = "0.21.1", default-features = false}
 
 [dev-dependencies]
 cv-geom = { version = "0.7.0", path = "../cv-geom" }

@@ -29,6 +29,9 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 
+#[cfg(feature = "serde-serialize")]
+use serde::{Deserialize, Serialize};
+
 struct OptimizationObserver;
 
 impl<T: ArgminOp> Observe<T> for OptimizationObserver
@@ -45,6 +48,7 @@ where
 }
 
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct Feature {
     pub keypoint: NormalizedKeyPoint,
     pub descriptor: BitArray<64>,
@@ -62,6 +66,7 @@ impl Pair {
 }
 
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct Frame {
     /// A VSlam::feeds index
     pub feed: usize,
@@ -89,6 +94,7 @@ impl Frame {
 
 /// A 3d point in space that has been observed on two or more frames
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct Landmark {
     /// Contains a map from VSlam::views indices to Frame::features indices.
     pub observations: HashMap<usize, usize>,

@@ -20,6 +20,9 @@ use cv_core::{
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use num_traits::Float;
 
+#[cfg(feature = "serde-serialize")]
+use serde::{Deserialize, Serialize};
+
 /// A point in normalized image coordinates. This keypoint has been corrected
 /// for distortion and normalized based on the camrea intrinsic matrix.
 /// Please note that the intrinsic matrix accounts for the natural focal length
@@ -27,6 +30,7 @@ use num_traits::Float;
 /// represented by their position on the camera sensor and normalized to the
 /// focal length of the camera.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
+#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct NormalizedKeyPoint(pub Point2<f64>);
 
 impl NormalizedKeyPoint {
@@ -82,6 +86,7 @@ impl Bearing for NormalizedKeyPoint {
 /// For a high quality camera, this may be sufficient to normalize image coordinates.
 /// Undistortion may also be necessary to normalize image coordinates.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct CameraIntrinsics {
     pub focals: Vector2<f64>,
     pub principal_point: Point2<f64>,
@@ -193,6 +198,7 @@ impl CameraModel for CameraIntrinsics {
 ///
 /// This also performs undistortion by applying one radial distortion coefficient (K1).
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct CameraIntrinsicsK1Distortion {
     pub simple_intrinsics: CameraIntrinsics,
     pub k1: f64,
@@ -286,6 +292,7 @@ impl CameraModel for CameraIntrinsicsK1Distortion {
 ///
 /// All distance units should be in meters to avoid conversion issues.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct CameraSpecification {
     pub pixels: Vector2<usize>,
     pub pixel_dimensions: Vector2<f64>,
