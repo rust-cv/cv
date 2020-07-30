@@ -7,7 +7,7 @@ use cv::{
 
 use cv::nalgebra::{Point2, Vector2};
 
-use cv_reconstruction::*;
+use cv_reconstruction::{VSlam, VSlamData, VSlamSettings};
 use rand::SeedableRng;
 use rand_pcg::Pcg64;
 use std::path::PathBuf;
@@ -140,34 +140,38 @@ fn main() {
 
     // Create a channel that will produce features in another parallel thread.
     let mut vslam = VSlam::new(
+        VSlamData::default(),
+        VSlamSettings {
+            akaze_threshold: opt.akaze_threshold,
+            match_threshold: opt.match_threshold,
+            optimization_points: opt.optimization_points,
+            cosine_distance_threshold: opt.cosine_distance_threshold,
+            merge_cosine_distance_threshold: opt.merge_cosine_distance_threshold,
+            single_view_std_dev_threshold: opt.single_view_std_dev_threshold,
+            two_view_cosine_distance_threshold: opt.two_view_cosine_distance_threshold,
+            two_view_patience: opt.two_view_patience,
+            two_view_std_dev_threshold: opt.two_view_std_dev_threshold,
+            many_view_patience: opt.many_view_patience,
+            many_view_std_dev_threshold: opt.many_view_std_dev_threshold,
+            track_landmarks: opt.track_landmarks,
+            loss_cutoff: opt.loss_cutoff,
+            ..VSlamSettings::default()
+        },
         Arrsac::new(opt.arrsac_threshold, Pcg64::from_seed([5; 32])),
         EightPoint::new(),
         LambdaTwist::new(),
         MinSquaresTriangulator::new(),
         Pcg64::from_seed([5; 32]),
-    )
-    .akaze_threshold(opt.akaze_threshold)
-    .match_threshold(opt.match_threshold)
-    .optimization_points(opt.optimization_points)
-    .cosine_distance_threshold(opt.cosine_distance_threshold)
-    .merge_cosine_distance_threshold(opt.merge_cosine_distance_threshold)
-    .single_view_std_dev_threshold(opt.single_view_std_dev_threshold)
-    .two_view_cosine_distance_threshold(opt.two_view_cosine_distance_threshold)
-    .two_view_patience(opt.two_view_patience)
-    .two_view_std_dev_threshold(opt.two_view_std_dev_threshold)
-    .many_view_patience(opt.many_view_patience)
-    .many_view_std_dev_threshold(opt.many_view_std_dev_threshold)
-    .track_landmarks(opt.track_landmarks)
-    .loss_cutoff(opt.loss_cutoff);
+    );
 
     // Add the feed.
-    let feed = vslam.insert_feed(intrinsics);
+    let feed = vslam.add_feed(intrinsics);
 
     // Add the frames.
     for path in opt.images {
         let image = image::open(path).expect("failed to load image");
-        if let Some(reconstruction) = vslam.insert_frame(feed, &image) {
-            if vslam.reconstruction_view_count(reconstruction) >= 3 {
+        if let Some(reconstruction) = vslam.add_frame(feed, &image) {
+            if vslam.data.reconstruction(reconstruction).views.len() >= 3 {
                 for _ in 0..opt.bundle_adjust_filter_iterations {
                     // If there are three or more views, run global bundle-adjust.
                     vslam.bundle_adjust_highest_observances(
