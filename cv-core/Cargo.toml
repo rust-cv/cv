@@ -19,7 +19,7 @@ nalgebra = { version = "0.21.1", default-features = false }
 derive_more = "0.99.9"
 sample-consensus = "1.0.1"
 num-traits = { version = "0.2.12", default-features = false }
-serde = { version = "1.0.114", defaut-features = false, features = ["derive"], optional = true }
+serde = { version = "1.0.114", default-features = false, features = ["derive"], optional = true }
 
 [package.metadata.docs.rs]
 all-features = true
