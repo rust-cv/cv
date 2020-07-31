@@ -34,6 +34,9 @@ struct Opt {
     /// The maximum cosine distance an observation can have to be exported.
     #[structopt(long, default_value = "0.000001")]
     export_cosine_distance_threshold: f64,
+    /// Export bundle adjust and filter iterations.
+    #[structopt(long, default_value = "0")]
+    export_bundle_adjust_filter_iterations: usize,
     /// The number of iterations to run bundle adjust and filtering globally.
     #[structopt(long, default_value = "3")]
     bundle_adjust_filter_iterations: usize,
@@ -166,6 +169,14 @@ fn main() {
     if let Some(path) = opt.output {
         let reconstruction = vslam.data.reconstructions().next().unwrap();
         vslam.filter_observations(reconstruction, opt.export_cosine_distance_threshold);
+        for _ in 0..opt.export_bundle_adjust_filter_iterations {
+            // If there are three or more views, run global bundle-adjust.
+            vslam.bundle_adjust_highest_observances(reconstruction, opt.bundle_adjust_landmarks);
+            // Filter observations after running bundle-adjust.
+            vslam.filter_observations(reconstruction, opt.export_cosine_distance_threshold);
+            // Merge landmarks.
+            vslam.merge_nearby_landmarks(reconstruction);
+        }
         vslam.export_reconstruction(
             reconstruction,
             opt.export_minimum_observations,
