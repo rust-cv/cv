@@ -237,6 +237,7 @@ impl Akaze {
         let keypoints = self.find_image_keypoints(&mut evolutions);
         let descriptors = self.extract_descriptors(&evolutions, &keypoints);
         trace!("Computing descriptors finished.");
+        info!("Extracted {} features", keypoints.len());
         (keypoints, descriptors)
     }
 

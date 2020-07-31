@@ -1,5 +1,5 @@
 use derive_more::{Deref, DerefMut};
-use image::{imageops, DynamicImage, ImageBuffer, Luma};
+use image::{imageops, DynamicImage, GenericImageView, ImageBuffer, Luma};
 use log::*;
 use ndarray::{Array2, ArrayView2, ArrayViewMut2};
 use nshare::{MutNdarray2, RefNdarray2};
@@ -42,13 +42,21 @@ impl GrayFloatImage {
     pub fn from_dynamic(input_image: &DynamicImage) -> Self {
         Self(match input_image.grayscale() {
             DynamicImage::ImageLuma8(gray_image) => {
-                info!("Loaded an 8-bit image");
+                info!(
+                    "Loaded a {} x {} 8-bit image",
+                    input_image.width(),
+                    input_image.height()
+                );
                 ImageBuffer::from_fn(gray_image.width(), gray_image.height(), |x, y| {
                     Luma([f32::from(gray_image[(x, y)][0]) / 255f32])
                 })
             }
             DynamicImage::ImageLuma16(gray_image) => {
-                info!("Loaded a 16-bit image");
+                info!(
+                    "Loaded a {} x {} 16-bit image",
+                    input_image.width(),
+                    input_image.height()
+                );
                 ImageBuffer::from_fn(gray_image.width(), gray_image.height(), |x, y| {
                     Luma([f32::from(gray_image[(x, y)][0]) / 65535f32])
                 })
