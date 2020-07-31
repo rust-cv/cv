@@ -230,7 +230,6 @@ impl Akaze {
     ///
     pub fn extract(&self, image: &DynamicImage) -> (Vec<KeyPoint>, Vec<BitArray<64>>) {
         let float_image = GrayFloatImage::from_dynamic(&image);
-        info!("Loaded a {} x {} image", image.width(), image.height());
         let mut evolutions = self.allocate_evolutions(image.width(), image.height());
         self.create_nonlinear_scale_space(&mut evolutions, &float_image);
         trace!("Creating scale space finished.");

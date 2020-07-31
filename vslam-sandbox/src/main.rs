@@ -29,7 +29,7 @@ struct Opt {
     #[structopt(long, default_value = "0.001")]
     arrsac_threshold: f64,
     /// The number of observations required to export a landmark.
-    #[structopt(long, default_value = "3")]
+    #[structopt(long, default_value = "5")]
     export_minimum_observations: usize,
     /// The maximum cosine distance an observation can have to be exported.
     #[structopt(long, default_value = "0.0000001")]
