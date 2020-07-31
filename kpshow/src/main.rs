@@ -13,6 +13,9 @@ struct Opt {
     /// The image file to show keypoints on.
     #[structopt(name = "FILE", parse(from_os_str))]
     file: PathBuf,
+    /// The akaze threshold to use.
+    #[structopt(short, long, default_value = "0.001")]
+    threshold: f64,
     /// The output path to write to (autodetects image type from extension).
     ///
     /// If this is not provided, then the output goes to stdout as a PNG.
@@ -22,7 +25,7 @@ struct Opt {
 
 fn main() {
     let opt = Opt::from_args();
-    let akaze = Akaze::default();
+    let akaze = Akaze::new(opt.threshold);
     let (kps, _) = akaze
         .extract_path(&opt.file)
         .expect("failed to extract features");

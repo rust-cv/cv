@@ -34,6 +34,11 @@ struct Opt {
     /// The maximum cosine distance an observation can have to be exported.
     #[structopt(long, default_value = "0.0000001")]
     export_cosine_distance_threshold: f64,
+    /// The minimum cosine distance between any pair of observations required on a landmark which is exported.
+    ///
+    /// Use this to reduce the outliers when exporting.
+    #[structopt(long, default_value = "0.0001")]
+    export_minimum_cosine_distance: f64,
     /// Export bundle adjust and filter iterations.
     #[structopt(long, default_value = "1")]
     export_bundle_adjust_filter_iterations: usize,
@@ -48,11 +53,6 @@ struct Opt {
     /// When this is exceeded, points are filtered from the reconstruction.
     #[structopt(long, default_value = "0.00001")]
     cosine_distance_threshold: f64,
-    /// The minimum cosine distance between any pair of observations required on a landmark which is exported.
-    ///
-    /// Use this to reduce the outliers when exporting.
-    #[structopt(long, default_value = "0.0001")]
-    export_minimum_cosine_distance: f64,
     /// The x focal length
     #[structopt(long, default_value = "984.2439")]
     x_focal: f64,
