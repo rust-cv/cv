@@ -1,7 +1,9 @@
 mod bicubic;
 mod export;
+mod settings;
 
 pub use export::*;
+pub use settings::*;
 
 use argmin::core::{ArgminKV, ArgminOp, Error, Executor, IterState, Observe, ObserverMode};
 use bitarray::BitArray;
@@ -507,66 +509,6 @@ impl VSlamData {
     }
 }
 
-/// The settings for the VSlam process.
-#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
-pub struct VSlamSettings {
-    /// The threshold used for akaze
-    pub akaze_threshold: f64,
-    /// The threshold distance below which a match is allowed
-    pub match_threshold: usize,
-    /// The number of points to use in optimization of matches
-    pub optimization_points: usize,
-    /// The minimum cosine distance required of a landmark for it to be considered robust enough for optimization
-    pub incidence_minimum_cosine_distance: f64,
-    /// The cutoff for the loss function
-    pub loss_cutoff: f64,
-    /// The maximum cosine distance permitted in a valid match
-    pub cosine_distance_threshold: f64,
-    /// The threshold of all observations in a landmark relative to another landmark to merge the two.
-    pub merge_cosine_distance_threshold: f64,
-    /// The maximum iterations to optimize one view.
-    pub single_view_patience: usize,
-    /// The threshold of mean cosine distance standard deviation that terminates single-view optimization.
-    pub single_view_std_dev_threshold: f64,
-    /// The cosine distance threshold during initialization.
-    pub two_view_cosine_distance_threshold: f64,
-    /// The maximum iterations to optimize two views.
-    pub two_view_patience: usize,
-    /// The threshold of mean cosine distance standard deviation that terminates two-view optimization.
-    pub two_view_std_dev_threshold: f64,
-    /// The maximum iterations to run two-view optimization and filtering
-    pub two_view_filter_loop_iterations: usize,
-    /// The maximum number of landmarks to use for pose estimation during tracking.
-    pub track_landmarks: usize,
-    /// The maximum iterations to optimize many views.
-    pub many_view_patience: usize,
-    /// The threshold of mean cosine distance standard deviation that terminates many-view optimization.
-    pub many_view_std_dev_threshold: f64,
-}
-
-impl Default for VSlamSettings {
-    fn default() -> Self {
-        Self {
-            akaze_threshold: 0.001,
-            match_threshold: 64,
-            optimization_points: 8192,
-            incidence_minimum_cosine_distance: 0.0001,
-            loss_cutoff: 0.05,
-            cosine_distance_threshold: 0.00001,
-            merge_cosine_distance_threshold: 0.000005,
-            single_view_patience: 8000,
-            single_view_std_dev_threshold: 0.0000000001,
-            two_view_cosine_distance_threshold: 0.0001,
-            two_view_patience: 2000,
-            two_view_std_dev_threshold: 0.0000000001,
-            two_view_filter_loop_iterations: 3,
-            track_landmarks: 4096,
-            many_view_patience: 2000,
-            many_view_std_dev_threshold: 0.00000001,
-        }
-    }
-}
-
 pub struct VSlam<C, EE, PE, T, R> {
     /// Mapping data
     pub data: VSlamData,
@@ -615,11 +557,15 @@ where
     }
 
     /// Adds a new feed with the given intrinsics.
-    pub fn add_feed(&mut self, intrinsics: CameraIntrinsicsK1Distortion) -> FeedKey {
+    pub fn add_feed(
+        &mut self,
+        intrinsics: CameraIntrinsicsK1Distortion,
+        reconstruction: Option<ReconstructionKey>,
+    ) -> FeedKey {
         self.data.feeds.insert(Feed {
             intrinsics,
             frames: vec![],
-            reconstruction: None,
+            reconstruction,
         })
     }
 

@@ -45,6 +45,8 @@ Here are some of the domains of computer vision that Rust CV intends to persue a
     * [ ] Scharr filters (exists [within `akaze` crate](https://github.com/rust-cv/akaze/blob/a25ff0448d95600f10c69acb7e4f7d95045c1293/src/derivatives.rs))
     * [ ] Sobel filter ([Wikipedia](https://en.wikipedia.org/wiki/Sobel_operator))
     * [ ] Canny edge detector ([Wikipedia](https://en.wikipedia.org/wiki/Canny_edge_detector))
+  * [x] Perceptual hash ([Wikipedia](https://en.wikipedia.org/wiki/Perceptual_hashing))
+    * [x] [aHash, dHash, and pHash](https://crates.io/crates/img_hash)
 * [ ] Photogrammetry
   * [ ] Feature extraction ([Wikipedia](https://en.wikipedia.org/wiki/Feature_detection_(computer_vision)))
     * [x] [AKAZE](https://docs.rs/akaze/0.3.1/akaze/struct.Akaze.html)
