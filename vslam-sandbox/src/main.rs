@@ -89,6 +89,7 @@ fn main() {
         opt.radial_distortion,
     );
 
+    info!("loading existing reconstruction data");
     let vslam_data = std::fs::File::open(&opt.data)
         .ok()
         .and_then(|file| {
@@ -100,6 +101,7 @@ fn main() {
         })
         .unwrap_or_default();
 
+    info!("loading existing settings");
     let vslam_settings = std::fs::File::open(&opt.settings)
         .ok()
         .and_then(|file| {
@@ -127,7 +129,7 @@ fn main() {
     let feed = vslam.add_feed(intrinsics, init_reconstruction);
 
     // Add the frames.
-    for path in opt.images {
+    for path in &opt.images {
         let image = image::open(path).expect("failed to load image");
         if let Some(reconstruction) = vslam.add_frame(feed, &image) {
             if vslam.data.reconstruction(reconstruction).views.len() >= 3 {
@@ -146,11 +148,15 @@ fn main() {
         }
     }
 
-    info!("saving the reconstruction data");
-    if let Ok(file) = std::fs::File::create(opt.data) {
-        if let Err(e) = bincode::serialize_into(file, &vslam.data) {
-            error!("unable to save reconstruction data: {}", e);
+    if !opt.images.is_empty() {
+        info!("saving the reconstruction data");
+        if let Ok(file) = std::fs::File::create(opt.data) {
+            if let Err(e) = bincode::serialize_into(file, &vslam.data) {
+                error!("unable to save reconstruction data: {}", e);
+            }
         }
+    } else {
+        info!("reconstruction not modified, so not saving reconstruction data");
     }
 
     info!("exporting the reconstruction");
