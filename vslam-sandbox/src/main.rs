@@ -189,9 +189,10 @@ fn main() {
 
     // Export the first match
     if let Some(path) = opt.output {
-        vslam.filter_observations(0, opt.export_cosine_distance_threshold);
+        let reconstruction = vslam.data.reconstructions().next().unwrap();
+        vslam.filter_observations(reconstruction, opt.export_cosine_distance_threshold);
         vslam.export_reconstruction(
-            0,
+            reconstruction,
             opt.minimum_observations,
             opt.export_minimum_cosine_distance,
             path,

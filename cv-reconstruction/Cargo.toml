@@ -5,7 +5,7 @@ authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 
 [features]
-serde-serialize = ["serde", "cv-pinhole/serde-serialize"]
+serde-serialize = ["serde", "cv-core/serde-serialize", "cv-pinhole/serde-serialize"]
 
 [dependencies]
 argmin = "0.3.1"
@@ -18,7 +18,6 @@ cv-optimize = { version = "0.1.0", path = "../cv-optimize" }
 akaze = { version = "0.7.0", path = "../akaze" }
 hnsw = "0.6.1"
 space = "0.10.3"
-slab = "0.4.2"
 rand = "0.7.3"
 ndarray = "0.13.1"
 maplit = "1.0.2"
@@ -31,3 +30,4 @@ conv = "0.3.3"
 bitarray = { version = "0.2.4", features = ["space", "serde"] }
 rstar = "0.8.1"
 serde = { version = "1.0.114", features = ["derive"], optional = true }
+slotmap = { version = "0.4.0", features = ["serde"] }
