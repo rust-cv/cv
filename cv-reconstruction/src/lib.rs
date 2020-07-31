@@ -148,6 +148,8 @@ pub struct Reconstruction {
 }
 
 /// Contains the results of a bundle adjust
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct BundleAdjust {
     /// The reconstruction the bundle adjust is happening on.
     reconstruction: ReconstructionKey,
@@ -157,6 +159,7 @@ pub struct BundleAdjust {
 
 /// The mapping data for VSlam.
 #[derive(Clone, Default)]
+#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct VSlamData {
     /// Contains the camera intrinsics for each feed
     feeds: DenseSlotMap<FeedKey, Feed>,
@@ -505,6 +508,7 @@ impl VSlamData {
 }
 
 /// The settings for the VSlam process.
+#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct VSlamSettings {
     /// The threshold used for akaze
     pub akaze_threshold: f64,

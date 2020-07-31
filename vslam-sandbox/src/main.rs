@@ -1,13 +1,12 @@
+use cv::nalgebra::{Point2, Vector2};
 use cv::{
     camera::pinhole::{CameraIntrinsics, CameraIntrinsicsK1Distortion},
     consensus::Arrsac,
     estimate::{EightPoint, LambdaTwist},
     geom::MinSquaresTriangulator,
 };
-
-use cv::nalgebra::{Point2, Vector2};
-
-use cv_reconstruction::{VSlam, VSlamData, VSlamSettings};
+use cv_reconstruction::{VSlam, VSlamSettings};
+use log::*;
 use rand::SeedableRng;
 use rand_pcg::Pcg64;
 use std::path::PathBuf;
@@ -16,6 +15,11 @@ use structopt::StructOpt;
 #[derive(StructOpt, Clone)]
 #[structopt(name = "vslam-sandbox", about = "A tool for testing vslam algorithms")]
 struct Opt {
+    /// The file where reconstruction data is accumulated.
+    ///
+    /// If this file doesn't exist, the file will be created when the program finishes.
+    #[structopt(short, long, default_value = "vslam.cvr")]
+    data: PathBuf,
     /// The threshold in bits for matching.
     ///
     /// Setting this to a high number disables it.
@@ -138,9 +142,14 @@ fn main() {
         opt.radial_distortion,
     );
 
+    let vslam_data = std::fs::File::open(&opt.data)
+        .ok()
+        .and_then(|file| bincode::deserialize_from(file).ok())
+        .unwrap_or_default();
+
     // Create a channel that will produce features in another parallel thread.
     let mut vslam = VSlam::new(
-        VSlamData::default(),
+        vslam_data,
         VSlamSettings {
             akaze_threshold: opt.akaze_threshold,
             match_threshold: opt.match_threshold,
@@ -187,7 +196,14 @@ fn main() {
         }
     }
 
-    // Export the first match
+    info!("saving the reconstruction data");
+    if let Ok(file) = std::fs::File::create(opt.data) {
+        if let Err(e) = bincode::serialize_into(file, &vslam.data) {
+            error!("unable to save reconstruction data: {}", e);
+        }
+    }
+
+    info!("exporting the reconstruction");
     if let Some(path) = opt.output {
         let reconstruction = vslam.data.reconstructions().next().unwrap();
         vslam.filter_observations(reconstruction, opt.export_cosine_distance_threshold);
