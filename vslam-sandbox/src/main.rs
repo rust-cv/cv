@@ -32,7 +32,7 @@ struct Opt {
     #[structopt(long, default_value = "3")]
     export_minimum_observations: usize,
     /// The maximum cosine distance an observation can have to be exported.
-    #[structopt(long, default_value = "0.0001")]
+    #[structopt(long, default_value = "0.000001")]
     export_cosine_distance_threshold: f64,
     /// The number of iterations to run bundle adjust and filtering globally.
     #[structopt(long, default_value = "3")]
