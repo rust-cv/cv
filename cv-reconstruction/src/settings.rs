@@ -143,7 +143,7 @@ fn default_loss_cutoff() -> f64 {
 }
 
 fn default_cosine_distance_threshold() -> f64 {
-    0.0000001
+    0.00001
 }
 
 fn default_merge_cosine_distance_threshold() -> f64 {
@@ -159,7 +159,7 @@ fn default_single_view_std_dev_threshold() -> f64 {
 }
 
 fn default_two_view_cosine_distance_threshold() -> f64 {
-    0.0005
+    0.00001
 }
 
 fn default_two_view_patience() -> usize {
