@@ -9,10 +9,11 @@ members = [
     "akaze",
     "eight-point",
     "lambda-twist",
-    "kpdraw",
     "nister-stewenius",
-    "vslam-sandbox",
     "cv-reconstruction",
+    "vslam-sandbox",
+    "kpdraw",
+    "imgshow",
 ]
 
 [profile.dev]

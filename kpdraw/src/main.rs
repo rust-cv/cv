@@ -4,13 +4,10 @@ use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
 #[structopt(
-    name = "kpshow",
-    about = "A tool to show keypoints from different keypoint detectors."
+    name = "kpdraw",
+    about = "A tool to show keypoints from different keypoint detectors"
 )]
 struct Opt {
-    /// The image file to show keypoints on.
-    #[structopt(parse(from_os_str))]
-    file: PathBuf,
     /// The akaze threshold to use.
     ///
     /// 0.01 will be very sparse and 0.0001 will be very dense.
@@ -21,11 +18,14 @@ struct Opt {
     /// If this is not provided, then the output goes to stdout as a PNG.
     #[structopt(short, long, parse(from_os_str))]
     output: Option<PathBuf>,
+    /// The image file to show keypoints on.
+    #[structopt(parse(from_os_str))]
+    input: PathBuf,
 }
 
 fn main() {
     let opt = Opt::from_args();
-    let image = image::open(opt.file).expect("failed to open image file");
+    let image = image::open(opt.input).expect("failed to open image file");
     let image = kpdraw::render_akaze_keypoints(&image, opt.threshold);
     let stdout = std::io::stdout();
     if let Some(path) = opt.output {

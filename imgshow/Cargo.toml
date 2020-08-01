@@ -1,0 +1,11 @@
+[package]
+name = "imgshow"
+version = "0.1.0"
+authors = ["Geordon Worley <vadixidav@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+iced = { version = "0.1.1", features = ["image"] }
+structopt = "0.3.14"
+iced_native = "0.2.2"
+image = "0.23.7"
