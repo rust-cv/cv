@@ -346,6 +346,11 @@ impl VSlamData {
             landmarks: vec![],
         });
 
+        info!(
+            "adding {} view features to HNSW",
+            self.frame(frame).features.len()
+        );
+
         // Init a searcher only once to avoid allocation durring k-NN searches.
         let mut searcher = Searcher::default();
 
@@ -894,7 +899,7 @@ where
         ));
 
         // Filter outlier matches and return all others for inclusion.
-        let matches = matches
+        let matches: Vec<(LandmarkKey, usize)> = matches
             .into_iter()
             .filter(|&(landmark, feature)| {
                 let keypoint = self.data.keypoint(frame, feature);
@@ -914,6 +919,11 @@ where
                 .unwrap_or(false)
             })
             .collect();
+
+        info!(
+            "locate_frame ended with a total of {} matches",
+            matches.len()
+        );
 
         Some((pose, matches))
     }
