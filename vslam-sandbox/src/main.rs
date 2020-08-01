@@ -141,7 +141,7 @@ fn main() {
             if vslam.data.reconstruction(reconstruction).views.len() >= 3 {
                 for _ in 0..opt.bundle_adjust_filter_iterations {
                     // If there are three or more views, run global bundle-adjust.
-                    vslam.bundle_adjust_highest_observances(
+                    vslam.bundle_adjust_highest_observations(
                         reconstruction,
                         opt.bundle_adjust_landmarks,
                     );
@@ -171,17 +171,12 @@ fn main() {
         vslam.filter_observations(reconstruction, opt.export_cosine_distance_threshold);
         for _ in 0..opt.export_bundle_adjust_filter_iterations {
             // If there are three or more views, run global bundle-adjust.
-            vslam.bundle_adjust_highest_observances(reconstruction, opt.bundle_adjust_landmarks);
+            vslam.bundle_adjust_highest_observations(reconstruction, opt.bundle_adjust_landmarks);
             // Filter observations after running bundle-adjust.
             vslam.filter_observations(reconstruction, opt.export_cosine_distance_threshold);
             // Merge landmarks.
             vslam.merge_nearby_landmarks(reconstruction);
         }
-        vslam.export_reconstruction(
-            reconstruction,
-            opt.export_minimum_observations,
-            opt.export_minimum_cosine_distance,
-            path,
-        );
+        vslam.export_reconstruction(reconstruction, path);
     }
 }

@@ -2,8 +2,8 @@ use crate::{Bearing, CameraPoint, CameraToCamera, Pose, WorldPoint, WorldToCamer
 
 /// This trait is for algorithms which allow you to triangulate a point from two or more observances.
 /// Each observance is a [`WorldToCamera`] and a [`Bearing`].
-pub trait TriangulatorObservances {
-    fn triangulate_observances<B: Bearing>(
+pub trait TriangulatorObservations {
+    fn triangulate_observations<B: Bearing>(
         &self,
         pairs: impl IntoIterator<Item = (WorldToCamera, B)>,
     ) -> Option<WorldPoint>;
@@ -22,7 +22,7 @@ pub trait TriangulatorRelative {
 
 impl<T> TriangulatorRelative for T
 where
-    T: TriangulatorObservances,
+    T: TriangulatorObservations,
 {
     fn triangulate_relative<A: Bearing, B: Bearing>(
         &self,
@@ -36,7 +36,7 @@ where
         // The first pose maps the first camera to itself (the world).
         // The second pose maps the first camera (the world) to the second camera (the camera).
         // This is how we convert the `CameraToCamera` into a `WorldToCamera`.
-        self.triangulate_observances(
+        self.triangulate_observations(
             once((WorldToCamera::identity(), a.bearing()))
                 .chain(once((WorldToCamera(pose), b.bearing()))),
         )

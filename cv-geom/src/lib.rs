@@ -30,7 +30,7 @@
 
 use cv_core::nalgebra::{zero, Matrix3x4, Matrix4, RowVector4};
 use cv_core::{
-    Bearing, CameraPoint, CameraToCamera, Pose, TriangulatorObservances, TriangulatorRelative,
+    Bearing, CameraPoint, CameraToCamera, Pose, TriangulatorObservations, TriangulatorRelative,
     WorldPoint, WorldToCamera,
 };
 
@@ -92,14 +92,16 @@ impl Default for MinSquaresTriangulator {
     }
 }
 
-impl TriangulatorObservances for MinSquaresTriangulator {
-    fn triangulate_observances<B: Bearing>(
+impl TriangulatorObservations for MinSquaresTriangulator {
+    fn triangulate_observations<B: Bearing>(
         &self,
         pairs: impl IntoIterator<Item = (WorldToCamera, B)>,
     ) -> Option<WorldPoint> {
         let mut a: Matrix4<f64> = zero();
+        let mut count = 0;
 
         for (pose, bearing) in pairs {
+            count += 1;
             // Get the normalized bearing.
             let bearing = bearing.bearing().into_inner();
             // Get the pose as a 3x4 matrix.
@@ -114,6 +116,10 @@ impl TriangulatorObservances for MinSquaresTriangulator {
             // Set up the least squares problem.
             let term = pose - bearing * bearing.transpose() * pose;
             a += term.transpose() * term;
+        }
+
+        if count < 2 {
+            return None;
         }
 
         let se = a.try_symmetric_eigen(self.epsilon, self.max_iterations)?;

@@ -7,7 +7,7 @@ use cv_core::nalgebra::{
     dimension::{Dynamic, U1, U4, U6},
     DMatrix, DVector, Matrix3, VecStorage, Vector4, Vector6,
 };
-use cv_core::{Bearing, Pose, Projective, TriangulatorObservances, WorldPoint, WorldToCamera};
+use cv_core::{Bearing, Pose, Projective, TriangulatorObservations, WorldPoint, WorldToCamera};
 use levenberg_marquardt::LeastSquaresProblem;
 use ndarray::{s, Array2};
 
@@ -57,7 +57,7 @@ pub struct ManyViewConstraint<B, T> {
 impl<B, T> ManyViewConstraint<B, T>
 where
     B: Bearing + Clone,
-    T: TriangulatorObservances,
+    T: TriangulatorObservations,
 {
     /// Creates a ManyViewConstraint.
     ///
@@ -71,7 +71,7 @@ where
     where
         L: Iterator<Item = O> + Clone,
         O: Iterator<Item = Option<B>>,
-        T: TriangulatorObservances,
+        T: TriangulatorObservations,
     {
         let landmarks = landmarks
             .map(|observances| {
@@ -110,7 +110,7 @@ where
         self.landmarks.iter().flat_map(move |observations| {
             if let Some(world_point) =
                 self.triangulator
-                    .triangulate_observances(observations.iter().map(|(view, bearing)| {
+                    .triangulate_observations(observations.iter().map(|(view, bearing)| {
                         (
                         poses.clone().nth(*view).expect(
                             "unexpected pose requested in landmark passed to ManyViewConstraint",
@@ -148,7 +148,7 @@ where
 impl<B, T> ArgminOp for ManyViewConstraint<B, T>
 where
     B: Bearing + Clone,
-    T: TriangulatorObservances,
+    T: TriangulatorObservations,
 {
     type Param = Array2<f64>;
     type Output = f64;
@@ -194,12 +194,12 @@ where
     where
         L: Iterator<Item = O> + Clone,
         O: Iterator<Item = Option<B>>,
-        T: TriangulatorObservances,
+        T: TriangulatorObservations,
     {
         let points = landmarks
             .clone()
             .map(|observances| {
-                triangulator.triangulate_observances(
+                triangulator.triangulate_observations(
                     poses
                         .iter()
                         .copied()

@@ -11,7 +11,7 @@ use cv_core::nalgebra::{Unit, Vector3, Vector6};
 use cv_core::{
     sample_consensus::{Consensus, Estimator},
     Bearing, CameraModel, CameraToCamera, FeatureMatch, FeatureWorldMatch, Pose, Projective,
-    TriangulatorObservances, TriangulatorRelative, WorldPoint, WorldToCamera,
+    TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera,
 };
 use cv_optimize::{
     many_view_nelder_mead, single_view_nelder_mead, two_view_nelder_mead, ManyViewConstraint,
@@ -278,24 +278,20 @@ impl VSlamData {
             .map(|(&view, &feature)| (view, feature))
     }
 
-    /// This checks if a landmark is sufficiently robust by determining if any pair of observations
-    /// of this landmark have a cosine distance (in world space) greater than or equal to `minimum_cosine_distance`.
-    pub fn is_landmark_robust(
+    /// Retrieves only the robust (view, feature) iterator from a landmark.
+    ///
+    /// The `threshold` is the maximum cosine distance permitted of an observation.
+    pub fn landmark_robust_observations(
         &self,
         reconstruction: ReconstructionKey,
         landmark: LandmarkKey,
-        minimum_cosine_distance: f64,
-    ) -> bool {
+        point: WorldPoint,
+        threshold: f64,
+    ) -> impl Iterator<Item = (ViewKey, usize)> + Clone + '_ {
         self.landmark_observations(reconstruction, landmark)
-            .map(|(view, feature)| {
-                let pose = self.pose(reconstruction, view).inverse();
-                pose.isometry()
-                    * self
-                        .observation_keypoint(reconstruction, view, feature)
-                        .bearing()
+            .filter(move |&(view, feature)| {
+                self.is_observation_good(reconstruction, view, feature, point, threshold)
             })
-            .tuple_combinations()
-            .any(|(bearing_a, bearing_b)| 1.0 - bearing_a.dot(&bearing_b) > minimum_cosine_distance)
     }
 
     /// Add a [`Reconstruction`] from two initial frames and good matches between their features.
@@ -537,7 +533,7 @@ where
         + Consensus<PE, FeatureWorldMatch<NormalizedKeyPoint>>,
     EE: Estimator<FeatureMatch<NormalizedKeyPoint>, Model = EssentialMatrix>,
     PE: Estimator<FeatureWorldMatch<NormalizedKeyPoint>, Model = WorldToCamera>,
-    T: TriangulatorObservances + Clone,
+    T: TriangulatorObservations + Clone,
     R: Rng,
 {
     /// Creates an empty vSLAM reconstruction.
@@ -819,45 +815,42 @@ where
             .filter(|&(landmark, _)| landmark_counts[&landmark] == 1)
             .collect();
 
-        info!("found {} suitable landmark matches", matches.len());
+        info!("found {} initial feature matches", matches.len());
 
-        let create_3d_matches = |required_observations| {
+        let create_3d_matches = |robust| {
             matches
                 .choose_multiple(&mut *self.rng.borrow_mut(), matches.len())
-                .filter(|&&(landmark, _)| {
-                    self.data
-                        .landmark(reconstruction, landmark)
-                        .observations
-                        .len()
-                        >= required_observations
-                        && self.data.is_landmark_robust(
-                            reconstruction,
-                            landmark,
-                            self.settings.incidence_minimum_cosine_distance,
-                        )
-                })
                 .filter_map(|&(landmark, feature)| {
                     Some(FeatureWorldMatch(
                         self.data.keypoint(frame, feature),
-                        self.triangulate_landmark(reconstruction, landmark)?,
+                        if robust {
+                            self.triangulate_landmark_robust(reconstruction, landmark)?
+                        } else {
+                            self.triangulate_landmark(reconstruction, landmark)?
+                        },
                     ))
                 })
                 .take(self.settings.track_landmarks)
                 .collect()
         };
 
+        info!("retrieving only robust landmarks corresponding to matches");
+
         // Extract the FeatureWorldMatch for each of the features.
-        let matches_3d: Vec<FeatureWorldMatch<NormalizedKeyPoint>> = create_3d_matches(3);
+        let matches_3d: Vec<FeatureWorldMatch<NormalizedKeyPoint>> = create_3d_matches(true);
 
         let matches_3d = if matches_3d.len() < 32 {
-            info!("unable to find enough 3d matches with 3 observations, trying 2");
-            create_3d_matches(2)
+            info!("unable to find enough robust landmarks, trying all triangulatable landmarks");
+            create_3d_matches(false)
         } else {
             matches_3d
         };
 
-        if matches_3d.len() < 32 {
-            info!("unable to find enough 3d matches to track frame");
+        if matches_3d.len() < self.settings.single_view_minimum_landmarks {
+            info!(
+                "unable to find at least {} 3d matches to track frame",
+                self.settings.single_view_minimum_landmarks
+            );
             return None;
         }
 
@@ -962,13 +955,7 @@ where
         .collect()
     }
 
-    pub fn export_reconstruction(
-        &self,
-        reconstruction: ReconstructionKey,
-        minimum_observances: usize,
-        minimum_cosine_distance: f64,
-        path: impl AsRef<Path>,
-    ) {
+    pub fn export_reconstruction(&self, reconstruction: ReconstructionKey, path: impl AsRef<Path>) {
         // Output point cloud.
         let points_and_colors = self
             .data
@@ -976,25 +963,15 @@ where
             .landmarks
             .iter()
             .filter_map(|(landmark, lm_object)| {
-                if lm_object.observations.len() >= minimum_observances
-                    && self.data.is_landmark_robust(
-                        reconstruction,
-                        landmark,
-                        minimum_cosine_distance,
-                    )
-                {
-                    self.triangulate_landmark(reconstruction, landmark)
-                        .and_then(Projective::point)
-                        .map(|p| {
-                            let (&view, &feature) = lm_object.observations.iter().next().unwrap();
-                            (
-                                p,
-                                self.data.observation_color(reconstruction, view, feature),
-                            )
-                        })
-                } else {
-                    None
-                }
+                self.triangulate_landmark_robust(reconstruction, landmark)
+                    .and_then(Projective::point)
+                    .map(|p| {
+                        let (&view, &feature) = lm_object.observations.iter().next().unwrap();
+                        (
+                            p,
+                            self.data.observation_color(reconstruction, view, feature),
+                        )
+                    })
             })
             .collect();
         crate::export::export(std::fs::File::create(path).unwrap(), points_and_colors);
@@ -1003,13 +980,13 @@ where
     /// Optimizes the entire reconstruction.
     ///
     /// Use `num_landmarks` to control the number of landmarks used in optimization.
-    pub fn bundle_adjust_highest_observances(
+    pub fn bundle_adjust_highest_observations(
         &mut self,
         reconstruction: ReconstructionKey,
         num_landmarks: usize,
     ) {
         self.apply_bundle_adjust(
-            self.compute_bundle_adjust_highest_observances(reconstruction, num_landmarks),
+            self.compute_bundle_adjust_highest_observations(reconstruction, num_landmarks),
         );
     }
 
@@ -1018,7 +995,7 @@ where
     /// Use `num_landmarks` to control the number of landmarks used in optimization.
     ///
     /// Returns a series of camera
-    fn compute_bundle_adjust_highest_observances(
+    fn compute_bundle_adjust_highest_observations(
         &self,
         reconstruction: ReconstructionKey,
         num_landmarks: usize,
@@ -1045,14 +1022,7 @@ where
                 .landmarks
                 .iter()
                 .map(|(landmark, lm)| (lm.observations.len(), landmark))
-                .filter(|&(observations, landmark)| {
-                    observations >= 3
-                        && self.data.is_landmark_robust(
-                            reconstruction,
-                            landmark,
-                            self.settings.incidence_minimum_cosine_distance,
-                        )
-                })
+                .filter(|&(_, landmark)| self.is_landmark_robust(reconstruction, landmark))
             {
                 // Only add landmarks with at least 3 observations.
                 landmarks_by_observances
@@ -1305,11 +1275,7 @@ where
 
         // Split any landmark that isnt robust.
         for landmark in landmarks {
-            if !self.data.is_landmark_robust(
-                reconstruction,
-                landmark,
-                self.settings.incidence_minimum_cosine_distance,
-            ) {
+            if !self.is_landmark_robust(reconstruction, landmark) {
                 self.split_landmark(reconstruction, landmark);
             }
         }
@@ -1439,22 +1405,73 @@ where
         info!("merged {} landmarks", num_merged);
     }
 
+    /// This checks if a landmark is sufficiently robust by observing its number of robust observations and the largest
+    /// observed angle of incidence to see if they are within appropriate thresholds.
+    pub fn is_landmark_robust(
+        &self,
+        reconstruction: ReconstructionKey,
+        landmark: LandmarkKey,
+    ) -> bool {
+        self.landmark_robust_observations(reconstruction, landmark)
+            .count()
+            >= self.settings.robust_minimum_observations
+            && self
+                .landmark_robust_observations(reconstruction, landmark)
+                .map(|(view, feature)| {
+                    let pose = self.data.pose(reconstruction, view).inverse();
+                    pose.isometry()
+                        * self
+                            .data
+                            .observation_keypoint(reconstruction, view, feature)
+                            .bearing()
+                })
+                .tuple_combinations()
+                .any(|(bearing_a, bearing_b)| {
+                    1.0 - bearing_a.dot(&bearing_b)
+                        > self.settings.incidence_minimum_cosine_distance
+                })
+    }
+
     pub fn triangulate_landmark(
         &self,
         reconstruction: ReconstructionKey,
         landmark: LandmarkKey,
     ) -> Option<WorldPoint> {
-        // TODO: Don't need to check this once https://github.com/rust-cv/cv-geom/issues/1 is fixed.
-        if self
-            .data
-            .landmark(reconstruction, landmark)
-            .observations
-            .len()
-            >= 2
-        {
+        self.triangulate_observations(
+            reconstruction,
+            self.data.landmark_observations(reconstruction, landmark),
+        )
+    }
+
+    /// Return observations that are robust of a landmark.
+    pub fn landmark_robust_observations(
+        &self,
+        reconstruction: ReconstructionKey,
+        landmark: LandmarkKey,
+    ) -> impl Iterator<Item = (ViewKey, usize)> + Clone + '_ {
+        self.triangulate_landmark(reconstruction, landmark)
+            .map(|point| {
+                self.data.landmark_robust_observations(
+                    reconstruction,
+                    landmark,
+                    point,
+                    self.settings.robust_maximum_cosine_distance,
+                )
+            })
+            .into_iter()
+            .flatten()
+    }
+
+    /// Triangulates a landmark only if it is robust and only using robust observations.
+    pub fn triangulate_landmark_robust(
+        &self,
+        reconstruction: ReconstructionKey,
+        landmark: LandmarkKey,
+    ) -> Option<WorldPoint> {
+        if self.is_landmark_robust(reconstruction, landmark) {
             self.triangulate_observations(
                 reconstruction,
-                self.data.landmark_observations(reconstruction, landmark),
+                self.landmark_robust_observations(reconstruction, landmark),
             )
         } else {
             None
@@ -1468,7 +1485,7 @@ where
         pose: WorldToCamera,
         keypoint: NormalizedKeyPoint,
     ) -> Option<WorldPoint> {
-        self.triangulator.triangulate_observances(
+        self.triangulator.triangulate_observations(
             self.data
                 .landmark_observations(reconstruction, landmark)
                 .map(|(view, feature)| {
@@ -1517,7 +1534,7 @@ where
         observations: impl Iterator<Item = (ViewKey, usize)>,
     ) -> Option<WorldPoint> {
         self.triangulator
-            .triangulate_observances(observations.map(|(view, feature)| {
+            .triangulate_observations(observations.map(|(view, feature)| {
                 (
                     self.data.pose(reconstruction, view),
                     self.data
