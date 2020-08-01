@@ -156,7 +156,7 @@ fn default_optimization_points() -> usize {
 }
 
 fn default_incidence_minimum_cosine_distance() -> f64 {
-    0.0001
+    0.0005
 }
 
 fn default_robust_maximum_cosine_distance() -> f64 {
