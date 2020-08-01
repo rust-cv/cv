@@ -9,7 +9,7 @@ members = [
     "akaze",
     "eight-point",
     "lambda-twist",
-    "kpshow",
+    "kpdraw",
     "nister-stewenius",
     "vslam-sandbox",
     "cv-reconstruction",
