@@ -176,7 +176,7 @@ fn default_cosine_distance_threshold() -> f64 {
 }
 
 fn default_merge_cosine_distance_threshold() -> f64 {
-    0.0000001
+    0.0000005
 }
 
 fn default_single_view_patience() -> usize {
