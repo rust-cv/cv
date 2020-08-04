@@ -1020,9 +1020,15 @@ where
                 .data
                 .reconstruction(reconstruction)
                 .landmarks
-                .iter()
-                .map(|(landmark, lm)| (lm.observations.len(), landmark))
-                .filter(|&(_, landmark)| self.is_landmark_robust(reconstruction, landmark))
+                .keys()
+                .filter(|&landmark| self.is_landmark_robust(reconstruction, landmark))
+                .map(|landmark| {
+                    (
+                        self.landmark_robust_observations(reconstruction, landmark)
+                            .count(),
+                        landmark,
+                    )
+                })
             {
                 // Only add landmarks with at least 3 observations.
                 landmarks_by_observances
@@ -1032,7 +1038,7 @@ where
             }
 
             info!(
-                "found landmarks with (observations, num) of {:?}",
+                "found landmarks with (robust observations, num) of {:?}",
                 landmarks_by_observances
                     .iter()
                     .map(|(ob, v)| (ob, v.len()))
