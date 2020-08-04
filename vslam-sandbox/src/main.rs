@@ -28,17 +28,9 @@ struct Opt {
     /// The threshold for ARRSAC in cosine distance.
     #[structopt(long, default_value = "0.001")]
     arrsac_threshold: f64,
-    /// The number of observations required to export a landmark.
-    #[structopt(long, default_value = "5")]
-    export_minimum_observations: usize,
     /// The maximum cosine distance an observation can have to be exported.
     #[structopt(long, default_value = "0.0000001")]
     export_cosine_distance_threshold: f64,
-    /// The minimum cosine distance between any pair of observations required on a landmark which is exported.
-    ///
-    /// Use this to reduce the outliers when exporting.
-    #[structopt(long, default_value = "0.0001")]
-    export_minimum_cosine_distance: f64,
     /// Export bundle adjust and filter iterations.
     #[structopt(long, default_value = "1")]
     export_bundle_adjust_filter_iterations: usize,
