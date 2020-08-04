@@ -232,8 +232,9 @@ impl Akaze {
         let float_image = GrayFloatImage::from_dynamic(&image);
         let mut evolutions = self.allocate_evolutions(image.width(), image.height());
         self.create_nonlinear_scale_space(&mut evolutions, &float_image);
-        trace!("Creating scale space finished.");
+        trace!("Finding image keypoints.");
         let keypoints = self.find_image_keypoints(&mut evolutions);
+        trace!("Extracting descriptors.");
         let descriptors = self.extract_descriptors(&evolutions, &keypoints);
         trace!("Computing descriptors finished.");
         info!("Extracted {} features", keypoints.len());
