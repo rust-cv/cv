@@ -1250,34 +1250,39 @@ where
         );
     }
 
-    /// Filters landmarks that arent robust via observation incidence angle.
+    /// Filters landmarks that arent robust.
     ///
-    /// This filtering stage is optional, and omitting it can be beneficial
-    /// when you want to potentially keep landmarks that are very far in the distance.
-    /// Triangulating them will still be erroneous, but you can compute the direction these
-    /// landmarks are in with relatively good accuracy.
+    /// It is recommended not to perform this stage normally, as only robust observations are used in the
+    /// optimization process. It can be beneficial to have landmarks that are either not triangulatable
+    /// or are infinitely far away from the camera (such as stars). Additionally, having weaker obervations
+    /// allows the potential for a landmark to become robust in the future. Use this if you really want to strip
+    /// out useful data from the reconstruction and only leave the most robust data used for optimization purposes.
+    /// This may be useful to do if the amount of data is too large and needs to be trimmed down to only the useful data
+    /// for image registration.
     pub fn filter_non_robust_landmarks(&mut self, reconstruction: ReconstructionKey) {
         info!("filtering non-robust landmarks");
         let landmarks: Vec<LandmarkKey> = self
             .data
             .reconstruction(reconstruction)
             .landmarks
-            .iter()
-            .map(|(lmix, _)| lmix)
+            .keys()
             .collect();
 
         // Log the data before filtering.
-        let num_triangulatable_landmarks: usize = self
+        let num_3d_landmarks: usize = self
             .data
             .reconstruction(reconstruction)
             .landmarks
-            .iter()
-            .filter(|&(_, lm)| lm.observations.len() >= 2)
+            .keys()
+            .filter(|&landmark| {
+                self.data
+                    .landmark(reconstruction, landmark)
+                    .observations
+                    .len()
+                    >= 2
+            })
             .count();
-        info!(
-            "started with {} triangulatable landmarks",
-            num_triangulatable_landmarks,
-        );
+        info!("started with {} 3d landmarks", num_3d_landmarks,);
 
         // Split any landmark that isnt robust.
         for landmark in landmarks {
@@ -1287,17 +1292,20 @@ where
         }
 
         // Log the data after filtering.
-        let num_triangulatable_landmarks: usize = self
+        let num_3d_landmarks: usize = self
             .data
             .reconstruction(reconstruction)
             .landmarks
-            .iter()
-            .filter(|&(_, lm)| lm.observations.len() >= 2)
+            .keys()
+            .filter(|&landmark| {
+                self.data
+                    .landmark(reconstruction, landmark)
+                    .observations
+                    .len()
+                    >= 2
+            })
             .count();
-        info!(
-            "ended with {} triangulatable landmarks",
-            num_triangulatable_landmarks,
-        );
+        info!("ended with {} 3d landmarks", num_3d_landmarks,);
     }
 
     /// Attempts to merge two landmarks. If it succeeds, it returns the landmark ID.
