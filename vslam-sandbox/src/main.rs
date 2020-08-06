@@ -5,7 +5,7 @@ use cv::{
     estimate::{EightPoint, LambdaTwist},
     geom::MinSquaresTriangulator,
 };
-use cv_reconstruction::VSlam;
+use cv_reconstruction::{VSlam, VSlamSettings};
 use log::*;
 use rand::SeedableRng;
 use rand_pcg::Pcg64;
@@ -25,26 +25,15 @@ struct Opt {
     /// This is in the format of `cv_reconstruction::VSlamSettings`.
     #[structopt(short, long, default_value = "vslam-settings.json")]
     settings: PathBuf,
-    /// The threshold for ARRSAC in cosine distance.
-    #[structopt(long, default_value = "0.001")]
-    arrsac_threshold: f64,
     /// The maximum cosine distance an observation can have to be exported.
-    #[structopt(long, default_value = "0.0000001")]
+    #[structopt(long, default_value = "0.1")]
     export_cosine_distance_threshold: f64,
     /// Export bundle adjust and filter iterations.
     #[structopt(long, default_value = "1")]
-    export_bundle_adjust_filter_iterations: usize,
-    /// The number of iterations to run bundle adjust and filtering globally.
+    export_reconstruction_optimization_iterations: usize,
+    /// Export required observations
     #[structopt(long, default_value = "3")]
-    bundle_adjust_filter_iterations: usize,
-    /// The number of landmarks to use in bundle adjust.
-    #[structopt(long, default_value = "32768")]
-    bundle_adjust_landmarks: usize,
-    /// The threshold for reprojection error in cosine distance.
-    ///
-    /// When this is exceeded, points are filtered from the reconstruction.
-    #[structopt(long, default_value = "0.00001")]
-    cosine_distance_threshold: f64,
+    export_robust_minimum_observations: usize,
     /// The x focal length
     #[structopt(long, default_value = "984.2439")]
     x_focal: f64,
@@ -100,7 +89,7 @@ fn main() {
         .unwrap_or_default();
 
     info!("loading existing settings");
-    let vslam_settings = std::fs::File::open(&opt.settings)
+    let vslam_settings: VSlamSettings = std::fs::File::open(&opt.settings)
         .ok()
         .and_then(|file| {
             let settings = bincode::deserialize_from(file).ok();
@@ -115,7 +104,10 @@ fn main() {
     let mut vslam = VSlam::new(
         vslam_data,
         vslam_settings,
-        Arrsac::new(opt.arrsac_threshold, Pcg64::from_seed([5; 32])),
+        Arrsac::new(
+            vslam_settings.consensus_threshold,
+            Pcg64::from_seed([5; 32]),
+        ),
         EightPoint::new(),
         LambdaTwist::new(),
         MinSquaresTriangulator::new(),
@@ -131,17 +123,7 @@ fn main() {
         let image = image::open(path).expect("failed to load image");
         if let Some(reconstruction) = vslam.add_frame(feed, &image) {
             if vslam.data.reconstruction(reconstruction).views.len() >= 3 {
-                for _ in 0..opt.bundle_adjust_filter_iterations {
-                    // If there are three or more views, run global bundle-adjust.
-                    vslam.bundle_adjust_highest_observations(
-                        reconstruction,
-                        opt.bundle_adjust_landmarks,
-                    );
-                    // Filter observations after running bundle-adjust.
-                    vslam.filter_observations(reconstruction, opt.cosine_distance_threshold);
-                    // Merge landmarks.
-                    vslam.merge_nearby_landmarks(reconstruction);
-                }
+                vslam.optimize_reconstruction(reconstruction);
             }
         }
     }
@@ -159,16 +141,15 @@ fn main() {
 
     info!("exporting the reconstruction");
     if let Some(path) = opt.output {
+        // Set the settings based on the command line arguments for export purposes.
+        vslam.settings.cosine_distance_threshold = opt.export_cosine_distance_threshold;
+        vslam.settings.reconstruction_optimization_iterations =
+            opt.export_reconstruction_optimization_iterations;
         let reconstruction = vslam.data.reconstructions().next().unwrap();
-        vslam.filter_observations(reconstruction, opt.export_cosine_distance_threshold);
-        for _ in 0..opt.export_bundle_adjust_filter_iterations {
-            // If there are three or more views, run global bundle-adjust.
-            vslam.bundle_adjust_highest_observations(reconstruction, opt.bundle_adjust_landmarks);
-            // Filter observations after running bundle-adjust.
-            vslam.filter_observations(reconstruction, opt.export_cosine_distance_threshold);
-            // Merge landmarks.
-            vslam.merge_nearby_landmarks(reconstruction);
-        }
+        vslam.optimize_reconstruction(reconstruction);
+        // Set settings for robustness to control what is rendered.
+        vslam.settings.robust_maximum_cosine_distance = opt.export_cosine_distance_threshold;
+        vslam.settings.robust_minimum_observations = opt.export_robust_minimum_observations;
         vslam.export_reconstruction(reconstruction, path);
     }
 }

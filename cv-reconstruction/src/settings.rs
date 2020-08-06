@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 /// The settings for the VSlam process.
 #[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
+#[derive(Debug, Copy, Clone)]
 pub struct VSlamSettings {
     /// The threshold used for akaze
     #[cfg_attr(
@@ -16,6 +17,12 @@ pub struct VSlamSettings {
         serde(default = "default_match_threshold")
     )]
     pub match_threshold: usize,
+    /// The threshold used for sample consensus
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_consensus_threshold")
+    )]
+    pub consensus_threshold: f64,
     /// The number of points to use in optimization of matches
     #[cfg_attr(
         feature = "serde-serialize",
@@ -115,6 +122,18 @@ pub struct VSlamSettings {
         serde(default = "default_many_view_std_dev_threshold")
     )]
     pub many_view_std_dev_threshold: f64,
+    /// The number of landmarks to use in bundle adjust.
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_many_view_landmarks")
+    )]
+    pub many_view_landmarks: usize,
+    /// The number of iterations to run bundle adjust, filtering, and merging.
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_reconstruction_optimization_iterations")
+    )]
+    pub reconstruction_optimization_iterations: usize,
 }
 
 impl Default for VSlamSettings {
@@ -122,6 +141,7 @@ impl Default for VSlamSettings {
         Self {
             akaze_threshold: default_akaze_threshold(),
             match_threshold: default_match_threshold(),
+            consensus_threshold: default_consensus_threshold(),
             optimization_points: default_optimization_points(),
             incidence_minimum_cosine_distance: default_incidence_minimum_cosine_distance(),
             robust_maximum_cosine_distance: default_robust_maximum_cosine_distance(),
@@ -139,16 +159,23 @@ impl Default for VSlamSettings {
             track_landmarks: default_track_landmarks(),
             many_view_patience: default_many_view_patience(),
             many_view_std_dev_threshold: default_many_view_std_dev_threshold(),
+            many_view_landmarks: default_many_view_landmarks(),
+            reconstruction_optimization_iterations: default_reconstruction_optimization_iterations(
+            ),
         }
     }
 }
 
 fn default_akaze_threshold() -> f64 {
-    0.001
+    0.0001
 }
 
 fn default_match_threshold() -> usize {
     64
+}
+
+fn default_consensus_threshold() -> f64 {
+    0.001
 }
 
 fn default_optimization_points() -> usize {
@@ -217,4 +244,12 @@ fn default_many_view_patience() -> usize {
 
 fn default_many_view_std_dev_threshold() -> f64 {
     0.000000000001
+}
+
+fn default_many_view_landmarks() -> usize {
+    32768
+}
+
+fn default_reconstruction_optimization_iterations() -> usize {
+    1
 }

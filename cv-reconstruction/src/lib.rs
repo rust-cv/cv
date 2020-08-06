@@ -152,7 +152,7 @@ pub struct Reconstruction {
 /// Contains the results of a bundle adjust
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
-pub struct BundleAdjust {
+pub struct BundleAdjustment {
     /// The reconstruction the bundle adjust is happening on.
     reconstruction: ReconstructionKey,
     /// Maps VSlam::views IDs to poses
@@ -436,8 +436,8 @@ impl VSlamData {
         }
     }
 
-    fn apply_bundle_adjust(&mut self, bundle_adjust: BundleAdjust) {
-        let BundleAdjust {
+    fn apply_bundle_adjust(&mut self, bundle_adjust: BundleAdjustment) {
+        let BundleAdjustment {
             reconstruction,
             poses,
         } = bundle_adjust;
@@ -977,17 +977,80 @@ where
         crate::export::export(std::fs::File::create(path).unwrap(), points_and_colors);
     }
 
-    /// Optimizes the entire reconstruction.
-    ///
-    /// Use `num_landmarks` to control the number of landmarks used in optimization.
-    pub fn bundle_adjust_highest_observations(
-        &mut self,
+    /// Runs bundle adjustment (camera pose optimization), landmark filtering, and landmark merging.
+    pub fn optimize_reconstruction(&mut self, reconstruction: ReconstructionKey) {
+        for _ in 0..self.settings.reconstruction_optimization_iterations {
+            // If there are three or more views, run global bundle-adjust.
+            self.bundle_adjust_reconstruction(reconstruction);
+            // Filter observations after running bundle-adjust.
+            self.filter_observations(reconstruction);
+            // Merge landmarks.
+            self.merge_nearby_landmarks(reconstruction);
+        }
+    }
+
+    /// Optimizes reconstruction camera poses.
+    pub fn bundle_adjust_reconstruction(&mut self, reconstruction: ReconstructionKey) {
+        self.data
+            .apply_bundle_adjust(self.compute_bundle_adjust(reconstruction));
+    }
+
+    fn retrieve_top_landmarks(
+        &self,
         reconstruction: ReconstructionKey,
-        num_landmarks: usize,
-    ) {
-        self.apply_bundle_adjust(
-            self.compute_bundle_adjust_highest_observations(reconstruction, num_landmarks),
+        num: usize,
+        filter: impl Fn(LandmarkKey) -> bool,
+        quality: impl Fn(LandmarkKey) -> usize,
+    ) -> Vec<LandmarkKey> {
+        info!(
+            "attempting to extract {} landmarks from a total of {}",
+            num,
+            self.data.reconstruction(reconstruction).landmarks.len(),
         );
+
+        // First, we want to find the landmarks with the most observances to optimize the reconstruction.
+        // Start by putting all the landmark indices into a BTreeMap with the key as their observances and the value the index.
+        let mut landmarks_by_quality: BTreeMap<usize, Vec<LandmarkKey>> = BTreeMap::new();
+        for (observations, landmark) in self
+            .data
+            .reconstruction(reconstruction)
+            .landmarks
+            .keys()
+            .filter(|&landmark| filter(landmark))
+            .map(|landmark| (quality(landmark), landmark))
+        {
+            // Only add landmarks with at least 3 observations.
+            landmarks_by_quality
+                .entry(observations)
+                .or_default()
+                .push(landmark);
+        }
+
+        info!(
+            "found landmarks with (quality, num) of {:?}",
+            landmarks_by_quality
+                .iter()
+                .map(|(ob, v)| (ob, v.len()))
+                .collect::<Vec<_>>()
+        );
+
+        // Now the BTreeMap is sorted from smallest number of observances to largest, so take the last indices.
+        let mut top_landmarks: Vec<LandmarkKey> = vec![];
+        for bucket in landmarks_by_quality.values().rev() {
+            if top_landmarks.len() + bucket.len() >= num {
+                // Add what we need to randomly (to prevent patterns in data that throw off optimization).
+                top_landmarks.extend(
+                    bucket
+                        .choose_multiple(&mut *self.rng.borrow_mut(), num - top_landmarks.len())
+                        .copied(),
+                );
+                break;
+            } else {
+                // Add everything from the bucket.
+                top_landmarks.extend(bucket.iter().copied());
+            }
+        }
+        top_landmarks
     }
 
     /// Optimizes the entire reconstruction.
@@ -995,11 +1058,7 @@ where
     /// Use `num_landmarks` to control the number of landmarks used in optimization.
     ///
     /// Returns a series of camera
-    fn compute_bundle_adjust_highest_observations(
-        &self,
-        reconstruction: ReconstructionKey,
-        num_landmarks: usize,
-    ) -> BundleAdjust {
+    fn compute_bundle_adjust(&self, reconstruction: ReconstructionKey) -> BundleAdjustment {
         // At least one landmark exists or the unwraps below will fail.
         if !self
             .data
@@ -1007,74 +1066,54 @@ where
             .landmarks
             .is_empty()
         {
-            info!(
-                "attempting to extract {} landmarks from a total of {}",
-                num_landmarks,
-                self.data.reconstruction(reconstruction).landmarks.len(),
+            info!("trying to extract landmarks using robust observations as a quality metric");
+
+            let opti_landmarks = self.retrieve_top_landmarks(
+                reconstruction,
+                self.settings.many_view_landmarks,
+                |landmark| self.is_landmark_robust(reconstruction, landmark),
+                |landmark| {
+                    self.landmark_robust_observations(reconstruction, landmark)
+                        .count()
+                },
             );
 
-            // First, we want to find the landmarks with the most observances to optimize the reconstruction.
-            // Start by putting all the landmark indices into a BTreeMap with the key as their observances and the value the index.
-            let mut landmarks_by_observances: BTreeMap<usize, Vec<LandmarkKey>> = BTreeMap::new();
-            for (observations, landmark) in self
-                .data
-                .reconstruction(reconstruction)
-                .landmarks
-                .keys()
-                .filter(|&landmark| self.is_landmark_robust(reconstruction, landmark))
-                .map(|landmark| {
-                    (
-                        self.landmark_robust_observations(reconstruction, landmark)
-                            .count(),
-                        landmark,
-                    )
-                })
-            {
-                // Only add landmarks with at least 3 observations.
-                landmarks_by_observances
-                    .entry(observations)
-                    .or_default()
-                    .push(landmark);
-            }
-
-            info!(
-                "found landmarks with (robust observations, num) of {:?}",
-                landmarks_by_observances
-                    .iter()
-                    .map(|(ob, v)| (ob, v.len()))
-                    .collect::<Vec<_>>()
-            );
-
-            // Now the BTreeMap is sorted from smallest number of observances to largest, so take the last indices.
-            let mut opti_landmarks: Vec<LandmarkKey> = vec![];
-            for bucket in landmarks_by_observances.values().rev() {
-                if opti_landmarks.len() + bucket.len() >= num_landmarks {
-                    // Add what we need to randomly (to prevent patterns in data that throw off optimization).
-                    opti_landmarks.extend(
-                        bucket
-                            .choose_multiple(
-                                &mut *self.rng.borrow_mut(),
-                                num_landmarks - opti_landmarks.len(),
-                            )
-                            .copied(),
-                    );
-                    break;
-                } else {
-                    // Add everything from the bucket.
-                    opti_landmarks.extend(bucket.iter().copied());
-                }
-            }
-
-            if opti_landmarks.len() < 32 {
+            let opti_landmarks = if opti_landmarks.len() < 32 {
                 info!(
-                    "insufficient landmarks ({}), need 32; skipping bundle adjust",
+                    "insufficient landmarks ({}), need 32; using non-robust observations as quality metric",
                     opti_landmarks.len()
                 );
-                return BundleAdjust {
+                let opti_landmarks = self.retrieve_top_landmarks(
                     reconstruction,
-                    poses: vec![],
-                };
-            }
+                    self.settings.many_view_landmarks,
+                    |landmark| {
+                        self.triangulate_landmark(reconstruction, landmark)
+                            .is_some()
+                    },
+                    |landmark| {
+                        self.data
+                            .landmark(reconstruction, landmark)
+                            .observations
+                            .len()
+                    },
+                );
+                if opti_landmarks.len() < 32 {
+                    info!(
+                        "insufficient landmarks ({}), need 32; bundle adjust failed",
+                        opti_landmarks.len()
+                    );
+                    return BundleAdjustment {
+                        reconstruction,
+                        poses: vec![],
+                    };
+                } else {
+                    info!("succeeded with {} landmarks", opti_landmarks.len());
+                    opti_landmarks
+                }
+            } else {
+                info!("succeeded with {} landmarks", opti_landmarks.len());
+                opti_landmarks
+            };
 
             // Find all the view IDs corresponding to the landmarks.
             let views: Vec<ViewKey> = opti_landmarks
@@ -1158,7 +1197,7 @@ where
                 })
                 .collect();
 
-            BundleAdjust {
+            BundleAdjustment {
                 reconstruction,
                 poses: views.iter().copied().zip(poses).collect(),
             }
@@ -1166,15 +1205,11 @@ where
             warn!(
                 "tried to bundle adjust reconstruction with no landmarks, which should not exist"
             );
-            BundleAdjust {
+            BundleAdjustment {
                 reconstruction,
                 poses: vec![],
             }
         }
-    }
-
-    fn apply_bundle_adjust(&mut self, bundle_adjust: BundleAdjust) {
-        self.data.apply_bundle_adjust(bundle_adjust);
     }
 
     /// Splits all observations in the landmark into their own separate landmarks.
@@ -1189,7 +1224,7 @@ where
         }
     }
 
-    pub fn filter_observations(&mut self, reconstruction: ReconstructionKey, threshold: f64) {
+    pub fn filter_observations(&mut self, reconstruction: ReconstructionKey) {
         info!("filtering reconstruction observations");
         let landmarks: Vec<LandmarkKey> = self
             .data
@@ -1225,7 +1260,7 @@ where
                         view,
                         feature,
                         point,
-                        threshold,
+                        self.settings.cosine_distance_threshold,
                     ) {
                         // If the observation is bad, we must remove it from the landmark and the view.
                         self.data.split_observation(reconstruction, view, feature);
