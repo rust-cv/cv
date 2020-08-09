@@ -167,7 +167,7 @@ impl Default for VSlamSettings {
 }
 
 fn default_akaze_threshold() -> f64 {
-    0.0001
+    0.00001
 }
 
 fn default_match_threshold() -> usize {

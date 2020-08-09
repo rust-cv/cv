@@ -26,7 +26,7 @@ struct Opt {
     #[structopt(short, long, default_value = "vslam-settings.json")]
     settings: PathBuf,
     /// The maximum cosine distance an observation can have to be exported.
-    #[structopt(long, default_value = "0.1")]
+    #[structopt(long, default_value = "0.000001")]
     export_cosine_distance_threshold: f64,
     /// Export bundle adjust and filter iterations.
     #[structopt(long, default_value = "1")]
@@ -76,38 +76,32 @@ fn main() {
         opt.radial_distortion,
     );
 
-    info!("loading existing reconstruction data");
-    let vslam_data = std::fs::File::open(&opt.data)
+    info!("trying to load existing reconstruction data");
+    let data = std::fs::File::open(&opt.data)
         .ok()
-        .and_then(|file| {
-            let data = bincode::deserialize_from(file).ok();
-            if data.is_some() {
-                info!("loaded existing data");
-            }
-            data
-        })
-        .unwrap_or_default();
+        .and_then(|file| bincode::deserialize_from(file).ok());
+    if data.is_some() {
+        info!("loaded existing reconstruction");
+    } else {
+        info!("used empty reconstruction");
+    }
+    let data = data.unwrap_or_default();
 
-    info!("loading existing settings");
-    let vslam_settings: VSlamSettings = std::fs::File::open(&opt.settings)
+    let settings = std::fs::File::open(&opt.settings)
         .ok()
-        .and_then(|file| {
-            let settings = bincode::deserialize_from(file).ok();
-            if settings.is_some() {
-                info!("loaded existing settings");
-            }
-            settings
-        })
-        .unwrap_or_default();
+        .and_then(|file| serde_json::from_reader(file).ok());
+    if settings.is_some() {
+        info!("loaded existing settings");
+    } else {
+        info!("used default settings");
+    }
+    let settings: VSlamSettings = settings.unwrap_or_default();
 
     // Create a channel that will produce features in another parallel thread.
     let mut vslam = VSlam::new(
-        vslam_data,
-        vslam_settings,
-        Arrsac::new(
-            vslam_settings.consensus_threshold,
-            Pcg64::from_seed([5; 32]),
-        ),
+        data,
+        settings,
+        Arrsac::new(settings.consensus_threshold, Pcg64::from_seed([5; 32])),
         EightPoint::new(),
         LambdaTwist::new(),
         MinSquaresTriangulator::new(),

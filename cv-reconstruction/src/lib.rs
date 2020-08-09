@@ -848,8 +848,9 @@ where
 
         if matches_3d.len() < self.settings.single_view_minimum_landmarks {
             info!(
-                "unable to find at least {} 3d matches to track frame",
-                self.settings.single_view_minimum_landmarks
+                "unable to find at least {} 3d matches to track frame (found {})",
+                self.settings.single_view_minimum_landmarks,
+                matches_3d.len()
             );
             return None;
         }
