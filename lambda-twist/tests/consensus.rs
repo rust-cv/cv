@@ -1,5 +1,6 @@
+#![feature(array_map)]
+
 use approx::assert_relative_eq;
-use arraymap::ArrayMap;
 use arrsac::Arrsac;
 use cv_core::nalgebra::{IsometryMatrix3, Point2, Point3, Rotation3, Translation, Vector3};
 use cv_core::sample_consensus::Consensus;
@@ -22,7 +23,7 @@ fn arrsac_manual() {
         [-0.528_125, 0.178_125, 2.5],
         [-0.923_424, -0.235_125, 2.8],
     ]
-    .map(|&p| Point3::from(p));
+    .map(Point3::from);
 
     // Define the camera pose.
     let rot = Rotation3::from_euler_angles(0.1, 0.2, 0.3);

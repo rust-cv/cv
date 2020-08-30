@@ -225,7 +225,7 @@ impl Akaze {
     /// ```
     /// use std::path::Path;
     /// let akaze = akaze::Akaze::default();
-    /// let (keypoints, descriptors) = akaze.extract(&image::open("res/0000000000.png").unwrap());
+    /// let (keypoints, descriptors) = akaze.extract(&image::open("../res/0000000000.png").unwrap());
     /// ```
     ///
     pub fn extract(&self, image: &DynamicImage) -> (Vec<KeyPoint>, Vec<BitArray<64>>) {
@@ -257,7 +257,7 @@ impl Akaze {
     /// ```
     /// use std::path::Path;
     /// let akaze = akaze::Akaze::default();
-    /// let (keypoints, descriptors) = akaze.extract_path("res/0000000000.png").unwrap();
+    /// let (keypoints, descriptors) = akaze.extract_path("../res/0000000000.png").unwrap();
     /// ```
     ///
     pub fn extract_path(

@@ -26,5 +26,4 @@ rand = { version = "0.7.3", features = ["small_rng"] }
 quickcheck = "0.9.2"
 quickcheck_macros = "0.9.1"
 itertools = "0.9.0"
-arraymap = "0.1.1"
 cv-pinhole = { version = "0.6.0", path = "../cv-pinhole" }

@@ -30,8 +30,8 @@ fn estimate_pose() {
 
     // Extract features with AKAZE.
     info!("Extracting features");
-    let (kps1, ds1) = image_to_kps("res/0000000000.png");
-    let (kps2, ds2) = image_to_kps("res/0000000014.png");
+    let (kps1, ds1) = image_to_kps("../res/0000000000.png");
+    let (kps2, ds2) = image_to_kps("../res/0000000014.png");
 
     // This ensures the underlying algorithm does not change
     // by making sure that we get the exact expected number of features.
