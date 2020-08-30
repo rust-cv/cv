@@ -1,0 +1,10 @@
+[package]
+name = "chapter3-akaze-feature-extraction"
+version = "0.1.0"
+authors = ["codec-abc <viot.camille@outlook.com>"]
+edition = "2018"
+
+[dependencies]
+cv = { version = "0.6.0", path = "../../cv" }
+image = "0.23.7"
+imageproc = "0.21.0"

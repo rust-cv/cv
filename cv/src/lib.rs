@@ -18,6 +18,7 @@
 //! * [`feature`] - feature extraction and description
 //! * [`knn`] - searching for nearest neighbors in small or large datasets
 //! * [`optimize`] - optimizing models to best fit the data
+//! * [`vis`] - visualization utilities
 
 #![no_std]
 
@@ -85,4 +86,10 @@ pub mod optimize {
     pub mod lm {
         pub use levenberg_marquardt::*;
     }
+}
+
+/// Visualization utilities
+pub mod vis {
+    #[cfg(feature = "imgshow")]
+    pub use imgshow::imgshow;
 }

@@ -19,6 +19,7 @@ default = [
     "eight-point",
     "lambda-twist",
     "akaze",
+    "imgshow",
     "space",
     "hnsw",
     "levenberg-marquardt",
@@ -47,6 +48,7 @@ cv-geom = { optional = true, version = "0.7.0", path = "../cv-geom" }
 eight-point = { optional = true, version = "0.8.0", path = "../eight-point" }
 lambda-twist = { optional = true, version = "0.7.0", path = "../lambda-twist" }
 akaze = { optional = true, version = "0.7.0", path = "../akaze" }
+imgshow = { optional = true, version = "0.1.0", path = "../imgshow" }
 space = { version = "0.10.3", optional = true }
 hnsw = { version = "0.6.1", optional = true }
 levenberg-marquardt = { version = "0.5.2", optional = true }
