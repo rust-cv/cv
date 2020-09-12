@@ -20,13 +20,13 @@ jobs:
           override: true
 
       - name: Cache test
-        - uses: actions/cache@v2
-          with:
-            path: |
-              ~/.cargo/registry
-              ~/.cargo/git
-              target
-            key: test-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: test-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run cargo test
         uses: actions-rs/cargo@v1
