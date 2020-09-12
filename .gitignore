@@ -5,3 +5,6 @@
 /target
 **/*.rs.bk
 Cargo.lock
+
+# mdbook
+/tutorial/book/
