@@ -1,3 +1,5 @@
+# Cargo fmt and cargo clippy
+
 on: [push, pull_request]
 
 name: lints
@@ -17,6 +19,15 @@ jobs:
           toolchain: nightly
           override: true
           components: rustfmt, clippy
+      
+      - name: Cache lints
+        - uses: actions/cache@v2
+          with:
+            path: |
+              ~/.cargo/registry
+              ~/.cargo/git
+              target
+            key: lints-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run cargo fmt
         uses: actions-rs/cargo@v1
