@@ -18,21 +18,29 @@
 
 Rust CV is a project to implement computer vision algorithms, abstractions, and systems in Rust. `#[no_std]` is supported where possible.
 
+## Documentation
+
+Each crate has its own documentation, but the easiest way to check all of the documentation at once is to look at [the docs for the `cv` batteries-included crate](https://docs.rs/cv/).
+
+Check out our tutorial book [here](https://rust-cv.github.io/tutorial/)! The code and book source for the tutorials can be found in the `tutorial` directory of the repository. The resources for tutorials can be found in the [site `res` directory](https://github.com/rust-cv/rust-cv.github.io/tree/master/res).
+
+## About
+
 This repository contains all computer vision crates for Rust CV in a mono-repo, including utilities as well as libraries. When updating libraries, all the crates in this repository should build for a PR to be accepted. Rust CV also maintains some other crates that are related to Computer Vision as well, which are located in the GitHub organization, not in this repository.
 
-Each crate has its own associated license. Rust CV is comprised of different open source licenses, mostly MIT. See the crate directories for their individual licenses.
+Each crate has its own associated license. Rust CV is comprised of different open source licenses, mostly MIT. See the crate directories (or their [crates.io](https://crates.io/) entries) for their individual licenses.
 
-The old repositories that are now in this repo are all archived, but still exist to find tagged versions, assocated commits, and issues.
+Each library was originally its own separate repository before being incorporated into the mono repo. The old repositories that are now in this repo are all archived, but still exist to find tagged versions, assocated commits, and issues. All new PRs should be made to this repository.
 
 ## What is computer vision
 
-Many people are familiar with covolutional neural networks and machine learning in computer vision, but computer vision is much more than that. Computer Vision broadly encompases image processing, photogrammetry, and pattern recognition. Machine learning can be used in all of these domains (e.g. denoisers, depth map prediction, and face detection), but it is not required.
+Many people are familiar with covolutional neural networks and machine learning (ML) in computer vision, but computer vision is much more than that. Computer vision broadly encompases image processing, photogrammetry, and pattern recognition. Machine learning can be used in all of these domains (e.g. denoisers, depth map prediction, and face detection), but it is not required. Almost all of the algorithms in this repository are not based on machine learning, but that does not mean you cannot use machine learning with these tools. Please take a look at https://www.arewelearningyet.com/ for Rust ML tools. We may expand into ML more in the future for tasks at which ML outperforms statistical algorithms.
 
 ## Goals
 
 One of the first things that Rust CV focused on was algorithms in the domain of photogrammetry. Today, Rust now has enough photogrammetry algorithms to perform SfM and visual SLAM. Weakness still exists within image processing and pattern recognition domains.
 
-Here are some of the domains of computer vision that Rust CV intends to persue along with examples of the domain (not all algorithms below live within the Rust CV organization, and some of these may exist and are unknown; some things may have changed since this was last updated):
+Here are some of the domains of computer vision that Rust CV intends to persue along with examples of the domain (not all algorithms below live within the Rust CV organization, and some of these may exist and are unknown to us; some things may have changed since this was last updated):
 
 * [ ] Image processing ([Wikipedia](https://en.wikipedia.org/wiki/Digital_image_processing))
   * [ ] Diffusion & blur
@@ -123,19 +131,13 @@ Here are some of the domains of computer vision that Rust CV intends to persue a
   * [x] k-NN search
     * [x] [Brute force](https://docs.rs/space/0.10.3/space/fn.linear_knn.html)
     * [x] [HNSW](https://docs.rs/hnsw/0.6.1/hnsw/struct.HNSW.html)
+    * [x] [FLANN](https://docs.rs/flann/0.1.0/flann/)
   * [ ] Face recognition ([Wikipedia](https://en.wikipedia.org/wiki/Facial_recognition_system))
+  * [ ] Articulated body pose estimation ([Wikipedia](https://en.wikipedia.org/wiki/Articulated_body_pose_estimation))
   * [ ] Object recognition ([Wikipedia](https://en.wikipedia.org/wiki/Outline_of_object_recognition))
   * [ ] Place recognition (can assist in MVG)
   * [ ] Segmentation ([Wikipedia](https://en.wikipedia.org/wiki/Image_segmentation))
     * [ ] Semantic segmentation mapping (see [this blog post](https://www.jeremyjordan.me/semantic-segmentation/))
-
-To support computer vision tooling, the following will be implemented:
-
-* [ ] Point clouds ([Wikipedia](https://en.wikipedia.org/wiki/Point_cloud))
-  * [ ] Display tool
-    * [ ] LoD refinement ([Wikipedia](https://en.wikipedia.org/wiki/Level_of_detail))
-      * [ ] Potree file format ([GitHub](https://github.com/potree/potree/))
-    * [ ] PLY files ([Wikipedia](https://en.wikipedia.org/wiki/PLY_(file_format)))
 
 To support computer vision tooling, the following will be implemented:
 
