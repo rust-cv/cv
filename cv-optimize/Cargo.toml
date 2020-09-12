@@ -5,9 +5,9 @@ authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-levenberg-marquardt = "0.5.2"
+levenberg-marquardt = "0.6.0"
 cv-core = { version = "0.15.0", path = "../cv-core" }
-nalgebra = { version = "0.21.1", features = ["alloc"], default-features = false }
+nalgebra = { version = "0.22.0", features = ["alloc"], default-features = false }
 num-traits = "0.2.12"
 argmin = { version = "0.3.1", features = ["ndarrayl"] }
 ndarray = "0.13.1"

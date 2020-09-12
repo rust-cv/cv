@@ -51,10 +51,10 @@ akaze = { optional = true, version = "0.7.0", path = "../akaze" }
 imgshow = { optional = true, version = "0.1.0", path = "../imgshow" }
 space = { version = "0.10.3", optional = true }
 hnsw = { version = "0.6.1", optional = true }
-levenberg-marquardt = { version = "0.5.2", optional = true }
+levenberg-marquardt = { version = "0.6.0", optional = true }
 arrsac = { version = "0.5.0", optional = true }
-bitarray = { version = "0.2.3", features = ["space"], optional = true }
-image = { version = "0.23.7", default-features = false, optional = true }
+bitarray = { version = "0.2.6", features = ["space"], optional = true }
+image = { version = "0.23.9", default-features = false, optional = true }
 
 [package.metadata.docs.rs]
 all-features = true

@@ -13,15 +13,15 @@ readme = "README.md"
 
 [dependencies]
 cv-core = { version = "0.15.0", path = "../cv-core" }
-image = { version = "0.23.7", default-features = false }
+image = { version = "0.23.9", default-features = false }
 log = { version = "0.4.11", default-features = false }
 primal = { version = "0.3.0", default-features = false }
-derive_more = { version = "0.99.9", default-features = false }
+derive_more = { version = "0.99.10", default-features = false }
 nshare = { version = "0.1.1", features = ["ndarray", "image"] }
 ndarray = { version = "0.13.1", default-features = false }
 float-ord = { version = "0.2.0", default-features = false }
 space = "0.10.3"
-bitarray = "0.2.3"
+bitarray = "0.2.6"
 
 
 [dev-dependencies]
@@ -33,8 +33,8 @@ rand = "0.7.3"
 rand_pcg = "0.2.1"
 criterion = "0.3.3"
 pretty_env_logger = "0.4.0"
-image = "0.23.7"
-bitarray = { version = "0.2.3", features = ["space"] }
+image = "0.23.9"
+bitarray = { version = "0.2.6", features = ["space"] }
 
 [[bench]]
 name = "criterion"
