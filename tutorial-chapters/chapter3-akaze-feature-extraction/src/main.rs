@@ -1,10 +1,10 @@
-use image::{DynamicImage, Rgba};
 use cv::feature::akaze::{Akaze, KeyPoint};
+use image::{DynamicImage, Rgba};
 use imageproc::drawing;
 
 fn main() {
     let src_image = image::open("res/0000000000.png").expect("failed to open image file");
-    
+
     let threshold = 0.001f64;
     let akaze = Akaze::new(threshold);
     let (key_points, _descriptor) = akaze.extract(&src_image);

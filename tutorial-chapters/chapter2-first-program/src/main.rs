@@ -1,4 +1,4 @@
-use image::{DynamicImage, Rgba, GenericImageView};
+use image::{DynamicImage, GenericImageView, Rgba};
 use imageproc::drawing;
 use rand::Rng;
 
