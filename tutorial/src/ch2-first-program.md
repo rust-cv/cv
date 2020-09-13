@@ -78,4 +78,4 @@ If the compile you should obtain something similar as the image below:
 
 ### Code
 
-You can also find the whole project [here](https://github.com/rust-cv/cv/tree/master/tutorial/code/chapter2-first-program). The dependencies of the code are sightly different in the repository, as it utilizes the dependencies within the mono-repo to ensure compatibility with master.
+You can also find the whole project [here](https://github.com/rust-cv/cv/tree/master/tutorial-code/chapter2-first-program). The dependencies of the code are sightly different in the repository, as it utilizes the dependencies within the mono-repo to ensure compatibility with master.

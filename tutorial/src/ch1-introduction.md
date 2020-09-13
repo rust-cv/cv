@@ -6,7 +6,7 @@ Rust CV is a project that aims to bring Computer Vision (CV) algorithms to the R
 
 This tutorial aims to help you understand how to use Rust-CV and what it has to offer. In is current state, this tutorial is rather incomplete and a lot of examples are missing. If you spot an error or wish to add a page feel free to do a PR. We are very open so don't hesitate to contribute.
 
-All of the source and code for this book can be found [here](https://github.com/rust-cv/cv/tree/master/tutorial/).
+The code examples in this book can be found [here](https://github.com/rust-cv/cv/tree/master/tutorial-code/). The source for the book can be found [here](https://github.com/rust-cv/cv/tree/master/tutorial/).
 
 ### Project structure
 

@@ -68,6 +68,6 @@ If all went well you should have a window opened containing this pictures
 
 ### Code
 
-You can also find the whole project [here](https://github.com/rust-cv/cv/tree/master/tutorial-chapters/chapter3-akaze-feature-extraction). The dependencies of the code are sightly different in the repository, as it utilizes the dependencies within the mono-repo to ensure compatibility with master.
+You can also find the whole project [here](https://github.com/rust-cv/cv/tree/master/tutorial-code/chapter3-akaze-feature-extraction). The dependencies of the code are sightly different in the repository, as it utilizes the dependencies within the mono-repo to ensure compatibility with master.
 
 

@@ -22,7 +22,7 @@ Rust CV is a project to implement computer vision algorithms, abstractions, and 
 
 Each crate has its own documentation, but the easiest way to check all of the documentation at once is to look at [the docs for the `cv` batteries-included crate](https://docs.rs/cv/).
 
-Check out our tutorial book [here](https://rust-cv.github.io/tutorial/)! The code and book source for the tutorials can be found in the `tutorial` directory of the repository. The resources for tutorials can be found in the [site `res` directory](https://github.com/rust-cv/rust-cv.github.io/tree/master/res).
+Check out our tutorial book [here](https://rust-cv.github.io/tutorial/)! The book source for the tutorials can be found in the `tutorial` directory of the repository. The example code used in the tutorial can be found in the `tutorial-code` directory. The resources for tutorials can be found in the [site `res` directory](https://github.com/rust-cv/rust-cv.github.io/tree/master/res).
 
 ## About
 
