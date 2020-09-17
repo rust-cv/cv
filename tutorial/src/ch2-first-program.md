@@ -1,12 +1,12 @@
 ## Your first Rust-CV program
 
-In this section, we will be doing our first program. It will be very basic and not even really related to computer vision. We will just be loading an image, drawing random points on it and displaying it. This will be very basic but at least you can make sure you have everything setup correctly before attacking more ambitious problems.
+In this section, we will be doing our first program. It will be very basic and not even really related to computer vision. We will just be loading an image, drawing random points on it and displaying it. This will be very basic but at least you can make sure you have everything set up correctly before attacking more ambitious problems.
 
 ### Creating the project
 
 In order to start, we will be creating a new project using `cargo`. Let's run ``cargo new --bin chapter2-first-program`` to get a simple binary project.
 
-Then we will add the`image` crate to load image. We will also add the `imgshow` to display images as well as the `imageproc` crates to modify images. Finally, we will add the ``rand`` crates to generate random pixel coordinates.
+Then we will add the `image` crate to load an image. We will also add the `imgshow` to display images as well as the `imageproc` crates to modify images. Finally, we will add the ``rand`` crate to generate random pixel coordinates.
 
 So in the `cargo.toml` file we add the following to the `[dependencies]` section:
 ```toml
@@ -18,7 +18,7 @@ rand = "0.7.3"
 ```
 ### Adding an image
 
-To get something to display and to work on we will add an image to our project. Create a `res` directory in the parent directory of the project. In this repository put a png named `0000000000.png`. You can use the same as the tutorial is using by downloading the same [image](https://raw.githubusercontent.com/rust-cv/cv/c7540dccf45af310c7f7dfa12ac31a2b04b26224/akaze/res/0000000000.png).
+To get something to display and to work on, we will add an image to our project. Create a `res` directory in the parent directory of the project. In this repository put a png named `0000000000.png`. You can use the same as the tutorial is using by downloading the same [image](https://raw.githubusercontent.com/rust-cv/cv/c7540dccf45af310c7f7dfa12ac31a2b04b26224/akaze/res/0000000000.png).
 
 ### Adding the use statements
 
