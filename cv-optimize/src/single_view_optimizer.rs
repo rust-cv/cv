@@ -63,7 +63,7 @@ where
         }
     }
 
-    pub fn residuals<'a>(&'a self, pose: WorldToCamera) -> impl Iterator<Item = f64> + 'a {
+    pub fn residuals(&self, pose: WorldToCamera) -> impl Iterator<Item = f64> + '_ {
         self.landmarks
             .iter()
             .map(move |FeatureWorldMatch(bearing, world_point)| {
