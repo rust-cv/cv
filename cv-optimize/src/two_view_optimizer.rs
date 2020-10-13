@@ -12,17 +12,10 @@ use cv_core::{
     Bearing, CameraPoint, CameraToCamera, FeatureMatch, Pose, Projective, TriangulatorRelative,
 };
 use levenberg_marquardt::LeastSquaresProblem;
-use ndarray::{s, Array1};
 
-pub fn two_view_nelder_mead(pose: CameraToCamera) -> NelderMead<Array1<f64>, f64> {
-    let original = Array1::from(pose.se3().iter().copied().collect::<Vec<f64>>());
-    let translation_scale = original
-        .slice(s![0..3])
-        .iter()
-        .map(|n| n.powi(2))
-        .sum::<f64>()
-        .sqrt()
-        * 0.001;
+pub fn two_view_nelder_mead(pose: CameraToCamera) -> NelderMead<Vector6<f64>, f64> {
+    let original = pose.se3();
+    let translation_scale = original.norm() * 0.001;
     let mut variants = vec![original; 7];
     #[allow(clippy::needless_range_loop)]
     for i in 0..6 {
@@ -98,16 +91,14 @@ where
     P: Bearing + Clone,
     T: TriangulatorRelative + Clone,
 {
-    type Param = Array1<f64>;
+    type Param = Vector6<f64>;
     type Output = f64;
     type Hessian = ();
     type Jacobian = ();
     type Float = f64;
 
     fn apply(&self, p: &Self::Param) -> Result<Self::Output, Error> {
-        let pose = Pose::from_se3(Vector6::from_row_slice(
-            p.as_slice().expect("param was not contiguous array"),
-        ));
+        let pose = Pose::from_se3(*p);
         let mean: Mean = self.residuals(pose).collect();
         Ok(mean.mean())
     }
