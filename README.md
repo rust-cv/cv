@@ -15,6 +15,7 @@
 
 [btl]: https://github.com/rust-cv/cv/workflows/unit%20tests/badge.svg
 [bll]: https://github.com/rust-cv/cv/workflows/lints/badge.svg
+[bll]: https://github.com/rust-cv/cv/workflows/build/badge.svg
 
 Rust CV is a project to implement computer vision algorithms, abstractions, and systems in Rust. `#[no_std]` is supported where possible.
 
