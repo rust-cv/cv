@@ -15,7 +15,7 @@ readme = "README.md"
 serde-serialize = ["serde", "nalgebra/serde-serialize"]
 
 [dependencies]
-nalgebra = { version = "0.22.0", default-features = false }
+nalgebra = { version = "0.22.0", default-features = false, features = ["libm"] }
 derive_more = "0.99.10"
 sample-consensus = "1.0.1"
 num-traits = { version = "0.2.12", default-features = false }
