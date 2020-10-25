@@ -9,8 +9,10 @@
 extern crate alloc;
 
 mod essential;
+mod radial;
 
 pub use essential::*;
+pub use radial::RadialDistortion;
 
 use cv_core::nalgebra::{Matrix3, Point2, Point3, Vector2, Vector3};
 use cv_core::{
