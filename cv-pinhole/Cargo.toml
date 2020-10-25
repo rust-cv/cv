@@ -29,3 +29,4 @@ cv-geom = { version = "0.7.0", path = "../cv-geom" }
 
 [package.metadata.docs.rs]
 all-features = true
+rustdoc-args = ["--html-in-header", ".cargo/katex-header.html"]
