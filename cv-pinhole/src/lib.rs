@@ -8,11 +8,12 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+mod camera;
+mod distortion_function;
 mod essential;
-mod radial;
 
+pub use distortion_function::DistortionFunction;
 pub use essential::*;
-pub use radial::RadialDistortion;
 
 use cv_core::nalgebra::{Matrix3, Point2, Point3, Vector2, Vector3};
 use cv_core::{

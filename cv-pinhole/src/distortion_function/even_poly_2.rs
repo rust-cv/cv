@@ -1,5 +1,4 @@
-//! Radial distortion model
-
+use super::DistortionFunction;
 use num_traits::Float;
 
 /// Maxmimum number of iterations to use in Newton-Raphson inversion.
@@ -8,35 +7,25 @@ const MAX_ITERATIONS: usize = 100;
 /// Convergence treshold for Newton-Raphson inversion.
 const EPSILON: f64 = f64::EPSILON;
 
-/// Radial distortion model
+/// Even $(6,6)$-rational distortion function
 ///
-/// The radial distortion is calibrated by scaling with a degree $(6,6)$ [even](https://en.wikipedia.org/wiki/Even_and_odd_functions#Even_functions) [rational](https://en.wikipedia.org/wiki/Rational_function) function:
+/// The radial distortion is calibrated by scaling with a degree $(6,6)$ [even](https://en.wikipedia.org/wiki/Even_and_odd_functions#Even_functions) [polynomial](https://en.wikipedia.org/wiki/Polynomial) function:
 ///
 /// $$
-/// r' = r ⋅ \frac{1 + k_1 ⋅ r^2 + k_2 ⋅ r^4 + k_3 ⋅ r^6}{1 + k_4 ⋅ r^2 + k_5 ⋅ r^4 + k_6 ⋅ r^6}
+/// r' = r ⋅ \p{1 + k_1 ⋅ r^2}
 /// $$
 ///
-#[derive(Clone, PartialEq, Debug)]
-pub struct RadialDistortion(pub [f64; 6]);
+#[derive(Clone, PartialEq, Default, Debug)]
+pub struct EvenPoly2(f64);
 
-impl RadialDistortion {
+impl EvenPoly2 {}
+
+impl DistortionFunction for EvenPoly2 {
     /// Given $r$ compute $r'$.
-    pub fn calibrate(&self, r: f64) -> f64 {
-        r * self.scale_r2(r.powi(2))
-    }
-
-    /// Given $r^2$ compute the radial scaling factor $\frac {r'}{r}$.
     #[rustfmt::skip]
-    pub fn scale_r2(&self, r2: f64) -> f64 {
-        let mut p = self.0[2];
-        p *= r2; p += self.0[1];
-        p *= r2; p += self.0[0];
-        p *= r2; p += 1.0;
-        let mut q = self.0[5];
-        q *= r2; q += self.0[4];
-        q *= r2; q += self.0[3];
-        q *= r2; q += 1.0;
-        p / q
+    fn evaluate(&self, r: f64) -> f64 {
+        let r2 = r * r;
+        r * (1.0 + self.0 * r2)
     }
 
     /// Given $r'$ compute $r$.
@@ -59,8 +48,7 @@ impl RadialDistortion {
     ///
     ///
     /// $$
-    /// r' = r ⋅ \frac{1 + k_1 ⋅ r^2 + k_2 ⋅ r^4 + k_3 ⋅ r^6}
-    /// {1 + k_4 ⋅ r^2 + k_5 ⋅ r^4 + k_6 ⋅ r^6}
+    /// r' = r ⋅ \p{1 + k_1 ⋅ r^2}
     /// $$
     ///
     /// manipulate the rational relation into a polynomial
@@ -110,37 +98,38 @@ impl RadialDistortion {
     /// The inversion is approximated using at most [`MAX_ITERATIONS`] rounds of Newton-Raphson
     /// or when the $\abs{r_{i+1} - r_i}$ is less than [`EPSILON`] times $r_{i+1}$.
     #[rustfmt::skip]
-    pub fn uncalibrate(&self, mut r: f64) -> f64 {
-        let p = [
-            r,             -1.0,
-            r * self.0[3], -self.0[0],
-            r * self.0[4], -self.0[1],
-            r * self.0[5], -self.0[2],
-        ];
-        // Iterate Newtons method
-        for _ in 0..MAX_ITERATIONS {
-            let mut value = p[7];
-            value *= r; value += p[6];
-            value *= r; value += p[5];
-            value *= r; value += p[4];
-            value *= r; value += p[3];
-            value *= r; value += p[2];
-            value *= r; value += p[1];
-            value *= r; value += p[0];
-            let mut deriv = p[7] * 7.0;
-            deriv *= r; deriv += p[6] * 6.0;
-            deriv *= r; deriv += p[5] * 5.0;
-            deriv *= r; deriv += p[4] * 4.0;
-            deriv *= r; deriv += p[3] * 3.0;
-            deriv *= r; deriv += p[2] * 2.0;
-            deriv *= r; deriv += p[1];
-            let delta = value / deriv;
-            r -= delta;
-            if delta.abs() <= EPSILON * r {
-                break;
-            }
-        }
-        r
+    fn inverse(&self, mut r: f64) -> f64 {
+        todo!()
+        // let p = [
+        //     r,             -1.0,
+        //     r * self.0[3], -self.0[0],
+        //     r * self.0[4], -self.0[1],
+        //     r * self.0[5], -self.0[2],
+        // ];
+        // // Iterate Newtons method
+        // for _ in 0..MAX_ITERATIONS {
+        //     let mut value = p[7];
+        //     value *= r; value += p[6];
+        //     value *= r; value += p[5];
+        //     value *= r; value += p[4];
+        //     value *= r; value += p[3];
+        //     value *= r; value += p[2];
+        //     value *= r; value += p[1];
+        //     value *= r; value += p[0];
+        //     let mut deriv = p[7] * 7.0;
+        //     deriv *= r; deriv += p[6] * 6.0;
+        //     deriv *= r; deriv += p[5] * 5.0;
+        //     deriv *= r; deriv += p[4] * 4.0;
+        //     deriv *= r; deriv += p[3] * 3.0;
+        //     deriv *= r; deriv += p[2] * 2.0;
+        //     deriv *= r; deriv += p[1];
+        //     let delta = value / deriv;
+        //     r -= delta;
+        //     if Float::abs(delta) <= EPSILON * r {
+        //         break;
+        //     }
+        // }
+        // r
     }
 }
 
