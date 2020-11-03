@@ -102,4 +102,8 @@ where
         }
         x
     }
+
+    fn gradient(&self, value: f64) -> VectorN<f64, Self::NumParameters> {
+        todo!()
+    }
 }

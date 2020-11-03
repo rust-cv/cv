@@ -13,6 +13,12 @@ where
     /// Type level number of parameters
     type NumParameters: Dim;
 
+    fn from_parameters<S>(parameters: Vector<f64, Self::NumParameters, S>) -> Self
+    where
+        S: Storage<f64, Self::NumParameters>;
+
+    fn parameters(&self) -> VectorN<f64, Self::NumParameters>;
+
     /// Undo distortion.
     fn evaluate(&self, value: f64) -> f64;
 
@@ -27,10 +33,6 @@ where
     /// Apply distortion.
     fn inverse(&self, value: f64) -> f64;
 
-    // TODO: Parameters, derivatives, Jacobians, etc for calibration
-    fn parameters(&self) -> VectorN<f64, Self::NumParameters>;
-
-    fn from_parameters<S>(parameters: Vector<f64, Self::NumParameters, S>) -> Self
-    where
-        S: Storage<f64, Self::NumParameters>;
+    /// Parameter gradient
+    fn gradient(&self, value: f64) -> VectorN<f64, Self::NumParameters>;
 }

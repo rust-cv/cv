@@ -33,4 +33,8 @@ impl DistortionFunction for Identity {
     fn inverse(&self, value: f64) -> f64 {
         value
     }
+
+    fn gradient(&self, value: f64) -> VectorN<f64, Self::NumParameters> {
+        todo!()
+    }
 }
