@@ -1,6 +1,7 @@
 use super::DistortionFunction;
 use cv_core::nalgebra::{
-    allocator::Allocator, zero, ArrayStorage, DefaultAllocator, Dim, DimName, NamedDim, VectorN, U1,
+    allocator::Allocator, storage::Storage, zero, ArrayStorage, DefaultAllocator, Dim, DimName,
+    NamedDim, Vector, VectorN, U0, U1,
 };
 
 /// Identity distortion, i.e. no distortion at all.
@@ -8,7 +9,18 @@ use cv_core::nalgebra::{
 struct Identity;
 
 impl DistortionFunction for Identity {
-    type NumParameters;
+    type NumParameters = U0;
+
+    fn from_parameters<S>(parameters: Vector<f64, Self::NumParameters, S>) -> Self
+    where
+        S: Storage<f64, Self::NumParameters>,
+    {
+        Self
+    }
+
+    fn parameters(&self) -> VectorN<f64, Self::NumParameters> {
+        VectorN::zeros_generic(U0, U1)
+    }
 
     fn evaluate(&self, value: f64) -> f64 {
         value

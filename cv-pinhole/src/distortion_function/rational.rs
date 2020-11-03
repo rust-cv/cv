@@ -1,20 +1,20 @@
+use super::polynomial::Polynomial;
 use super::DistortionFunction;
-use cv_core::nalgebra::{DimAdd, DimSum};
+use cv_core::nalgebra::{allocator::Allocator, DefaultAllocator, Dim, DimAdd, DimName, DimSum};
 use num_traits::Float;
 
-#[derive(Clone, Debug, Default)]
-struct Rational<P, Q>(P, Q)
+#[derive(Clone, PartialEq, Debug)]
+struct Rational<DP: Dim, DQ: Dim>(Polynomial<DP>, Polynomial<DQ>)
 where
-    P: DistortionFunction,
-    Q: DistortionFunction;
+    DefaultAllocator: Allocator<f64, DP>,
+    DefaultAllocator: Allocator<f64, DQ>;
 
-impl<P, Q> DistortionFunction for Rational<P, Q>
+impl<DP: Dim, DQ: Dim> DistortionFunction for Rational<DP, DQ>
 where
-    P: DistortionFunction,
-    Q: DistortionFunction,
-    P::NumParameters: DimAdd<Q::NumParameters>,
+    DefaultAllocator: Allocator<f64, DP>,
+    DefaultAllocator: Allocator<f64, DQ>,
 {
-    type NumParameters = DimSum<P::NumParameters, Q::NumParameters>;
+    type NumParameters = DP;
 
     fn evaluate(&self, value: f64) -> f64 {
         let p = self.0.evaluate(value);
@@ -68,5 +68,16 @@ where
             }
         }
         x
+    }
+
+    fn parameters(&self) -> nalgebra::VectorN<f64, Self::NumParameters> {
+        todo!()
+    }
+
+    fn from_parameters<S>(parameters: nalgebra::Vector<f64, Self::NumParameters, S>) -> Self
+    where
+        S: nalgebra::storage::Storage<f64, Self::NumParameters>,
+    {
+        todo!()
     }
 }
