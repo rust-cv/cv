@@ -1,20 +1,30 @@
 use super::polynomial::Polynomial;
 use super::DistortionFunction;
-use cv_core::nalgebra::{allocator::Allocator, DefaultAllocator, Dim, DimAdd, DimName, DimSum};
-use num_traits::Float;
+use cv_core::nalgebra::{
+    allocator::Allocator, storage::Storage, DefaultAllocator, Dim, DimAdd, DimName, DimSum, Vector,
+    VectorN, U1,
+};
+use num_traits::{Float, Zero};
 
 #[derive(Clone, PartialEq, Debug)]
 struct Rational<DP: Dim, DQ: Dim>(Polynomial<DP>, Polynomial<DQ>)
 where
+    DP: DimAdd<DQ>,
     DefaultAllocator: Allocator<f64, DP>,
-    DefaultAllocator: Allocator<f64, DQ>;
+    DefaultAllocator: Allocator<f64, DQ>,
+    DefaultAllocator: Allocator<f64, DimSum<DP, DQ>>;
 
 impl<DP: Dim, DQ: Dim> DistortionFunction for Rational<DP, DQ>
 where
+    DP: DimName,
+    DQ: DimName,
+    DP: DimAdd<DQ>,
+    DimSum<DP, DQ>: DimName,
     DefaultAllocator: Allocator<f64, DP>,
     DefaultAllocator: Allocator<f64, DQ>,
+    DefaultAllocator: Allocator<f64, DimSum<DP, DQ>>,
 {
-    type NumParameters = DP;
+    type NumParameters = DimSum<DP, DQ>;
 
     fn evaluate(&self, value: f64) -> f64 {
         let p = self.0.evaluate(value);
@@ -70,14 +80,24 @@ where
         x
     }
 
-    fn parameters(&self) -> nalgebra::VectorN<f64, Self::NumParameters> {
-        todo!()
+    fn parameters(&self) -> VectorN<f64, Self::NumParameters> {
+        let mut parameters = VectorN::<f64, Self::NumParameters>::zero();
+        parameters
+            .fixed_slice_mut::<DP, U1>(0, 0)
+            .copy_from(&self.0.parameters());
+        parameters
+            .fixed_slice_mut::<DQ, U1>(DP::dim(), 0)
+            .copy_from(&self.1.parameters());
+        parameters
     }
 
-    fn from_parameters<S>(parameters: nalgebra::Vector<f64, Self::NumParameters, S>) -> Self
+    fn from_parameters<S>(parameters: Vector<f64, Self::NumParameters, S>) -> Self
     where
-        S: nalgebra::storage::Storage<f64, Self::NumParameters>,
+        S: Storage<f64, Self::NumParameters>,
     {
-        todo!()
+        Self(
+            Polynomial::from_parameters(parameters.fixed_slice::<DP, U1>(0, 0)),
+            Polynomial::from_parameters(parameters.fixed_slice::<DQ, U1>(DP::dim(), 0)),
+        )
     }
 }
