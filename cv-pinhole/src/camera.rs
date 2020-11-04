@@ -2,7 +2,7 @@ use crate::CameraIntrinsics;
 use crate::DistortionFunction;
 use crate::NormalizedKeyPoint;
 
-use cv_core::nalgebra::{Matrix2, Vector2};
+use cv_core::nalgebra::{allocator::Allocator, DefaultAllocator, Dim, Matrix2, Vector2};
 use cv_core::{CameraModel, ImagePoint, KeyPoint};
 
 /// Camera with distortion.
@@ -40,11 +40,17 @@ use cv_core::{CameraModel, ImagePoint, KeyPoint};
 ///
 #[derive(Clone, PartialEq, PartialOrd, Debug)]
 // #[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
-struct Camera<R, T, P>
+struct Camera<R, T, P, D1, D2, D3>
 where
-    R: DistortionFunction,
-    T: DistortionFunction,
-    P: DistortionFunction,
+    R: DistortionFunction<NumParameters = D1>,
+    T: DistortionFunction<NumParameters = D2>,
+    P: DistortionFunction<NumParameters = D3>,
+    D1: Dim,
+    D2: Dim,
+    D3: Dim,
+    DefaultAllocator: Allocator<f64, D1>,
+    DefaultAllocator: Allocator<f64, D2>,
+    DefaultAllocator: Allocator<f64, D3>,
 {
     linear: CameraIntrinsics,
     radial_distortion: R,
@@ -53,11 +59,17 @@ where
     prism_distortion: [P; 2],
 }
 
-impl<R, T, P> Camera<R, T, P>
+impl<R, T, P, D1, D2, D3> Camera<R, T, P, D1, D2, D3>
 where
-    R: DistortionFunction,
-    T: DistortionFunction,
-    P: DistortionFunction,
+    R: DistortionFunction<NumParameters = D1>,
+    T: DistortionFunction<NumParameters = D2>,
+    P: DistortionFunction<NumParameters = D3>,
+    D1: Dim,
+    D2: Dim,
+    D3: Dim,
+    DefaultAllocator: Allocator<f64, D1>,
+    DefaultAllocator: Allocator<f64, D2>,
+    DefaultAllocator: Allocator<f64, D3>,
 {
     pub fn new(linear: CameraIntrinsics, radial_distortion: R, tangential_distortion: T) -> Self {
         todo!()
@@ -125,11 +137,17 @@ where
     }
 }
 
-impl<R, T, P> CameraModel for Camera<R, T, P>
+impl<R, T, P, D1, D2, D3> CameraModel for Camera<R, T, P, D1, D2, D3>
 where
-    R: DistortionFunction,
-    T: DistortionFunction,
-    P: DistortionFunction,
+    R: DistortionFunction<NumParameters = D1>,
+    T: DistortionFunction<NumParameters = D2>,
+    P: DistortionFunction<NumParameters = D3>,
+    D1: Dim,
+    D2: Dim,
+    D3: Dim,
+    DefaultAllocator: Allocator<f64, D1>,
+    DefaultAllocator: Allocator<f64, D2>,
+    DefaultAllocator: Allocator<f64, D3>,
 {
     type Projection = NormalizedKeyPoint;
 
