@@ -104,6 +104,11 @@ where
     }
 
     fn gradient(&self, value: f64) -> VectorN<f64, Self::NumParameters> {
-        todo!()
+        let mut factor = 1.0;
+        VectorN::from_fn_generic(self.0.data.shape().0, U1, move |_, _| {
+            let coefficient = factor;
+            factor *= value;
+            coefficient
+        })
     }
 }

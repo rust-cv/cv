@@ -111,14 +111,15 @@ where
     fn gradient(&self, value: f64) -> VectorN<f64, Self::NumParameters> {
         let p = self.0.evaluate(value);
         let q = self.1.evaluate(value);
-        let mut dp = self.0.gradient(value);
-        let mut dq = self.1.gradient(value);
-        dp *= 1.0 / q;
-        dq *= -p / (q * q);
-        stack(dp, dq)
+        stack(
+            self.0.gradient(value) * (1.0 / q),
+            self.1.gradient(value) * (-p / (q * q)),
+        )
     }
 }
 
+/// Stack two statically sized nalgebra vectors. Allocates a new vector for the
+/// result on the stack.
 fn stack<D1, D2, S1, S2>(
     vec1: Vector<f64, D1, S1>,
     vec2: Vector<f64, D2, S2>,
@@ -140,6 +141,8 @@ where
     result
 }
 
+/// Split a statically sized nalgebra vector in two. Returns vectors that reference
+/// slices of the input vector.
 fn unstack<'a, D1, D2, S>(
     vector: &'a Vector<f64, DimSum<D1, D2>, S>,
 ) -> (
