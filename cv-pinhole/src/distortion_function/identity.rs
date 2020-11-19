@@ -5,8 +5,14 @@ use cv_core::nalgebra::{
 };
 
 /// Identity distortion, i.e. no distortion at all.
+///
+/// $$
+/// f(x) = x
+/// $$
+///
+/// Refresh, maybe?
 #[derive(Clone, PartialEq, Default, Debug)]
-struct Identity;
+pub struct Identity;
 
 impl DistortionFunction for Identity {
     type NumParameters = U0;

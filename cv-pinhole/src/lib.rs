@@ -3,16 +3,16 @@
 //! the light came from that hit that pixel. It can also be used to convert backwards from the 3d back to the 2d
 //! using the `uncalibrate` method from the [`cv_core::CameraModel`] trait.
 
-#![no_std]
+// #![cfg_attr(not(test), no_std)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
 mod camera;
-mod distortion_function;
+pub mod distortion_function;
 mod essential;
 
-pub use distortion_function::DistortionFunction;
+pub use camera::Camera;
 pub use essential::*;
 
 use cv_core::nalgebra::{Matrix3, Point2, Point3, Vector2, Vector3};
