@@ -170,7 +170,7 @@ mod tests {
         proptest!(|(r in 0.0..2.0)| {
             let eval = radial.evaluate(r);
             let inv = radial.inverse(eval);
-            assert_float_eq!(inv, r, rmax <= 1e2 * f64::EPSILON);
+            assert_float_eq!(inv, r, rmax <= 1e4 * f64::EPSILON);
         });
     }
 
