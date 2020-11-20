@@ -4,8 +4,7 @@
 
 use super::DistortionFunction;
 use cv_core::nalgebra::{
-    allocator::Allocator, storage::Storage, zero, ArrayStorage, DefaultAllocator, Dim, DimName,
-    NamedDim, Vector, VectorN, U1,
+    allocator::Allocator, storage::Storage, DefaultAllocator, Dim, Vector, VectorN, U1,
 };
 use num_traits::{Float, Zero};
 
@@ -56,9 +55,9 @@ where
         // Ideally the compiler unrolls the loop and realizes that the first.
         // multiplication is redundant.
         let mut result = 0.0;
-        for &coefficient in self.0.iter() {
+        for i in (0..self.0.nrows()).rev() {
             result *= value;
-            result += coefficient;
+            result += self.0[i];
         }
         result
     }
@@ -74,11 +73,11 @@ where
     fn with_derivative(&self, value: f64) -> (f64, f64) {
         let mut result = 0.0;
         let mut derivative = 0.0;
-        for &coefficient in self.0.iter() {
+        for i in (0..self.0.nrows()).rev() {
             derivative *= value;
             derivative += result;
             result *= value;
-            result += coefficient;
+            result += self.0[i];
         }
         (result, derivative)
     }
@@ -130,13 +129,13 @@ mod tests {
     use float_eq::assert_float_eq;
     use proptest::prelude::*;
 
-    #[rustfmt::skip]
     fn polynomial_1() -> Polynomial<U4> {
-        Polynomial::from_parameters(
-            Vector4::new(
-                0.6729530830603175, 15.249676433312018, 25.67400161236561, 1.0,
-            )
-        )
+        Polynomial::from_parameters(Vector4::new(
+            1.0,
+            25.67400161236561,
+            15.249676433312018,
+            0.6729530830603175,
+        ))
     }
 
     #[test]
