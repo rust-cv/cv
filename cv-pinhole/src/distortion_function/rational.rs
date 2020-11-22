@@ -17,6 +17,8 @@ use num_traits::{Float, Zero};
 ///
 /// Where $n = \mathtt{DP} - 1$ and $m = \mathtt{DQ} - 1$.
 ///
+/// See [`impl DistortionFunction`](#impl-DistortionFunction).
+///
 ///
 #[derive(Clone, PartialEq, Debug)]
 pub struct Rational<DP: Dim, DQ: Dim>(Polynomial<DP>, Polynomial<DQ>)
@@ -48,12 +50,6 @@ where
         self.with_derivative(value).1
     }
 
-    fn with_derivative(&self, value: f64) -> (f64, f64) {
-        let (p, dp) = self.0.with_derivative(value);
-        let (q, dq) = self.1.with_derivative(value);
-        (p / q, (dp * q - p * dq) / (q * q))
-    }
-
     /// Numerically invert the function.
     ///
     /// # Method
@@ -64,37 +60,18 @@ where
     /// y = \frac{P(x)}{Q(x)}
     /// $$
     ///
-    /// We manipulate this into a root finding problem linear in $P$, $Q$ which
-    /// gives $y ⋅ Q(x) - P(x) = 0$. To solve this we use the Newton-Raphson
-    /// method with $x_0 = y$ and
-    ///
     /// $$
-    /// x_{i+1} = x_i - \frac{y ⋅ Q(x) - P(x)}{y ⋅ Q'(x) - P'(x)}
+    /// \frac{P'(x)}{Q(x)} - \frac{P(x)}{Q(x)^2} ⋅ Q'(x)
     /// $$
     ///
-    /// # To do
+    /// $$
+    /// \frac{P'(x) ⋅ Q(x) - P(x) ⋅ Q'(x)}{Q(x)^2}
+    /// $$
     ///
-    /// * Improve numerical precision. Currently the Newton-Raphson can oscillate
-    ///   or diverge.
-    ///
-    fn inverse(&self, value: f64) -> f64 {
-        // Maxmimum number of iterations to use in Newton-Raphson inversion.
-        const MAX_ITERATIONS: usize = 20;
-
-        // Convergence threshold for Newton-Raphson inversion.
-        const EPSILON: f64 = f64::EPSILON;
-
-        let mut x = value;
-        for _i in 0..MAX_ITERATIONS {
-            let (p, dp) = self.0.with_derivative(x);
-            let (q, dq) = self.1.with_derivative(x);
-            let delta = (value * q - p) / (value * dq - dp);
-            x -= delta;
-            if Float::abs(delta) <= EPSILON * x {
-                break;
-            }
-        }
-        x
+    fn with_derivative(&self, value: f64) -> (f64, f64) {
+        let (p, dp) = self.0.with_derivative(value);
+        let (q, dq) = self.1.with_derivative(value);
+        (p / q, (dp * q - p * dq) / (q * q))
     }
 
     fn parameters(&self) -> VectorN<f64, Self::NumParameters> {
@@ -191,8 +168,8 @@ mod tests {
     fn rational_1() -> Rational<U4, U4> {
         Rational::from_parameters(
             VectorN::from_column_slice_generic(U8, U1, &[
-                0.6729530830603175, 15.249676433312018, 25.67400161236561, 1.0,
-                3.0431830552169914, 22.421345314744390, 25.95447969279203, 1.0,
+                 1.0, 25.67400161236561, 15.249676433312018, 0.6729530830603175,
+                 1.0, 25.95447969279203, 22.421345314744390, 3.0431830552169914,
             ])
         )
     }
@@ -200,7 +177,7 @@ mod tests {
     #[test]
     fn test_evaluate_1() {
         let radial = rational_1();
-        let result = radial.evaluate(0.06987809296337355);
+        let result = radial.evaluate(0.06987809296337322);
         assert_float_eq!(result, 0.9810452524397972, ulps <= 0);
     }
 
@@ -208,7 +185,7 @@ mod tests {
     fn test_inverse_1() {
         let radial = rational_1();
         let result = radial.inverse(0.9810452524397972);
-        assert_float_eq!(result, 0.06987809296337355, ulps <= 8);
+        assert_float_eq!(result, 0.06987809296337322, ulps <= 8);
     }
 
     #[test]
@@ -228,19 +205,21 @@ mod tests {
         let radial = rational_1();
         proptest!(|(r in 0.0..2.0)| {
             let eval = radial.evaluate(r);
-            dbg!(r, eval);
             let inv = radial.inverse(eval);
-            assert_float_eq!(inv, r, abs <= 1e8 * f64::EPSILON);
+            let eval2 = radial.evaluate(inv);
+            assert_float_eq!(eval, eval2, rmax <= 3.0 * f64::EPSILON);
         });
     }
 
     #[test]
     fn test_roundtrip_reverse_1() {
         let radial = rational_1();
-        proptest!(|(r in 0.0..2.0)| {
+        proptest!(|(r in 0.7..1.0)| {
             let inv = radial.inverse(r);
             let eval = radial.evaluate(inv);
-            assert_float_eq!(eval, r, ulps <= 150);
+            assert_float_eq!(eval, r, rmax <= 3.0 * f64::EPSILON);
         });
     }
+
+    // TODO: Test parameter gradient using finite differences.
 }

@@ -82,36 +82,6 @@ where
         (result, derivative)
     }
 
-    /// Numerically invert the function.
-    ///
-    /// # Method
-    ///
-    /// We solve for a root of $P(x) - y$ using the Newton-Raphson method with
-    /// $x_0 = y$ and
-    ///
-    /// $$
-    /// x_{i+1} = x_i - \frac{P(x) - value}{P'(x)}
-    /// $$
-    ///
-    fn inverse(&self, value: f64) -> f64 {
-        // Maxmimum number of iterations to use in Newton-Raphson inversion.
-        const MAX_ITERATIONS: usize = 100;
-
-        // Convergence treshold for Newton-Raphson inversion.
-        const EPSILON: f64 = f64::EPSILON;
-
-        let mut x = value;
-        for _ in 0..MAX_ITERATIONS {
-            let (p, dp) = self.with_derivative(x);
-            let delta = (p - value) / dp;
-            x -= delta;
-            if Float::abs(delta) <= EPSILON * x {
-                break;
-            }
-        }
-        x
-    }
-
     fn gradient(&self, value: f64) -> VectorN<f64, Self::NumParameters> {
         let mut factor = 1.0;
         VectorN::from_fn_generic(self.0.data.shape().0, U1, move |_, _| {
@@ -177,10 +147,12 @@ mod tests {
     #[test]
     fn test_roundtrip_reverse_1() {
         let radial = polynomial_1();
-        proptest!(|(r in 0.0..2.0)| {
+        proptest!(|(r in 1.0..2.0)| {
             let inv = radial.inverse(r);
             let eval = radial.evaluate(inv);
             assert_float_eq!(eval, r, rmax <= 1e4 * f64::EPSILON);
         });
     }
+
+    // TODO: Test parameter gradient using finite differences.
 }

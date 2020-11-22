@@ -71,7 +71,73 @@ where
     }
 
     /// Evaluate the inverse $f^{-1}(\mathtt{value}, \vec β)$.
-    fn inverse(&self, value: f64) -> f64;
+    ///
+    /// # Method
+    ///
+    /// Uses a Newton-Bisection hybrid method based on [1] that is guaranteed to
+    /// converge to almost machine precision.
+    ///
+    /// # Resources
+    ///
+    /// Numerical Recipes 2nd edition. p. 365
+    ///
+    /// <https://github.com/osveliz/numerical-veliz/blob/master/src/rootfinding/NewtSafe.adb>
+    ///
+    /// # Panics
+    ///
+    /// Panics when an inverse does not exist in the range $x \in [0, 3]$.
+    ///
+    fn inverse(&self, value: f64) -> f64 {
+        let (mut xl, mut xh) = (0.0, 3.0);
+        let fl = self.evaluate(xl) - value;
+        if fl == 0.0 {
+            return xl;
+        }
+        let fh = self.evaluate(xh) - value;
+        if fh == 0.0 {
+            return xh;
+        }
+        if fl * fh > 0.0 {
+            panic!("Inverse outside of bracket [0, 3].");
+        }
+        if fl > 0.0 {
+            std::mem::swap(&mut xl, &mut xh);
+        }
+        let mut rts = 0.5 * (xl + xh);
+        let mut dxold = (xl - xh).abs();
+        let mut dx = dxold;
+        let (mut f, mut df) = self.with_derivative(rts);
+        loop {
+            if (((rts - xh) * df - f) * ((rts - xl) * df - f) > 0.0)
+                || (2.0 * f.abs() > (dxold * df).abs())
+            {
+                // Bisection step
+                dxold = dx;
+                dx = 0.5 * (xh - xl);
+                rts = xl + dx;
+                if xl == rts || xh == rts {
+                    return rts;
+                }
+            } else {
+                // Newton step
+                dxold = dx;
+                dx = f / df;
+                let tmp = rts;
+                rts -= dx;
+                if tmp == rts {
+                    return rts;
+                }
+            }
+            let (nf, ndf) = self.with_derivative(rts);
+            f = nf - value;
+            df = ndf;
+            if f < 0.0 {
+                xl = rts;
+            } else {
+                xh = rts;
+            }
+        }
+    }
 
     /// Parameter gradient $∇_{\vec β​} f(\mathtt{value}, \vec β)$.
     fn gradient(&self, value: f64) -> VectorN<f64, Self::NumParameters>;
