@@ -3,58 +3,29 @@ use cv_core::nalgebra::{storage::Storage, Vector, Vector1, VectorN, U1};
 
 /// Parametric fisheye radial distortion function.
 ///
-/// Implement non-rectilinear (i.e. fisheye) projections. Perhaps using the Fisheye Factor from
+/// Implements various projection functions using the generalized relation with a single
+/// parameter $k$.
 ///
 /// $$
-/// R = \begin{cases}
-///   \frac {f}{k} ⋅ \tan \p{k ⋅ θ} & 0 < k ≤ 1 \\\\
-///   f ⋅ θ  & k = 0 \\\\
-///   \frac {f}{k} ⋅\sin \p{k ⋅ θ}  & -1 ≤ k < 0 \\\\
+/// r' = \\begin{cases}
+///   \sin \p{k ⋅ \arctan r} ⋅ \frac 1 k & k < 0 \\\\
+///   \arctan r & k = 0 \\\\
+///   \tan \p{k ⋅ \arctan r}  ⋅ \frac 1 k & k > 0 \\\\
 /// \end{cases}
 /// $$
 ///
-/// Varying $k ∈ [-1, 1]$ will gradually transform from rectilinear to orthographic projection.
-///
-/// substituting $θ = \arctan r$:
-///
-/// $$
-/// \frac R r = \frac f r ⋅ \begin{cases}
-///   \frac {1}{k} ⋅ \tan \p{k ⋅ \arctan r} & 0 < k ≤ 1 \\\\
-///   \arctan r  & k = 0 \\\\
-///   \frac {1}{k} ⋅\sin \p{k ⋅ \arctan r}  & -1 ≤ k < 0 \\\\
-/// \end{cases}
-/// $$
-///
-/// $$
-/// \frac R r = \frac f r ⋅ \begin{cases}
-///   r & k = 1 \\\\
-///   \frac {1}{k} ⋅ \tan \p{k ⋅ \arctan r} & \frac 12 < k < 1 \\\\
-///   \frac {1}{k} ⋅ \tan \p{k ⋅ \arctan r} & k = \frac 12 \\\\
-///   \frac {1}{k} ⋅ \tan \p{k ⋅ \arctan r} & 0 < k < \frac 12 \\\\
-///   \arctan r  & k = 0 \\\\
-///   \frac {1}{k} ⋅\sin \p{k ⋅ \arctan r}  & -1 ≤ k < 0 \\\\
-/// \end{cases}
-/// $$
-///
-/// We can factor this as $R = f ⋅ f(θ, k)$ where the function $f$ is a distortion function:
-///
-/// $$
-/// f(x, \vec β) = \begin{cases}
-///   \frac {1}{β_0} ⋅ \tan \p{β_0 ⋅ x} & 0 < β_0 ≤ 1 \\\\
-///   x  & β_0 = 0 \\\\
-///   \frac {1}{β_0} ⋅\sin \p{β_0 ⋅ x}  & -1 ≤ β_0 < 0 \\\\
-/// \end{cases}
-/// $$
-///
+/// Varying $k ∈ [-1, 1]$ will gradually transform from orthographic to rectilinear projection. In
+/// particular for $k = 1$ the equation simplifies to $r' = r$ representing the non-Fisheye
+/// rectilinear projection.
 ///
 /// # References
 ///
-/// * Wikipedia Fisheye Lens. [][wiki]
-/// * Lensfun documentation.
+/// * Wikipedia Fisheye Lens. [link][wiki].
+/// * Lensfun documentation. [link][lensfun].
 /// * PTGui v11 Support question 3.28. [link][ptgui].
 /// * Panotools wiki. [link][panotools].
 ///
-/// [wiki]: https://en.wikipedia.org/wiki/Fisheye_lens
+/// [wiki]: https://en.wikipedia.org/wiki/Fisheye_lens#Mapping_function
 /// [opencv]: https://docs.opencv.org/master/db/d58/group__calib3d__fisheye.html
 /// [lensfun]: https://lensfun.github.io/manual/latest/corrections.html
 /// [ptgui]: https://www.ptgui.com/support.html#3_28
@@ -181,4 +152,6 @@ mod tests {
             test(1.0, r);
         });
     }
+
+    // TODO: Test parameter gradient using finite differences.
 }
