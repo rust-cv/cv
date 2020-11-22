@@ -9,6 +9,7 @@ levenberg-marquardt = "0.6.0"
 cv-core = { version = "0.15.0", path = "../cv-core" }
 nalgebra = { version = "0.22.0", features = ["alloc"], default-features = false }
 num-traits = "0.2.12"
-argmin = { git = "https://github.com/vadixidav/argmin.git", rev = "847188f7581a19a2a61d764711d47f0214ae49b4", features = ["nalgebral"] }
+argmin = { version = "0.3.1", features = ["ndarrayl"] }
+ndarray = "0.13.1"
 average = "0.10.4"
 itertools = "0.9.0"

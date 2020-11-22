@@ -9,19 +9,20 @@ use cv_core::nalgebra::{
 };
 use cv_core::{Bearing, Pose, Projective, TriangulatorObservations, WorldPoint, WorldToCamera};
 use levenberg_marquardt::LeastSquaresProblem;
+use ndarray::{s, Array2};
 
-pub fn many_view_nelder_mead(poses: Vec<WorldToCamera>) -> NelderMead<DMatrix<f64>, f64> {
+pub fn many_view_nelder_mead(poses: Vec<WorldToCamera>) -> NelderMead<Array2<f64>, f64> {
     let num_poses = poses.len();
     let se3s: Vec<Vector6<f64>> = poses.iter().map(|p| p.se3()).collect();
-    let original = DMatrix::from_iterator(
-        num_poses,
-        6,
-        se3s.iter().flat_map(|se3| se3.iter().copied()),
-    );
+    let original = Array2::from_shape_vec(
+        (num_poses, 6),
+        se3s.iter().flat_map(|se3| se3.iter().copied()).collect(),
+    )
+    .expect("failed to convert poses into Array2");
     let translation_scale: Mean = original
-        .row_iter()
-        .map(|row| {
-            row.columns(0, 3)
+        .outer_iter()
+        .map(|pose| {
+            pose.slice(s![0..3])
                 .iter()
                 .map(|n| n.powi(2))
                 .sum::<f64>()
@@ -149,7 +150,7 @@ where
     B: Bearing + Clone,
     T: TriangulatorObservations,
 {
-    type Param = DMatrix<f64>;
+    type Param = Array2<f64>;
     type Output = f64;
     type Hessian = ();
     type Jacobian = ();
@@ -157,8 +158,12 @@ where
 
     fn apply(&self, p: &Self::Param) -> Result<Self::Output, Error> {
         let poses: Vec<WorldToCamera> = p
-            .row_iter()
-            .map(|row| Pose::from_se3(row.fixed_resize::<U1, U6>(std::f64::NAN).transpose()))
+            .outer_iter()
+            .map(|pose_arr| {
+                Pose::from_se3(Vector6::from_row_slice(
+                    pose_arr.as_slice().expect("param was not contiguous array"),
+                ))
+            })
             .collect();
         let mean: Mean = self.residuals(poses.iter().copied()).collect();
         Ok(mean.mean())
