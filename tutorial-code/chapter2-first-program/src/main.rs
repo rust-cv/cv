@@ -5,7 +5,7 @@ use rand::Rng;
 fn main() {
     let src_image = image::open("../../res/0000000000.png").expect("failed to open image file");
     let mut rng = rand::thread_rng();
-    let mut canvas = drawing::Blend(src_image.to_rgba());
+    let mut canvas = drawing::Blend(src_image.to_rgba8());
     for _ in 0..50 {
         let x = rng.gen_range(0, src_image.width()) as i32;
         let y = rng.gen_range(0, src_image.height()) as i32;

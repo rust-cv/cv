@@ -929,7 +929,7 @@ where
     ) -> Vec<Feature> {
         let (keypoints, descriptors) =
             akaze::Akaze::new(self.settings.akaze_threshold).extract(image);
-        let rbg_image = image.to_rgb();
+        let rbg_image = image.to_rgb8();
 
         // Use bicubic interpolation to extract colors from the image.
         let colors: Vec<[u8; 3]> = keypoints

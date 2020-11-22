@@ -28,7 +28,7 @@ impl Application for Imgshow {
     type Flags = DynamicImage;
 
     fn new(image: DynamicImage) -> (Self, Command<Message>) {
-        let bgra_data = image.to_bgra().into_raw();
+        let bgra_data = image.to_bgra8().into_raw();
         (
             Self {
                 image: iced::image::Handle::from_pixels(image.width(), image.height(), bgra_data),
