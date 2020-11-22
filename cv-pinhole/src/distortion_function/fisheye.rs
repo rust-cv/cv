@@ -1,9 +1,5 @@
 use super::DistortionFunction;
-use cv_core::nalgebra::{
-    allocator::Allocator, storage::Storage, zero, ArrayStorage, DefaultAllocator, Dim, DimName,
-    NamedDim, Vector, Vector1, VectorN, U1,
-};
-use num_traits::{Float, Zero};
+use cv_core::nalgebra::{storage::Storage, Vector, Vector1, VectorN, U1};
 
 /// Parametric fisheye radial distortion function.
 ///
@@ -89,23 +85,100 @@ impl DistortionFunction for Fisheye {
     }
 
     fn evaluate(&self, value: f64) -> f64 {
-        todo!()
+        match self.0 {
+            k if k < 0.0 => (k * value.atan()).sin() / k,
+            k if k == 0.0 => value.atan(),
+            k if k < 1.0 => (k * value.atan()).tan() / k,
+            _ => value,
+        }
     }
 
     fn derivative(&self, value: f64) -> f64 {
-        self.with_derivative(value).1
-    }
-
-    /// Simultaneously compute value and first derivative.
-    fn with_derivative(&self, value: f64) -> (f64, f64) {
-        todo!()
+        match self.0 {
+            k if k < 0.0 => (k * value.atan()).cos() / (1.0 + value.powi(2)),
+            k if k == 0.0 => 1.0 / (1.0 + value.powi(2)),
+            k if k < 1.0 => (k * value.atan()).cos().powi(-2) / (1.0 + value.powi(2)),
+            _ => 1.0,
+        }
     }
 
     fn inverse(&self, value: f64) -> f64 {
-        todo!()
+        match self.0 {
+            k if k < 0.0 => ((k * value).asin() / k).tan(),
+            k if k == 0.0 => value.tan(),
+            k if k < 1.0 => ((k * value).atan() / k).tan(),
+            _ => value,
+        }
     }
 
-    fn gradient(&self, value: f64) -> VectorN<f64, Self::NumParameters> {
+    fn gradient(&self, _value: f64) -> VectorN<f64, Self::NumParameters> {
         todo!()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cv_core::nalgebra::Vector1;
+    use float_eq::assert_float_eq;
+    use proptest::prelude::*;
+
+    #[test]
+    fn test_finite_difference() {
+        let h = f64::EPSILON.powf(1.0 / 3.0);
+        let test = |k, r| {
+            let fisheye = Fisheye::from_parameters(Vector1::new(k));
+            let h = f64::max(h * 0.1, h * r);
+            let deriv = fisheye.derivative(r);
+            let approx = (fisheye.evaluate(r + h) - fisheye.evaluate(r - h)) / (2.0 * h);
+            assert_float_eq!(deriv, approx, rmax <= 2e2 * h * h);
+        };
+        proptest!(|(k in -1.0..1.0, r in 0.0..1.0)| {
+            test(k, r);
+        });
+        proptest!(|(r in 0.0..1.0)| {
+            test(0.0, r);
+        });
+        proptest!(|(r in 0.0..1.0)| {
+            test(1.0, r);
+        });
+    }
+
+    #[test]
+    fn test_roundtrip_forward() {
+        let test = |k, r| {
+            let fisheye = Fisheye::from_parameters(Vector1::new(k));
+            let eval = fisheye.evaluate(r);
+            let inv = fisheye.inverse(eval);
+            assert_float_eq!(inv, r, rmax <= 1e1 * f64::EPSILON);
+        };
+        proptest!(|(k in -1.0..1.0, r in 0.0..2.0)| {
+            test(k, r);
+        });
+        proptest!(|(r in 0.0..1.0)| {
+            test(0.0, r);
+        });
+        proptest!(|(r in 0.0..1.0)| {
+            test(1.0, r);
+        });
+    }
+
+    #[test]
+    fn test_roundtrip_reverse() {
+        let test = |k, r| {
+            let fisheye = Fisheye::from_parameters(Vector1::new(k));
+            let inv = fisheye.inverse(r);
+            let eval = fisheye.evaluate(inv);
+            assert_float_eq!(eval, r, rmax <= 1e1 * f64::EPSILON);
+        };
+        proptest!(|(k in -1.0..1.0, r in 0.0..0.75)| {
+            test(k, r);
+        });
+        proptest!(|(k in -1.0..1.0, r in 0.0..0.75)| {
+            test(0.0, r);
+        });
+        proptest!(|(k in -1.0..1.0, r in 0.0..0.75)| {
+            test(1.0, r);
+        });
     }
 }
