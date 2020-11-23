@@ -7,7 +7,7 @@ pub use settings::*;
 
 use argmin::core::{ArgminKV, ArgminOp, Error, Executor, IterState, Observe, ObserverMode};
 use bitarray::BitArray;
-use cv_core::nalgebra::{Unit, Vector3, Vector6};
+use cv_core::nalgebra::{Point3, Unit, Vector3, Vector6};
 use cv_core::{
     sample_consensus::{Consensus, Estimator},
     Bearing, CameraModel, CameraToCamera, FeatureMatch, FeatureWorldMatch, Pose, Projective,
@@ -957,13 +957,22 @@ where
     }
 
     pub fn export_reconstruction(&self, reconstruction: ReconstructionKey, path: impl AsRef<Path>) {
-        // Output point cloud.
-        let points_and_colors = self
-            .data
+        crate::export::export(
+            std::fs::File::create(path).unwrap(),
+            self.all_points_and_colors(reconstruction).collect(),
+        );
+    }
+
+    /// Gets all the points and their colors as an iterator.
+    pub fn all_points_and_colors(
+        &self,
+        reconstruction: ReconstructionKey,
+    ) -> impl Iterator<Item = (Point3<f64>, [u8; 3])> + '_ {
+        self.data
             .reconstruction(reconstruction)
             .landmarks
             .iter()
-            .filter_map(|(landmark, lm_object)| {
+            .filter_map(move |(landmark, lm_object)| {
                 self.triangulate_landmark_robust(reconstruction, landmark)
                     .and_then(Projective::point)
                     .map(|p| {
@@ -974,8 +983,6 @@ where
                         )
                     })
             })
-            .collect();
-        crate::export::export(std::fs::File::create(path).unwrap(), points_and_colors);
     }
 
     /// Runs bundle adjustment (camera pose optimization), landmark filtering, and landmark merging.
