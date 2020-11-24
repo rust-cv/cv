@@ -16,7 +16,7 @@ use num_traits::{Float, Zero};
 ///
 /// # To do
 ///
-/// * (Bug) Parameters are currently in reverse order.
+/// * Make it work with `Degree = Dynamic`.
 ///
 #[derive(Clone, PartialEq, Debug)]
 pub struct Polynomial<Degree: Dim>(VectorN<f64, Degree>)
@@ -98,59 +98,107 @@ mod tests {
     use cv_core::nalgebra::{Vector4, U4};
     use float_eq::assert_float_eq;
     use proptest::prelude::*;
+    use rug::Float;
 
-    fn polynomial_1() -> Polynomial<U4> {
-        Polynomial::from_parameters(Vector4::new(
-            1.0,
-            25.67400161236561,
-            15.249676433312018,
-            0.6729530830603175,
-        ))
+    impl<Degree: Dim> Polynomial<Degree>
+    where
+        DefaultAllocator: Allocator<f64, Degree>,
+    {
+        /// Use RUG + MPFR to compute the nearest f64s to the exact values.
+        pub fn with_derivative_exact(&self, x: f64) -> (f64, f64) {
+            const PREC: u32 = 1000; // Compute using 1000 bit accuracy
+            let x = Float::with_val(PREC, x);
+            let mut value = Float::new(PREC);
+            let mut derivative = Float::new(PREC);
+            for i in (0..self.0.nrows()).rev() {
+                derivative *= &x;
+                derivative += &value;
+                value *= &x;
+                value += self.0[i];
+            }
+            (value.to_f64(), derivative.to_f64())
+        }
+    }
+
+    #[rustfmt::skip]
+    const POLYS: &[&[f64]] = &[
+        &[1.0, 25.67400161236561, 15.249676433312018, 0.6729530830603175],
+        &[1.0, 25.95447969279203, 22.421345314744390, 3.0431830552169914],
+    ];
+
+    fn polynomials(index: usize) -> Polynomial<U4> {
+        Polynomial::from_parameters(Vector4::from_column_slice(POLYS[index]))
+    }
+
+    fn polynomial() -> impl Strategy<Value = Polynomial<U4>> {
+        (0_usize..POLYS.len()).prop_map(polynomials)
     }
 
     #[test]
-    fn test_evaluate_1() {
-        let radial = polynomial_1();
-        let result = radial.evaluate(0.06987809296337355);
-        assert_float_eq!(result, 2.86874326561548, ulps <= 0);
+    fn test_evaluate_literal() {
+        let f = polynomials(0);
+        let x = 0.06987809296337355;
+        let value = f.evaluate(x);
+        assert_float_eq!(value, 2.86874326561548, ulps <= 0);
     }
 
     #[test]
-    fn test_inverse_1() {
-        let radial = polynomial_1();
-        let result = radial.inverse(2.86874326561548);
-        assert_float_eq!(result, 0.06987809296337355, ulps <= 0);
+    fn test_evaluate() {
+        proptest!(|(f in polynomial(), x in 0.0..2.0)| {
+            let value = f.evaluate(x);
+            let expected = f.with_derivative_exact(x).0;
+            assert_float_eq!(value, expected, rmax <= 2.0 * f64::EPSILON);
+        });
     }
 
     #[test]
-    fn test_finite_difference_1() {
+    fn test_with_derivative() {
+        proptest!(|(f in polynomial(), x in 0.0..2.0)| {
+            let value = f.with_derivative(x);
+            let expected = f.with_derivative_exact(x);
+            assert_float_eq!(value.0, expected.0, rmax <= 2.0 * f64::EPSILON);
+            assert_float_eq!(value.1, expected.1, rmax <= 2.0 * f64::EPSILON);
+        });
+    }
+
+    #[test]
+    fn test_inverse() {
+        proptest!(|(f in polynomial(), x in 0.0..2.0)| {
+            let y = f.with_derivative_exact(x).0;
+            let value = f.inverse(y);
+            // There may be a multiple valid inverses, so instead of checking
+            // the answer directly by `value == x`, we check that `f(value) == f(x)`.
+            let y2 = f.with_derivative_exact(value).0;
+            assert_float_eq!(y, y2, rmax <= 2.0 * f64::EPSILON);
+        });
+    }
+
+    #[test]
+    fn test_finite_difference() {
         let h = f64::EPSILON.powf(1.0 / 3.0);
-        let radial = polynomial_1();
-        proptest!(|(r in 0.0..2.0)| {
-            let h = f64::max(h * 0.1, h * r);
-            let deriv = radial.derivative(r);
-            let approx = (radial.evaluate(r + h) - radial.evaluate(r - h)) / (2.0 * h);
+        proptest!(|(f in polynomial(), x in 0.0..2.0)| {
+            let h = f64::max(h * 0.1, h * x);
+            let deriv = f.derivative(x);
+            let approx = (f.evaluate(x + h) - f.evaluate(x - h)) / (2.0 * h);
             assert_float_eq!(deriv, approx, rmax <= 1e2 * h * h);
         });
     }
 
     #[test]
-    fn test_roundtrip_forward_1() {
-        let radial = polynomial_1();
-        proptest!(|(r in 0.0..2.0)| {
-            let eval = radial.evaluate(r);
-            let inv = radial.inverse(eval);
-            assert_float_eq!(inv, r, rmax <= 1e4 * f64::EPSILON);
+    fn test_roundtrip_forward() {
+        proptest!(|(f in polynomial(), x in 0.0..2.0)| {
+            let eval = f.evaluate(x);
+            let inv = f.inverse(eval);
+            assert_float_eq!(inv, x, rmax <= 1e4 * f64::EPSILON);
         });
     }
 
     #[test]
-    fn test_roundtrip_reverse_1() {
-        let radial = polynomial_1();
-        proptest!(|(r in 1.0..2.0)| {
-            let inv = radial.inverse(r);
-            let eval = radial.evaluate(inv);
-            assert_float_eq!(eval, r, rmax <= 1e4 * f64::EPSILON);
+    fn test_roundtrip_reverse() {
+        proptest!(|(f in polynomial(), x in 1.0..2.0)| {
+            let inv = f.inverse(x);
+            let eval = f.evaluate(inv);
+            assert_float_eq!(eval, x, rmax <= 1e4 * f64::EPSILON);
         });
     }
 
