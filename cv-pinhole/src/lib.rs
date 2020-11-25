@@ -15,7 +15,7 @@ mod root;
 
 pub use camera::Camera;
 pub use essential::*;
-pub(crate) use root::root;
+pub(crate) use root::{newton2, root};
 
 use cv_core::nalgebra::{Matrix3, Point2, Point3, Vector2, Vector3};
 use cv_core::{

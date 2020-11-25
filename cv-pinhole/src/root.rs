@@ -1,3 +1,5 @@
+use cv_core::nalgebra::{Matrix2, Vector2};
+
 /// Find function root
 ///
 /// # Method
@@ -68,4 +70,40 @@ where
             xh = rts;
         }
     }
+}
+
+pub(crate) fn newton2<F>(func: F, initial: Vector2<f64>) -> Option<Vector2<f64>>
+where
+    F: Fn(Vector2<f64>) -> (Vector2<f64>, Matrix2<f64>),
+{
+    // Newton-Raphson iteration
+    const MAX_ITER: usize = 10;
+    let mut x = initial;
+    let mut last_delta_norm = f64::MAX;
+    for iter in 0.. {
+        let (F, J) = func(x);
+        let delta = J.lu().solve(&F).unwrap();
+        let delta_norm = delta.norm_squared();
+        x -= delta;
+        if delta_norm < x.norm_squared() * f64::EPSILON * f64::EPSILON {
+            // Converged to epsilon
+            break;
+        }
+        if delta_norm >= last_delta_norm {
+            // No progress
+            if delta_norm < 100.0 * x.norm_squared() * f64::EPSILON * f64::EPSILON {
+                // Still useful
+                break;
+            } else {
+                // Divergence
+                return None;
+            }
+        }
+        last_delta_norm = delta_norm;
+        if iter >= MAX_ITER {
+            // No convergence
+            return None;
+        }
+    }
+    Some(x)
 }

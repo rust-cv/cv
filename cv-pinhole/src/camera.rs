@@ -1,7 +1,7 @@
 use crate::distortion_function::{DistortionFunction, Fisheye};
-use crate::root;
 use crate::CameraIntrinsics;
 use crate::NormalizedKeyPoint;
+use crate::{newton2, root};
 
 use cv_core::nalgebra::{allocator::Allocator, DefaultAllocator, Matrix2, Point2, Vector2};
 use cv_core::{CameraModel, ImagePoint, KeyPoint};
@@ -135,38 +135,14 @@ where
             let (f, df) = self.radial_distortion.with_derivative(ru * ru);
             (ru * f - rd, f + 2.0 * ru * ru * df)
         }, 0.0, 10.0);
-        let mut pu = point * ru / rd;
+        let pu = point * ru / rd;
 
         // Newton-Raphson iteration
-        const MAX_ITER: usize = 10;
-        let mut last_delta_norm = f64::MAX;
-        for iter in 0.. {
-            let (F, J) = self.with_jacobian(pu);
-            let delta = J.lu().solve(&(F - point)).unwrap();
-            let delta_norm = delta.norm_squared();
-            pu -= delta;
-            if delta_norm < pu.coords.norm_squared() * f64::EPSILON * f64::EPSILON {
-                // Converged to epsilon
-                break;
-            }
-            if delta_norm >= last_delta_norm {
-                // No progress
-                if delta_norm < 100.0 * pu.coords.norm_squared() * f64::EPSILON * f64::EPSILON {
-                    // Still useful
-                    break;
-                } else {
-                    // Divergence
-                    panic!();
-                }
-            }
-            last_delta_norm = delta_norm;
-            if iter >= MAX_ITER {
-                // No convergence
-                panic!();
-                break;
-            }
-        }
-        pu
+        let pu = newton2(|x| {
+            let (F, J) = self.with_jacobian(x.into());
+            (F.coords - point.coords, J)
+        }, pu.coords).unwrap();
+        pu.into()
     }
 
     /// Convert from rectilinear to the camera projection.
