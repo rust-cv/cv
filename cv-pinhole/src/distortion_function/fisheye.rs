@@ -32,10 +32,11 @@ use cv_core::nalgebra::{storage::Storage, Vector, Vector1, VectorN, U1};
 /// [panotools]: https://wiki.panotools.org/Fisheye_Projection
 ///   
 ///
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, PartialOrd, Debug)]
 pub struct Fisheye(f64);
 
 impl Default for Fisheye {
+    /// Defaults to rectilinear (non-Fisheye) projection.
     fn default() -> Self {
         Fisheye(1.0)
     }

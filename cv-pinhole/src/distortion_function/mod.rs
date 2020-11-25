@@ -1,24 +1,16 @@
 mod fisheye;
-mod identity;
 mod polynomial;
 mod rational;
 
 use cv_core::nalgebra::{
-    allocator::Allocator, storage::Storage, DefaultAllocator, Dim, Vector, VectorN,
+    allocator::Allocator, storage::Storage, DefaultAllocator, Dim, Vector, Vector1, Vector2,
+    VectorN, U1, U2,
 };
 
 // Re-exports
-#[doc(inline)]
-pub use identity::Identity;
-
-#[doc(inline)]
-pub use polynomial::Polynomial;
-
-#[doc(inline)]
-pub use rational::Rational;
-
-#[doc(inline)]
 pub use fisheye::Fisheye;
+pub use polynomial::Polynomial;
+pub use rational::Rational;
 
 /// Trait for parameterized functions specifying 1D distortions.
 ///
@@ -74,12 +66,12 @@ where
     ///
     /// # Method
     ///
-    /// Uses a Newton-Bisection hybrid method based on [1] that is guaranteed to
-    /// converge to almost machine precision.
+    /// The default implementation uses a Newton-Bisection hybrid method based on [^1]
+    /// that is guaranteed to converge to almost machine precision.
     ///
     /// # Resources
     ///
-    /// Numerical Recipes 2nd edition. p. 365
+    /// [^1]: Numerical Recipes 2nd edition. p. 365
     ///
     /// <https://github.com/osveliz/numerical-veliz/blob/master/src/rootfinding/NewtSafe.adb>
     ///
@@ -107,6 +99,7 @@ where
         let mut dxold = (xl - xh).abs();
         let mut dx = dxold;
         let (mut f, mut df) = self.with_derivative(rts);
+        f -= value;
         loop {
             if (((rts - xh) * df - f) * ((rts - xl) * df - f) > 0.0)
                 || (2.0 * f.abs() > (dxold * df).abs())
@@ -141,4 +134,28 @@ where
 
     /// Parameter gradient $∇_{\vec β​} f(\mathtt{value}, \vec β)$.
     fn gradient(&self, value: f64) -> VectorN<f64, Self::NumParameters>;
+}
+
+pub type Constant = Polynomial<U1>;
+
+pub type Identity = Polynomial<U2>;
+
+/// The constant zero function.
+pub fn zero() -> Constant {
+    constant(0.0)
+}
+
+/// The constant
+pub fn one() -> Constant {
+    constant(1.0)
+}
+
+/// Create a constant function.
+pub fn constant(value: f64) -> Constant {
+    Constant::from_parameters(Vector1::new(value))
+}
+
+/// Create the identity function.
+pub fn identity() -> Identity {
+    Identity::from_parameters(Vector2::new(0.0, 1.0))
 }

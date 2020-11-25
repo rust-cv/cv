@@ -1,8 +1,9 @@
-use crate::distortion_function::DistortionFunction;
+use crate::distortion_function::{DistortionFunction, Fisheye};
+use crate::root;
 use crate::CameraIntrinsics;
 use crate::NormalizedKeyPoint;
 
-use cv_core::nalgebra::{allocator::Allocator, DefaultAllocator, Dim, Matrix2, Vector2};
+use cv_core::nalgebra::{allocator::Allocator, DefaultAllocator, Matrix2, Point2, Vector2};
 use cv_core::{CameraModel, ImagePoint, KeyPoint};
 
 /// Realistic camera with distortions.
@@ -72,6 +73,7 @@ where
     DefaultAllocator: Allocator<f64, T::NumParameters>,
 {
     linear: CameraIntrinsics,
+    fisheye: Fisheye,
     radial_distortion: R,
     tangential: [f64; 2],
     tangential_distortion: D,
@@ -95,6 +97,7 @@ where
     ) -> Self {
         Self {
             linear,
+            fisheye: Fisheye::default(),
             radial_distortion,
             tangential: [0.0, 0.0],
             tangential_distortion,
@@ -102,20 +105,82 @@ where
         }
     }
 
-    /// Computes $\vec f(\mathtt{point})$.
-    pub fn correct(&self, point: Vector2<f64>) -> Vector2<f64> {
-        let r2 = point.norm_squared();
+    /// Apply lens distortions to a point.
+    #[rustfmt::skip]
+    pub fn distort(&self, point: Point2<f64>) -> Point2<f64> {
+        let r2 = point.coords.norm_squared();
         let f_r = self.radial_distortion.evaluate(r2);
-        let f_t = 1.0;
+        let f_t = self.tangential_distortion.evaluate(r2);
         let f_px = self.prism_distortion[0].evaluate(r2);
         let f_py = self.prism_distortion[1].evaluate(r2);
-        let t = self.tangential[0] * point.x + self.tangential[1] * point.y;
-        let t_x = 2.0 * point.x * t + self.tangential[0] * r2;
-        let t_y = 2.0 * point.y * t + self.tangential[1] * r2;
-        Vector2::new(
-            point.x * f_r + t_x * f_t + f_px,
-            point.y * f_r + t_y * f_t + f_py,
+        let [p_1, p_2] = self.tangential;
+        let (x, y) = (point.x, point.y);
+        let t_x = 2.0 * p_1 * x * y + p_2 * (r2 + 2.0 * x * x);
+        let t_y = p_1 * (r2 + 2.0 * y * y) + 2.0 * p_2 * x * y;
+        Point2::new(
+            x * f_r + t_x * f_t + f_px,
+            y * f_r + t_y * f_t + f_py,
         )
+    }
+
+    /// Apply lens distortions to a point.
+    #[rustfmt::skip]
+    pub fn undistort(&self, point: Point2<f64>) -> Point2<f64> {
+        // The radial distortion is a large effect. It is also a one-dimensional
+        // problem we can solve precisely. This will produce a good starting
+        // point for the two-dimensional problem.
+        let rd = point.coords.norm();
+        // Find $r_u$ such that $r_d = r_u ⋅ f(r_u^2)$
+        let ru = root(|ru| {
+            let (f, df) = self.radial_distortion.with_derivative(ru * ru);
+            (ru * f - rd, f + 2.0 * ru * ru * df)
+        }, 0.0, 10.0);
+        let mut pu = point * ru / rd;
+
+        // Newton-Raphson iteration
+        const MAX_ITER: usize = 10;
+        let mut last_delta_norm = f64::MAX;
+        for iter in 0.. {
+            let (F, J) = self.with_jacobian(pu);
+            let delta = J.lu().solve(&(F - point)).unwrap();
+            let delta_norm = delta.norm_squared();
+            pu -= delta;
+            if delta_norm < pu.coords.norm_squared() * f64::EPSILON * f64::EPSILON {
+                // Converged to epsilon
+                break;
+            }
+            if delta_norm >= last_delta_norm {
+                // No progress
+                if delta_norm < 100.0 * pu.coords.norm_squared() * f64::EPSILON * f64::EPSILON {
+                    // Still useful
+                    break;
+                } else {
+                    // Divergence
+                    panic!();
+                }
+            }
+            last_delta_norm = delta_norm;
+            if iter >= MAX_ITER {
+                // No convergence
+                panic!();
+                break;
+            }
+        }
+        pu
+    }
+
+    /// Convert from rectilinear to the camera projection.
+    pub fn project(&self, point: Vector2<f64>) -> Vector2<f64> {
+        let r = point.norm();
+        let rp = self.fisheye.evaluate(r);
+        point * rp / r
+    }
+
+    /// Convert from camera projection to rectilinear.
+    pub fn unproject(&self, point: Vector2<f64>) -> Vector2<f64> {
+        let rp = point.norm();
+        let r = self.fisheye.inverse(rp);
+        point * r / rp
     }
 
     /// Computes $∇_{\vec x} \vec f\p{\vec x, \vec θ}$.
@@ -147,15 +212,31 @@ where
     /// \end{aligned}
     /// $$
     ///
-    pub fn jacobian(&self, point: Vector2<f64>) -> Matrix2<f64> {
-        let r2 = point.norm_squared();
+    pub fn with_jacobian(&self, point: Point2<f64>) -> (Point2<f64>, Matrix2<f64>) {
+        let [x, y] = [point.coords[0], point.coords[1]];
+        let r2 = x * x + y * y;
+        let r2dx = 2. * x;
+        let r2dy = 2. * y;
         let (f_r, df_r) = self.radial_distortion.with_derivative(r2);
         let (f_t, df_t) = self.tangential_distortion.with_derivative(r2);
-        let df_px = self.prism_distortion[0].derivative(r2);
-        let df_py = self.prism_distortion[1].derivative(r2);
-
-        todo!()
-        // Matrix2::new()
+        let (f_px, df_px) = self.prism_distortion[0].with_derivative(r2);
+        let (f_py, df_py) = self.prism_distortion[1].with_derivative(r2);
+        let [t1, t2] = self.tangential;
+        let tx = 2.0 * t1 * x * y + t2 * (r2 + 2.0 * x * x);
+        let txdx = 2.0 * t1 * y + t2 * (r2dx + 4.0 * x);
+        let txdy = 2.0 * t1 * x + t2 * r2dy;
+        let ty = t1 * (r2 + 2.0 * y * y) + 2.0 * t2 * x * y;
+        let tydx = t1 * r2dx + 2.0 * t2 * y;
+        let tydy = t1 * (r2dy + 4.0 * y) + 2.0 * t2 * x;
+        let u = x * f_r + tx * f_t + f_px;
+        let udr2 = x * df_r + tx * df_t + df_px;
+        let udx = f_r + txdx * f_t + udr2 * r2dx;
+        let udy = txdy * f_t + udr2 * r2dy;
+        let v = y * f_r + ty * f_t + f_py;
+        let vdr2 = y * df_r + ty * df_t + df_py;
+        let vdx = tydx * f_t + vdr2 * r2dx;
+        let vdy = f_r + tydy * f_t + vdr2 * r2dy;
+        (Point2::new(u, v), Matrix2::new(udx, udy, vdx, vdy))
     }
 }
 
@@ -192,204 +273,173 @@ where
 
 pub mod camera {
     use super::Camera;
-    use crate::distortion_function::{Identity, Polynomial, Rational};
-    use cv_core::nalgebra::{U1, U2, U3, U4};
+    use crate::distortion_function::{self, Constant, DistortionFunction, Polynomial, Rational};
+    use crate::CameraIntrinsics;
+    use cv_core::nalgebra::{Matrix3, Point2, Vector2, Vector3, VectorN, U1, U8};
+    use cv_core::nalgebra::{U2, U3, U4};
 
-    /// OpenCV Camera model with 4 parameters
-    pub type OpenCV4 = Camera<Polynomial<U2>, Identity, Identity>;
+    pub type Adobe = Camera<Polynomial<U3>, Constant, Constant>;
 
-    pub type OpenCV5 = Camera<Polynomial<U3>, Identity, Identity>;
+    /// Generate Adobe rectilinear camera model
+    ///
+    /// $u_0, v_0, f_x, f_y, k_1, k_2, k_3, k_4, k_5$
+    ///
+    /// # References
+    ///
+    /// http://download.macromedia.com/pub/labs/lensprofile_creator/lensprofile_creator_cameramodel.pdf
+    ///
+    /// # To do
+    ///
+    /// * Implement Geometric Distortion Model for Fisheye Lenses
+    /// * Implement Lateral Chromatic Aberration Model
+    /// * Implement Vignette Model
+    /// * Read/Write Lens Correction Profile File Format
+    pub fn adobe(parameters: [f64; 9]) -> Adobe {
+        todo!()
+    }
 
-    pub type OpenCV8 = Camera<Rational<U3, U3>, Identity, Identity>;
+    pub type OpenCV = Camera<Rational<U4, U4>, Constant, Polynomial<U3>>;
 
-    pub type OpenCV12 = Camera<Rational<U4, U4>, Identity, Polynomial<U3>>;
+    /// Generate OpenCV camera with up to twelve distortion coefficients.
+    pub fn opencv(cameraMatrix: Matrix3<f64>, distCoeffs: &[f64]) -> OpenCV {
+        assert!(
+            distCoeffs.len() <= 12,
+            "Up to 12 coefficients are supported."
+        );
+
+        // Zero pad coefficients
+        let mut coeffs = [0.0; 12];
+        coeffs.copy_from_slice(distCoeffs);
+
+        let intrinsic = CameraIntrinsics::from_matrix(cameraMatrix);
+        #[rustfmt::skip]
+        let radial = Rational::<U4, U4>::from_parameters(
+            VectorN::<f64, U8>::from_column_slice_generic(U8, U1, &[
+                 1.0, coeffs[0], coeffs[1], coeffs[4],
+                 1.0, coeffs[5], coeffs[6], coeffs[7],
+            ])
+        );
+        let tangential = distortion_function::one();
+        let prism = [
+            Polynomial::<U3>::from_parameters(Vector3::new(0.0, coeffs[8], coeffs[9])),
+            Polynomial::<U3>::from_parameters(Vector3::new(0.0, coeffs[10], coeffs[11])),
+        ];
+
+        let mut camera = OpenCV::new(intrinsic, radial, tangential, prism);
+        camera.tangential = [coeffs[2], coeffs[3]];
+        camera
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::distortion_function::{Identity, Polynomial, Rational};
-    use cv_core::nalgebra::{Point2, Vector3, VectorN, U1, U2, U3, U4, U8};
+    use crate::distortion_function::{self, Polynomial, Rational};
+    use cv_core::nalgebra::{Matrix3, Point2, Vector3, VectorN, U1, U3, U4, U8};
+    use float_eq::assert_float_eq;
 
-    #[test]
-    fn camera_1() {
+    #[rustfmt::skip]
+    const UNDISTORTED: &[[f64; 2]] = &[
+        [-2.678325867593669   , -2.018833440108032   ],
+        [-0.8278750155570158  , -1.2269359155245612  ],
+        [-0.02009583871305682 , -1.0754641516207084  ],
+        [ 0.7696051515407775  , -1.1999092188198324  ],
+        [ 2.4240231486605044  , -1.8482850962222797  ],
+        [-2.00590387018105    , -0.7622775647671782  ],
+        [-0.6803517193354109  , -0.508744726065251   ],
+        [-0.018858004780545452, -0.45712295391460256 ],
+        [ 0.629841408485172   , -0.5002154916071485  ],
+        [ 1.852035193756623   , -0.7179892894252142  ],
+        [-1.8327338936360238  , -0.01592369353657851 ],
+        [-0.6414183824611562  , -0.01250548415320514 ],
+        [-0.01831155521928233 , -0.011537853508065351],
+        [ 0.5932054070590098  , -0.012346500967552635],
+        [ 1.6999857018318918  , -0.015398552060458103],
+        [-2.0026791707814664  ,  0.7276895662410346  ],
+        [-0.6772278897320149  ,  0.48030562044200287 ],
+        [-0.01882077458202271 ,  0.4309830892825161  ],
+        [ 0.6268195195673317  ,  0.4721702706067835  ],
+        [ 1.8474518498275845  ,  0.6841838156568198  ],
+        [-2.7191252091392095  ,  2.00821485753557    ],
+        [-0.8213459272712429  ,  1.187222601515949   ],
+        [-0.020100153303183495,  1.0384037280790197  ],
+        [ 0.762958127238301   ,  1.1607439280019045  ],
+        [ 2.446040772535413   ,  1.8275603904250888  ],
+    ];
+
+    #[rustfmt::skip]
+    const DISTORTED: &[[f64; 2]] = &[
+        [-1.1422163009074084  , -0.8548601705472734  ],
+        [-0.5802629659506781  , -0.8548601705472634  ],
+        [-0.018309630993960678, -0.8548601705472749  ],
+        [ 0.5436437039627523  , -0.8548601705472572  ],
+        [ 1.105597038919486   , -0.8548601705472729  ],
+        [-1.1422163009074044  , -0.4331982294741029  ],
+        [-0.5802629659506768  , -0.4331982294740987  ],
+        [-0.018309630993960376, -0.43319822947409947 ],
+        [ 0.5436437039627607  , -0.4331982294741025  ],
+        [ 1.1055970389194907  , -0.4331982294741061  ],
+        [-1.1422163009074042  , -0.011536288400935572],
+        [-0.58026296595067    , -0.011536288400935261],
+        [-0.018309630993960747, -0.011536288400935736],
+        [ 0.5436437039627555  , -0.011536288400935357],
+        [ 1.1055970389194847  , -0.011536288400935575],
+        [-1.1422163009074064  ,  0.4101256526722325  ],
+        [-0.5802629659506844  ,  0.4101256526722334  ],
+        [-0.018309630993960612,  0.41012565267223955 ],
+        [ 0.5436437039627673  ,  0.4101256526722365  ],
+        [ 1.1055970389194787  ,  0.41012565267223033 ],
+        [-1.1422163009074024  ,  0.8317875937453983  ],
+        [-0.5802629659506786  ,  0.8317875937453932  ],
+        [-0.018309630993960567,  0.8317875937453815  ],
+        [ 0.5436437039627544  ,  0.8317875937453895  ],
+        [ 1.1055970389194876  ,  0.8317875937454029  ],
+    ];
+
+    fn camera_1() -> camera::OpenCV {
         // Calibration parameters for a GoPro Hero 6 using OpenCV
-        let focal: [f64; 2] = [1.77950719e+0, 1.77867606e+03];
-        let center: [f64; 2] = [2.03258212e+03, 1.52051932e+03];
+        #[rustfmt::skip]
+        let cameraMatrix = Matrix3::from_row_slice(&[
+            1.77950719e+03, 0.00000000e+00, 2.03258212e+03,
+            0.00000000e+00, 1.77867606e+03, 1.52051932e+03,
+            0.00000000e+00, 0.00000000e+00, 1.00000000e+00]);
         #[rustfmt::skip]
         let distortion: [f64; 12] = [
             2.56740016e+01,  1.52496764e+01, -5.01712057e-04,
             1.09310463e-03,  6.72953083e-01,  2.59544797e+01,
             2.24213453e+01,  3.04318306e+00, -3.23278793e-03,
             9.53176056e-05, -9.35687185e-05,  2.96341863e-05];
-        // The OpenCV
-        let distorted = [1718.3195, 1858.1052];
-        let undistorted = [-0.17996894, 0.19362147];
+        camera::opencv(cameraMatrix, &distortion)
+    }
 
-        let mut intrinsic = CameraIntrinsics::identity();
-        intrinsic.focals = Vector2::new(focal[0], focal[1]);
-        intrinsic.principal_point = Point2::new(center[0], center[1]);
-        #[rustfmt::skip]
-        let radial = Rational::<U4, U4>::from_parameters(
-            VectorN::<f64, U8>::from_column_slice_generic(U8, U1, &[
-                distortion[4], distortion[1], distortion[0], 1.0,
-                distortion[7], distortion[6], distortion[5], 1.0,
-            ])
-        );
-        let tangential = Identity;
-        let prism = [
-            Polynomial::<U3>::from_parameters(Vector3::new(distortion[9], distortion[8], 0.0)),
-            Polynomial::<U3>::from_parameters(Vector3::new(distortion[11], distortion[10], 0.0)),
-        ];
+    #[test]
+    fn test_distort_1() {
+        let camera = camera_1();
+        for (undistorted, expected) in UNDISTORTED.iter().zip(DISTORTED.iter()) {
+            let [x, y] = *undistorted;
+            let [ex, ey] = *expected;
 
-        let camera = camera::OpenCV12::new(intrinsic, radial, tangential, prism);
+            let distorted = camera.distort(Point2::new(x, y));
+            let (x, y) = (distorted[0], distorted[1]);
 
-        let distorted = Vector2::new(1718.3195, 1858.1052);
-        let undistorted = camera.correct(distorted);
-        let expected = Vector2::new(-0.17996894, 0.19362147);
-        println!("{:#?}", undistorted);
+            assert_float_eq!(x, ex, ulps <= 2);
+            assert_float_eq!(y, ey, ulps <= 2);
+        }
+    }
 
-        let distorted = Vector2::new(579.8596, 2575.0476);
-        let undistorted = camera.correct(distorted);
-        let expected = Vector2::new(-1.1464612, 0.8380858);
-        println!("{:#?}", undistorted);
+    #[test]
+    fn test_undistort_1() {
+        let camera = camera_1();
+        for (expected, distorted) in UNDISTORTED.iter().zip(DISTORTED.iter()) {
+            let [x, y] = *distorted;
+            let [ex, ey] = *expected;
 
-        let source = [
-            [-0.17996894, 0.19362147],
-            [-0.17968875, 0.24255648],
-            [-0.17944576, 0.29271868],
-            [-0.17916603, 0.34418374],
-            [-0.17893367, 0.39675304],
-            [-0.17863423, 0.45061454],
-            [-0.1782976, 0.5059651],
-            [-0.17797716, 0.56267387],
-            [-0.17769286, 0.62078154],
-            [-0.22691241, 0.1944314],
-            [-0.22716342, 0.24451172],
-            [-0.22748885, 0.29591268],
-            [-0.22788039, 0.3486148],
-            [-0.22820546, 0.4025184],
-            [-0.22855103, 0.4577957],
-            [-0.22891289, 0.51458186],
-            [-0.22923958, 0.572837],
-            [-0.22955456, 0.6325643],
-            [-0.2760499, 0.19522506],
-            [-0.27696946, 0.24657097],
-            [-0.27798527, 0.29921785],
-            [-0.27897915, 0.35328886],
-            [-0.27998206, 0.40862617],
-            [-0.28099003, 0.46533334],
-            [-0.28205746, 0.5236744],
-            [-0.2831492, 0.5835057],
-            [-0.28426304, 0.6449713],
-            [-0.3276202, 0.19608246],
-            [-0.3292424, 0.24866305],
-            [-0.3309349, 0.3026873],
-            [-0.33262616, 0.3581513],
-            [-0.33433127, 0.4149485],
-            [-0.33617917, 0.4732646],
-            [-0.33799866, 0.5331862],
-            [-0.33992943, 0.5947946],
-            [-0.34184524, 0.65808254],
-            [-0.38177538, 0.19692989],
-            [-0.38411814, 0.25095174],
-            [-0.3866268, 0.30635145],
-            [-0.38909492, 0.36327213],
-            [-0.3916721, 0.42171457],
-            [-0.39424962, 0.48160818],
-            [-0.39702195, 0.5432604],
-            [-0.39976382, 0.6066253],
-            [-0.40267637, 0.671886],
-            [-0.43867132, 0.19787468],
-            [-0.44195008, 0.2532662],
-            [-0.44519594, 0.31016332],
-            [-0.44858345, 0.3686112],
-            [-0.45198414, 0.42872244],
-            [-0.45556828, 0.49036437],
-            [-0.45910528, 0.55382824],
-            [-0.46299413, 0.6192026],
-            [-0.466843, 0.6863503],
-            [-0.49861795, 0.1987457],
-            [-0.5026725, 0.2557629],
-            [-0.5069558, 0.31417185],
-            [-0.51119965, 0.37434888],
-            [-0.5157122, 0.43618685],
-            [-0.5201786, 0.49963355],
-            [-0.5250113, 0.56500995],
-            [-0.529766, 0.63237023],
-            [-0.53485453, 0.70181614],
-            [-0.56156373, 0.19966456],
-            [-0.5667678, 0.25814596],
-            [-0.5719744, 0.31840706],
-            [-0.57744604, 0.38031867],
-            [-0.5828779, 0.4440139],
-            [-0.58866763, 0.50954485],
-            [-0.59443516, 0.5769114],
-            [-0.6006511, 0.64649254],
-            [-0.60675824, 0.71801007],
-            [-0.628279, 0.20040697],
-            [-0.6344018, 0.26069504],
-            [-0.64092815, 0.32267714],
-            [-0.6474141, 0.38664073],
-            [-0.6542724, 0.4522714],
-            [-0.6610637, 0.51989216],
-            [-0.6683662, 0.5895391],
-            [-0.6756135, 0.66126966],
-            [-0.6833462, 0.7354248],
-            [-0.6985042, 0.20141184],
-            [-0.7060343, 0.2632588],
-            [-0.71366554, 0.3273413],
-            [-0.7216309, 0.39327696],
-            [-0.7295911, 0.46094468],
-            [-0.7380902, 0.53080666],
-            [-0.7465825, 0.6027301],
-            [-0.7556527, 0.6770891],
-            [-0.7646206, 0.75370055],
-            [-0.7728095, 0.20244533],
-            [-0.78165317, 0.26625928],
-            [-0.7907952, 0.33220664],
-            [-0.8001839, 0.40018782],
-            [-0.8098858, 0.4701321],
-            [-0.8196281, 0.54215276],
-            [-0.83001417, 0.6167809],
-            [-0.8402761, 0.6934916],
-            [-0.8512289, 0.7733144],
-            [-0.8518392, 0.20366336],
-            [-0.862248, 0.26939756],
-            [-0.8729417, 0.33734974],
-            [-0.8838656, 0.40754512],
-            [-0.89505607, 0.4797963],
-            [-0.90671587, 0.5545365],
-            [-0.9185119, 0.63145286],
-            [-0.93089086, 0.71136534],
-            [-0.9433173, 0.7935529],
-            [-0.93565977, 0.20484428],
-            [-0.9476607, 0.27270162],
-            [-0.9600662, 0.3428219],
-            [-0.97279584, 0.41510573],
-            [-0.9859218, 0.49006754],
-            [-0.9992419, 0.56712496],
-            [-1.0130187, 0.6472003],
-            [-1.0271673, 0.72976106],
-            [-1.0417787, 0.8154801],
-            [-1.02476, 0.20601285],
-            [-1.038625, 0.27609447],
-            [-1.0529088, 0.34840867],
-            [-1.0676082, 0.42343187],
-            [-1.0825946, 0.50079226],
-            [-1.0980939, 0.5808948],
-            [-1.1138377, 0.6636289],
-            [-1.1300658, 0.7495205],
-            [-1.1464612, 0.8380858],
-        ];
-        for i in 0..source.len() {
-            let [x, y] = source[i];
-            let source = Vector2::new(x, y);
-            let destination = camera.correct(source);
-            let (x, y) = (destination[0], destination[1]);
-            let x = x * focal[0] + center[0];
-            let y = y * focal[1] + center[1];
-            println!("[{}, {}],", x, y);
+            let distorted = Point2::new(x, y);
+            let undistorted = camera.undistort(distorted);
+            let (x, y) = (undistorted[0], undistorted[1]);
+
+            assert_float_eq!(x, ex, ulps <= 7);
+            assert_float_eq!(y, ey, ulps <= 7);
         }
     }
 }

@@ -11,9 +11,11 @@ extern crate alloc;
 mod camera;
 pub mod distortion_function;
 mod essential;
+mod root;
 
 pub use camera::Camera;
 pub use essential::*;
+pub(crate) use root::root;
 
 use cv_core::nalgebra::{Matrix3, Point2, Point3, Vector2, Vector3};
 use cv_core::{
@@ -106,6 +108,20 @@ impl CameraIntrinsics {
             focals: Vector2::new(1.0, 1.0),
             skew: 0.0,
             principal_point: Point2::new(0.0, 0.0),
+        }
+    }
+
+    pub fn from_matrix(matrix: Matrix3<f64>) -> Self {
+        assert_eq!(
+            matrix,
+            matrix.upper_triangle(),
+            "Camera matrix is not upper triangular"
+        );
+        let s = 1.0 / matrix[(2, 2)];
+        Self {
+            focals: Vector2::new(matrix[(0, 0)], matrix[(1, 1)]) * s,
+            principal_point: Point2::new(matrix[(0, 2)], matrix[(1, 2)]) * s,
+            skew: matrix[(0, 1)] * s,
         }
     }
 

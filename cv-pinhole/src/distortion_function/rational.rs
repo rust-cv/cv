@@ -162,10 +162,36 @@ mod tests {
     use cv_core::nalgebra::{VectorN, U4, U8};
     use float_eq::assert_float_eq;
     use proptest::prelude::*;
+    use rug::ops::Pow;
+    use rug::Float;
+
+    impl<DP: Dim, DQ: Dim> Rational<DP, DQ>
+    where
+        DP: DimName,
+        DQ: DimName,
+        DP: DimAdd<DQ>,
+        DimSum<DP, DQ>: DimName,
+        DefaultAllocator: Allocator<f64, DP>,
+        DefaultAllocator: Allocator<f64, DQ>,
+        DefaultAllocator: Allocator<f64, DimSum<DP, DQ>>,
+    {
+        pub fn with_derivative_float(&self, x: Float) -> (Float, Float) {
+            let (p, dp) = self.0.with_derivative_float(x.clone());
+            let (q, dq) = self.1.with_derivative_float(x);
+            (p.clone() / &q, (dp * &q - p * dq) / q.pow(2))
+        }
+
+        pub fn with_derivative_exact(&self, x: f64) -> (f64, f64) {
+            // Compute with 1000 bits accuracy
+            let x = Float::with_val(1000, x);
+            let (value, derivative) = self.with_derivative_float(x);
+            (value.to_f64(), derivative.to_f64())
+        }
+    }
 
     /// OpenCV12 radial distortion for a GoPro Hero 6
     #[rustfmt::skip]
-    fn rational_1() -> Rational<U4, U4> {
+    fn functions(_index: usize) -> Rational<U4, U4> {
         Rational::from_parameters(
             VectorN::from_column_slice_generic(U8, U1, &[
                  1.0, 25.67400161236561, 15.249676433312018, 0.6729530830603175,
@@ -174,16 +200,52 @@ mod tests {
         )
     }
 
+    fn function() -> impl Strategy<Value = Rational<U4, U4>> {
+        (0_usize..1).prop_map(functions)
+    }
+
     #[test]
-    fn test_evaluate_1() {
-        let radial = rational_1();
-        let result = radial.evaluate(0.06987809296337322);
-        assert_float_eq!(result, 0.9810452524397972, ulps <= 0);
+    fn test_evaluate_literal() {
+        let f = functions(0);
+        let x = 0.06987809296337355;
+        let value = f.evaluate(x);
+        assert_float_eq!(value, 0.9810452524397972, ulps <= 0);
+    }
+
+    #[test]
+    fn test_evaluate() {
+        proptest!(|(f in function(), x in 0.0..2.0)| {
+            let value = f.evaluate(x);
+            let expected = f.with_derivative_exact(x).0;
+            assert_float_eq!(value, expected, rmax <= 2.0 * f64::EPSILON);
+        });
+    }
+
+    #[test]
+    fn test_with_derivative() {
+        proptest!(|(f in function(), x in 0.0..2.0)| {
+            let value = f.with_derivative(x);
+            let expected = f.with_derivative_exact(x);
+            assert_float_eq!(value.0, expected.0, rmax <= 2.0 * f64::EPSILON);
+            assert_float_eq!(value.1, expected.1, rmax <= 94.0 * f64::EPSILON);
+        });
+    }
+
+    #[test]
+    fn test_inverse() {
+        proptest!(|(f in function(), x in 0.0..2.0)| {
+            let y = f.with_derivative_exact(x).0;
+            let value = f.inverse(y);
+            // There may be a multiple valid inverses, so instead of checking
+            // the answer directly by `value == x`, we check that `f(value) == f(x)`.
+            let y2 = f.with_derivative_exact(value).0;
+            assert_float_eq!(y, y2, rmax <= 2.0 * f64::EPSILON);
+        });
     }
 
     #[test]
     fn test_inverse_1() {
-        let radial = rational_1();
+        let radial = functions(0);
         let result = radial.inverse(0.9810452524397972);
         assert_float_eq!(result, 0.06987809296337322, ulps <= 8);
     }
@@ -191,7 +253,7 @@ mod tests {
     #[test]
     fn test_finite_difference_1() {
         let h = f64::EPSILON.powf(1.0 / 3.0);
-        let radial = rational_1();
+        let radial = functions(0);
         proptest!(|(r in 0.0..2.0)| {
             let h = f64::max(h * 0.1, h * r);
             let deriv = radial.derivative(r);
@@ -202,7 +264,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_forward_1() {
-        let radial = rational_1();
+        let radial = functions(0);
         proptest!(|(r in 0.0..2.0)| {
             let eval = radial.evaluate(r);
             let inv = radial.inverse(eval);
@@ -213,7 +275,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_reverse_1() {
-        let radial = rational_1();
+        let radial = functions(0);
         proptest!(|(r in 0.7..1.0)| {
             let inv = radial.inverse(r);
             let eval = radial.evaluate(inv);
