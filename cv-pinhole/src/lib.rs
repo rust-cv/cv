@@ -13,7 +13,7 @@ pub mod distortion_function;
 mod essential;
 mod root;
 
-pub use camera::Camera;
+pub use camera::{models, Camera};
 pub use essential::*;
 pub(crate) use root::{newton2, root};
 
@@ -154,6 +154,12 @@ impl CameraIntrinsics {
             0.0,            self.focals.y,  self.principal_point.y,
             0.0,            0.0,            1.0,
         )
+    }
+}
+
+impl Default for CameraIntrinsics {
+    fn default() -> Self {
+        Self::identity()
     }
 }
 

@@ -4,7 +4,7 @@ use cv_core::nalgebra::{
     allocator::Allocator, storage::Storage, DefaultAllocator, Dim, DimAdd, DimName, DimSum,
     SliceStorage, Vector, VectorN, U1,
 };
-use num_traits::{Float, Zero};
+use num_traits::Zero;
 
 /// Rational distortion function.
 ///
@@ -27,6 +27,23 @@ where
     DefaultAllocator: Allocator<f64, DP>,
     DefaultAllocator: Allocator<f64, DQ>,
     DefaultAllocator: Allocator<f64, DimSum<DP, DQ>>;
+
+impl<DP: Dim, DQ: Dim> Default for Rational<DP, DQ>
+where
+    DP: DimName,
+    DQ: DimName,
+    DP: DimAdd<DQ>,
+    DimSum<DP, DQ>: DimName,
+    DefaultAllocator: Allocator<f64, DP>,
+    DefaultAllocator: Allocator<f64, DQ>,
+    DefaultAllocator: Allocator<f64, DimSum<DP, DQ>>,
+    Polynomial<DP>: Default,
+    Polynomial<DQ>: Default,
+{
+    fn default() -> Self {
+        Self(Polynomial::default(), Polynomial::default())
+    }
+}
 
 impl<DP: Dim, DQ: Dim> DistortionFunction for Rational<DP, DQ>
 where
@@ -159,13 +176,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::distortion_function::TestFloat;
     use cv_core::nalgebra::{VectorN, U4, U8};
     use float_eq::assert_float_eq;
     use proptest::prelude::*;
     use rug::ops::Pow;
     use rug::Float;
 
-    impl<DP: Dim, DQ: Dim> Rational<DP, DQ>
+    impl<DP: Dim, DQ: Dim> TestFloat for Rational<DP, DQ>
     where
         DP: DimName,
         DQ: DimName,
@@ -174,18 +192,11 @@ mod tests {
         DefaultAllocator: Allocator<f64, DP>,
         DefaultAllocator: Allocator<f64, DQ>,
         DefaultAllocator: Allocator<f64, DimSum<DP, DQ>>,
+        Polynomial<DP>: TestFloat<NumParameters = DP>,
+        Polynomial<DQ>: TestFloat<NumParameters = DQ>,
     {
-        pub fn with_derivative_float(&self, x: Float) -> (Float, Float) {
-            let (p, dp) = self.0.with_derivative_float(x.clone());
-            let (q, dq) = self.1.with_derivative_float(x);
-            (p.clone() / &q, (dp * &q - p * dq) / q.pow(2))
-        }
-
-        pub fn with_derivative_exact(&self, x: f64) -> (f64, f64) {
-            // Compute with 1000 bits accuracy
-            let x = Float::with_val(1000, x);
-            let (value, derivative) = self.with_derivative_float(x);
-            (value.to_f64(), derivative.to_f64())
+        fn evaluate_float(&self, x: &Float) -> Float {
+            self.0.evaluate_float(x) / self.1.evaluate_float(x)
         }
     }
 
@@ -217,7 +228,7 @@ mod tests {
         proptest!(|(f in function(), x in 0.0..2.0)| {
             let value = f.evaluate(x);
             let expected = f.with_derivative_exact(x).0;
-            assert_float_eq!(value, expected, rmax <= 2.0 * f64::EPSILON);
+            assert_float_eq!(value, expected, rmax <= 3.0 * f64::EPSILON);
         });
     }
 
@@ -226,7 +237,7 @@ mod tests {
         proptest!(|(f in function(), x in 0.0..2.0)| {
             let value = f.with_derivative(x);
             let expected = f.with_derivative_exact(x);
-            assert_float_eq!(value.0, expected.0, rmax <= 2.0 * f64::EPSILON);
+            assert_float_eq!(value.0, expected.0, rmax <= 3.0 * f64::EPSILON);
             assert_float_eq!(value.1, expected.1, rmax <= 94.0 * f64::EPSILON);
         });
     }

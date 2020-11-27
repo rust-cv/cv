@@ -159,3 +159,56 @@ pub fn constant(value: f64) -> Constant {
 pub fn identity() -> Identity {
     Identity::from_parameters(Vector2::new(0.0, 1.0))
 }
+
+#[cfg(test)]
+pub(crate) use test::TestFloat;
+#[cfg(test)]
+mod test {
+    use super::*;
+    use rug::Float;
+
+    // Internal precision used to compute exact f64 values.
+    const INTERNAL_PRECISION: u32 = 1000;
+
+    pub(crate) trait TestFloat: DistortionFunction
+    where
+        DefaultAllocator: Allocator<f64, Self::NumParameters>,
+    {
+        fn evaluate_float(&self, x: &Float) -> Float;
+
+        fn derivative_float(&self, x: &Float) -> Float {
+            let prec = x.prec();
+            let epsilon = Float::with_val(prec, Float::i_exp(1, 1 - (prec as i32)));
+
+            // Relative stepsize `h` is the cube root of epsilon
+            let h: Float = x * epsilon.root(3);
+            let xh = x + h.clone();
+            let xl = x - h.clone();
+            let deriv = (self.evaluate_float(&xh) - self.evaluate_float(&xl)) / (2 * h);
+            // `deriv` should be accurate to about 2/3 of `prec`.
+            deriv
+        }
+
+        fn with_derivative_float(&self, x: &Float) -> (Float, Float) {
+            (self.evaluate_float(x), self.derivative_float(x))
+        }
+
+        fn evaluate_exact(&self, x: f64) -> f64 {
+            let x = Float::with_val(INTERNAL_PRECISION, x);
+            self.evaluate_float(&x).to_f64()
+        }
+
+        fn derivative_exact(&self, x: f64) -> f64 {
+            let x = Float::with_val(INTERNAL_PRECISION, x);
+            self.derivative_float(&x).to_f64()
+        }
+
+        fn with_derivative_exact(&self, x: f64) -> (f64, f64) {
+            let x = Float::with_val(INTERNAL_PRECISION, x);
+            let (value, derivative) = self.with_derivative_float(&x);
+            (value.to_f64(), derivative.to_f64())
+        }
+
+        // TODO: gradient_exact
+    }
+}

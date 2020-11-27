@@ -81,8 +81,8 @@ where
     let mut x = initial;
     let mut last_delta_norm = f64::MAX;
     for iter in 0.. {
-        let (F, J) = func(x);
-        let delta = J.lu().solve(&F).unwrap();
+        let (f, j) = func(x);
+        let delta = j.lu().solve(&f).unwrap();
         let delta_norm = delta.norm_squared();
         x -= delta;
         if delta_norm < x.norm_squared() * f64::EPSILON * f64::EPSILON {

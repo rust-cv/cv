@@ -6,7 +6,7 @@ use super::DistortionFunction;
 use cv_core::nalgebra::{
     allocator::Allocator, storage::Storage, DefaultAllocator, Dim, Vector, VectorN, U1,
 };
-use num_traits::{Float, Zero};
+use num_traits::Zero;
 
 /// Polynomial distortion function
 ///
@@ -104,32 +104,23 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::distortion_function::TestFloat;
     use cv_core::nalgebra::{Vector4, U4};
     use float_eq::assert_float_eq;
     use proptest::prelude::*;
     use rug::Float;
 
-    impl<Degree: Dim> Polynomial<Degree>
+    impl<Degree: Dim> TestFloat for Polynomial<Degree>
     where
         DefaultAllocator: Allocator<f64, Degree>,
     {
-        pub fn with_derivative_float(&self, x: Float) -> (Float, Float) {
+        fn evaluate_float(&self, x: &Float) -> Float {
             let mut value = Float::new(x.prec());
-            let mut derivative = Float::new(x.prec());
             for i in (0..self.0.nrows()).rev() {
-                derivative *= &x;
-                derivative += &value;
-                value *= &x;
+                value *= x;
                 value += self.0[i];
             }
-            (value, derivative)
-        }
-
-        pub fn with_derivative_exact(&self, x: f64) -> (f64, f64) {
-            // Compute with 1000 bits accuracy
-            let x = Float::with_val(1000, x);
-            let (value, derivative) = self.with_derivative_float(x);
-            (value.to_f64(), derivative.to_f64())
+            value
         }
     }
 

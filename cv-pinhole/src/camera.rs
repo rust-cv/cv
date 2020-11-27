@@ -3,8 +3,12 @@ use crate::CameraIntrinsics;
 use crate::NormalizedKeyPoint;
 use crate::{newton2, root};
 
-use cv_core::nalgebra::{allocator::Allocator, DefaultAllocator, Matrix2, Point2, Vector2};
+use cv_core::nalgebra::{
+    allocator::Allocator, DefaultAllocator, DimAdd, DimMul, DimName, DimProd, DimSum, Matrix2,
+    Point2, Vector2, VectorN, U1, U2,
+};
 use cv_core::{CameraModel, ImagePoint, KeyPoint};
+use num_traits::Zero;
 
 /// Realistic camera with distortions.
 ///
@@ -19,8 +23,28 @@ use cv_core::{CameraModel, ImagePoint, KeyPoint};
 /// number of coefficients, the camera model uses generic [`DistortionFunction`]s, provided as a type
 /// parameter.
 ///
-/// Given image coordinates $(x,y)$ and $r = x^2 + y^2$ the undistorted coordinates $(x', y')$ are
+/// ## From model coordinates to image coordinates
+///
+/// Given a point $(x, y, z)$ in camera relative coordinates such
+/// that the camera is position at the origin and looking in the +z-direction.
+///
+/// Given undistorted image coordinates $(x,y)$ and $r = x^2 + y^2$ the distorted coordinates $(x', y')$ are
 /// computed as:
+///
+/// $$
+/// z' ⋅ \begin{bmatrix} x' \\\\ y' \\\ 1 \end{bmatrix} =
+/// \begin{bmatrix}
+///    f_x & s & c_x \\\\
+///    0 & f_y & c_y \\\\
+///    0 & 0 & 1
+/// \end{bmatrix}
+/// \begin{bmatrix} x \\\\ y \\\\ z \end{bmatrix}
+/// $$
+///
+/// $$
+/// \begin{bmatrix} x' \\\\ y' \end{bmatrix} =
+/// \frac{f_p(r, \vec θ_p)}{r} ⋅ \begin{bmatrix} x \\\\ y \end{bmatrix}
+/// $$
 ///
 /// $$
 /// \begin{bmatrix} x' \\\\ y' \end{bmatrix} = \begin{bmatrix}
@@ -34,10 +58,14 @@ use cv_core::{CameraModel, ImagePoint, KeyPoint};
 /// decentering distortion, with $f_t$ of type `D` and $(f_{px}, f_{py})$ specify the thin prism
 /// of type `T`.
 ///
+/// ## From image coordinates to model coordinates
+///
+/// ## Parameterization
+///
 /// The parameter vector of the distortion is
 ///
 /// $$
-/// \vec θ = \begin{bmatrix} \vec θ_r \\\\ t_1 \\\\ t_2 \\\\ \vec θ_d \\\\ \vec θ_x \\\\ \vec θ_y \end{bmatrix}
+/// \vec θ = \begin{bmatrix} k & \vec θ_r^T & t_1 & t_2 & \vec θ_d^T & \vec θ_x^T & \vec θ_y^T \end{bmatrix}^T
 /// $$
 ///
 /// # References
@@ -57,54 +85,38 @@ use cv_core::{CameraModel, ImagePoint, KeyPoint};
 ///
 /// # To do
 ///
-/// * Chromatic abberation.
-/// * Vigneting correction.
+/// * Replace all the [`Dim`] madness with const generics once this hits stable.
+/// * Adobe model fisheye distortion, chromatic abberation and vigneting correction.
 /// * Support [Tilt/Scheimpflug](https://en.wikipedia.org/wiki/Scheimpflug_principle) lenses. See [Louhichi et al.](https://iopscience.iop.org/article/10.1088/0957-0233/18/8/037) for a mathematical model.
 ///
-#[derive(Clone, PartialEq, PartialOrd, Debug)]
+#[derive(Clone, PartialEq, PartialOrd, Default, Debug)]
 // #[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
-pub struct Camera<R, D, T>
+pub struct Camera<R, T, P>
 where
     R: DistortionFunction,
-    D: DistortionFunction,
     T: DistortionFunction,
+    P: DistortionFunction,
     DefaultAllocator: Allocator<f64, R::NumParameters>,
-    DefaultAllocator: Allocator<f64, D::NumParameters>,
     DefaultAllocator: Allocator<f64, T::NumParameters>,
+    DefaultAllocator: Allocator<f64, P::NumParameters>,
 {
     linear: CameraIntrinsics,
     fisheye: Fisheye,
     radial_distortion: R,
     tangential: [f64; 2],
-    tangential_distortion: D,
-    prism_distortion: [T; 2],
+    tangential_distortion: T,
+    prism_distortion: [P; 2],
 }
 
-impl<R, D, T> Camera<R, D, T>
+impl<R, T, P> Camera<R, T, P>
 where
     R: DistortionFunction,
-    D: DistortionFunction,
     T: DistortionFunction,
+    P: DistortionFunction,
     DefaultAllocator: Allocator<f64, R::NumParameters>,
-    DefaultAllocator: Allocator<f64, D::NumParameters>,
     DefaultAllocator: Allocator<f64, T::NumParameters>,
+    DefaultAllocator: Allocator<f64, P::NumParameters>,
 {
-    pub fn new(
-        linear: CameraIntrinsics,
-        radial_distortion: R,
-        tangential_distortion: D,
-        prism_distortion: [T; 2],
-    ) -> Self {
-        Self {
-            linear,
-            fisheye: Fisheye::default(),
-            radial_distortion,
-            tangential: [0.0, 0.0],
-            tangential_distortion,
-            prism_distortion,
-        }
-    }
-
     /// Apply lens distortions to a point.
     #[rustfmt::skip]
     pub fn distort(&self, point: Point2<f64>) -> Point2<f64> {
@@ -136,56 +148,36 @@ where
             (ru * f - rd, f + 2.0 * ru * ru * df)
         }, 0.0, 10.0);
         let pu = point * ru / rd;
-
+        
         // Newton-Raphson iteration
         let pu = newton2(|x| {
-            let (F, J) = self.with_jacobian(x.into());
-            (F.coords - point.coords, J)
+            let (f, j) = self.with_jacobian(x.into());
+            (f.coords - point.coords, j)
         }, pu.coords).unwrap();
         pu.into()
     }
 
     /// Convert from rectilinear to the camera projection.
-    pub fn project(&self, point: Vector2<f64>) -> Vector2<f64> {
-        let r = point.norm();
+    pub fn project(&self, point: Point2<f64>) -> Point2<f64> {
+        let r = point.coords.norm();
         let rp = self.fisheye.evaluate(r);
         point * rp / r
     }
 
     /// Convert from camera projection to rectilinear.
-    pub fn unproject(&self, point: Vector2<f64>) -> Vector2<f64> {
-        let rp = point.norm();
+    pub fn unproject(&self, point: Point2<f64>) -> Point2<f64> {
+        let rp = point.coords.norm();
         let r = self.fisheye.inverse(rp);
         point * r / rp
     }
 
-    /// Computes $∇_{\vec x} \vec f\p{\vec x, \vec θ}$.
+    /// Computes $\p{f\p{\vec x, \vec θ}, ∇_{\vec x} \vec f\p{\vec x, \vec θ}}$.
     ///
     /// $$
-    /// \mathbf{J}_{\vec f} = \begin{bmatrix}
+    /// ∇_{\vec x} \vec f\p{\vec x, \vec θ} = \begin{bmatrix}
     /// \frac{\partial f_x}{\partial x} & \frac{\partial f_x}{\partial y} \\\\[.8em]
     /// \frac{\partial f_y}{\partial x} & \frac{\partial f_y}{\partial y}
     /// \end{bmatrix}
-    /// $$
-    ///
-    /// $$
-    /// \begin{aligned}
-    /// \frac{\partial f_x}{\partial x} &=
-    /// f_r(r^2) + 2 ⋅ x^2 ⋅ f_r'(r^2) \\\\ &\phantom{=}
-    /// + \p{6⋅t_1 ⋅ x + 2 ⋅ t_2 ⋅ y} ⋅ f_t(r^2) \\\\ &\phantom{=}
-    /// + \p{2⋅x⋅\p{t_1 ⋅ x + t_2 ⋅ y} + t_1 ⋅ r^2} ⋅ 2 ⋅ x ⋅ f_t'(r^2) \\\\ &\phantom{=}
-    /// + 2 ⋅ x ⋅ f_{px}'(r^2)
-    /// \end{aligned}
-    /// $$
-    ///
-    /// $$
-    /// \begin{aligned}
-    /// \frac{\partial f_x}{\partial y} &=
-    /// 2 ⋅ x ⋅ y^2 ⋅ f_r'(r^2) \\\\ &\phantom{=}
-    /// + \p{2⋅t_1 ⋅ y + 2 ⋅ t_2 ⋅ x} ⋅ f_t(r^2) \\\\ &\phantom{=}
-    /// + \p{2⋅x⋅\p{t_1 ⋅ x + t_2 ⋅ y} + t_1 ⋅ r^2} ⋅ 2 ⋅ y ⋅ f_t'(r^2) \\\\ &\phantom{=}
-    /// + 2 ⋅ y ⋅ f_{px}'(r^2)
-    /// \end{aligned}
     /// $$
     ///
     pub fn with_jacobian(&self, point: Point2<f64>) -> (Point2<f64>, Matrix2<f64>) {
@@ -214,6 +206,70 @@ where
         let vdy = f_r + tydy * f_t + vdr2 * r2dy;
         (Point2::new(u, v), Matrix2::new(udx, udy, vdx, vdy))
     }
+
+    /// Computes $∇_{\vec θ} \vec f\p{\vec x, \vec θ}$
+    pub fn parameter_jacobian(&self, point: Point2<f64>) -> (Point2<f64>, Matrix2<f64>) {
+        todo!()
+    }
+}
+
+type Dim<P>
+where
+    P: DistortionFunction,
+    P::NumParameters: DimMul<U2>,
+    DimProd<P::NumParameters, U2>: DimAdd<U2>,
+= DimSum<DimProd<P::NumParameters, U2>, U2>;
+
+impl<R, T, P> Camera<R, T, P>
+where
+    R: DistortionFunction,
+    T: DistortionFunction,
+    P: DistortionFunction,
+    DefaultAllocator: Allocator<f64, R::NumParameters>,
+    DefaultAllocator: Allocator<f64, T::NumParameters>,
+    DefaultAllocator: Allocator<f64, P::NumParameters>,
+    R::NumParameters: DimName,
+    T::NumParameters: DimName,
+    P::NumParameters: DimName + DimMul<U2>,
+    DimProd<P::NumParameters, U2>: DimName + DimAdd<U2>,
+    Dim<P>: DimName,
+    DefaultAllocator: Allocator<f64, Dim<P>>,
+{
+    pub fn parameters(&self) -> VectorN<f64, Dim<P>> {
+        let fisheye_params = self.fisheye.parameters();
+        let radial_params = self.radial_distortion.parameters();
+        let tangential_params = self.tangential_distortion.parameters();
+        let prism_params_x = self.prism_distortion[0].parameters();
+        let prism_params_y = self.prism_distortion[1].parameters();
+
+        let mut result = VectorN::<f64, Dim<P>>::zero();
+        let mut offset = 0;
+        result
+            .fixed_slice_mut::<U1, U1>(offset, 0)
+            .copy_from(&fisheye_params);
+        offset += fisheye_params.nrows();
+        result
+            .fixed_slice_mut::<R::NumParameters, U1>(offset, 0)
+            .copy_from(&radial_params);
+        offset += radial_params.nrows();
+        result[(offset, 0)] = self.tangential[0];
+        offset += 1;
+        result[(offset, 0)] = self.tangential[1];
+        offset += 1;
+        result
+            .fixed_slice_mut::<T::NumParameters, U1>(offset, 0)
+            .copy_from(&tangential_params);
+        offset += tangential_params.nrows();
+        result
+            .fixed_slice_mut::<P::NumParameters, U1>(offset, 0)
+            .copy_from(&prism_params_x);
+        offset += prism_params_x.nrows();
+        result
+            .fixed_slice_mut::<P::NumParameters, U1>(offset, 0)
+            .copy_from(&prism_params_y);
+        offset += prism_params_y.nrows();
+        result
+    }
 }
 
 impl<R, T, P> CameraModel for Camera<R, T, P>
@@ -228,33 +284,25 @@ where
     type Projection = NormalizedKeyPoint;
 
     fn calibrate<Point: ImagePoint>(&self, point: Point) -> Self::Projection {
-        let NormalizedKeyPoint(distorted) = self.linear.calibrate(point);
-        let distorted_r = distorted.coords.norm();
-        let corrected_r = self.radial_distortion.evaluate(distorted_r);
-        let r_factor = corrected_r / distorted_r;
-        let corrected = (distorted.coords * r_factor).into();
-
-        NormalizedKeyPoint(corrected)
+        let point = self.linear.calibrate(point).0;
+        let point = self.unproject(point);
+        let point = self.undistort(point);
+        NormalizedKeyPoint(point)
     }
 
     fn uncalibrate(&self, projection: Self::Projection) -> KeyPoint {
-        let NormalizedKeyPoint(corrected) = projection;
-        let corrected_r = corrected.coords.norm();
-        let distorted_r = self.radial_distortion.inverse(corrected_r);
-        let r_factor = distorted_r / corrected_r;
-        let distorted = NormalizedKeyPoint((corrected.coords * r_factor).into());
-        self.linear.uncalibrate(distorted).into()
+        let point = self.distort(projection.0);
+        let point = self.project(point);
+        self.linear.uncalibrate(NormalizedKeyPoint(point))
     }
 }
 
-pub mod camera {
+pub mod models {
     use super::Camera;
     use crate::distortion_function::{self, Constant, DistortionFunction, Polynomial, Rational};
     use crate::CameraIntrinsics;
-    use cv_core::nalgebra::{Matrix3, Point2, Vector2, Vector3, VectorN, U1, U8};
-    use cv_core::nalgebra::{U2, U3, U4};
-
-    pub type Adobe = Camera<Polynomial<U3>, Constant, Constant>;
+    use cv_core::nalgebra::{Matrix3, Vector3, VectorN, U1, U8};
+    use cv_core::nalgebra::{U3, U4};
 
     /// Generate Adobe rectilinear camera model
     ///
@@ -270,49 +318,57 @@ pub mod camera {
     /// * Implement Lateral Chromatic Aberration Model
     /// * Implement Vignette Model
     /// * Read/Write Lens Correction Profile File Format
-    pub fn adobe(parameters: [f64; 9]) -> Adobe {
-        todo!()
+    pub type Adobe = Camera<Polynomial<U3>, Constant, Constant>;
+
+    impl Adobe {
+        pub fn adobe(_parameters: [f64; 9]) -> Adobe {
+            let mut camera = Adobe::default();
+            todo!()
+        }
     }
 
+    /// OpenCV compatible model with up to 12 distortion coefficients
     pub type OpenCV = Camera<Rational<U4, U4>, Constant, Polynomial<U3>>;
 
-    /// Generate OpenCV camera with up to twelve distortion coefficients.
-    pub fn opencv(cameraMatrix: Matrix3<f64>, distCoeffs: &[f64]) -> OpenCV {
-        assert!(
-            distCoeffs.len() <= 12,
-            "Up to 12 coefficients are supported."
-        );
+    impl OpenCV {
+        /// Generate OpenCV camera with up to twelve distortion coefficients.
+        pub fn opencv(camera_matrix: Matrix3<f64>, distortion_coefficients: &[f64]) -> OpenCV {
+            // Zero pad coefficients
+            assert!(
+                distortion_coefficients.len() <= 12,
+                "Up to 12 coefficients are supported."
+            );
+            let mut coeffs = [0.0; 12];
+            coeffs.copy_from_slice(distortion_coefficients);
 
-        // Zero pad coefficients
-        let mut coeffs = [0.0; 12];
-        coeffs.copy_from_slice(distCoeffs);
-
-        let intrinsic = CameraIntrinsics::from_matrix(cameraMatrix);
-        #[rustfmt::skip]
-        let radial = Rational::<U4, U4>::from_parameters(
-            VectorN::<f64, U8>::from_column_slice_generic(U8, U1, &[
-                 1.0, coeffs[0], coeffs[1], coeffs[4],
-                 1.0, coeffs[5], coeffs[6], coeffs[7],
-            ])
-        );
-        let tangential = distortion_function::one();
-        let prism = [
-            Polynomial::<U3>::from_parameters(Vector3::new(0.0, coeffs[8], coeffs[9])),
-            Polynomial::<U3>::from_parameters(Vector3::new(0.0, coeffs[10], coeffs[11])),
-        ];
-
-        let mut camera = OpenCV::new(intrinsic, radial, tangential, prism);
-        camera.tangential = [coeffs[2], coeffs[3]];
-        camera
+            // Construct components
+            let mut camera = OpenCV::default();
+            camera.linear = CameraIntrinsics::from_matrix(camera_matrix);
+            camera.radial_distortion =
+                Rational::from_parameters(VectorN::from_column_slice_generic(
+                    U8,
+                    U1,
+                    &[
+                        1.0, coeffs[0], coeffs[1], coeffs[4], 1.0, coeffs[5], coeffs[6], coeffs[7],
+                    ],
+                ));
+            camera.tangential = [coeffs[2], coeffs[3]];
+            camera.tangential_distortion = distortion_function::one();
+            camera.prism_distortion = [
+                Polynomial::<U3>::from_parameters(Vector3::new(0.0, coeffs[8], coeffs[9])),
+                Polynomial::<U3>::from_parameters(Vector3::new(0.0, coeffs[10], coeffs[11])),
+            ];
+            camera
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::distortion_function::{self, Polynomial, Rational};
-    use cv_core::nalgebra::{Matrix3, Point2, Vector3, VectorN, U1, U3, U4, U8};
+    use cv_core::nalgebra::{Matrix3, Point2};
     use float_eq::assert_float_eq;
+    use models::OpenCV;
 
     #[rustfmt::skip]
     const UNDISTORTED: &[[f64; 2]] = &[
@@ -372,10 +428,10 @@ mod tests {
         [ 1.1055970389194876  ,  0.8317875937454029  ],
     ];
 
-    fn camera_1() -> camera::OpenCV {
+    fn camera_1() -> OpenCV {
         // Calibration parameters for a GoPro Hero 6 using OpenCV
         #[rustfmt::skip]
-        let cameraMatrix = Matrix3::from_row_slice(&[
+        let camera_matrix = Matrix3::from_row_slice(&[
             1.77950719e+03, 0.00000000e+00, 2.03258212e+03,
             0.00000000e+00, 1.77867606e+03, 1.52051932e+03,
             0.00000000e+00, 0.00000000e+00, 1.00000000e+00]);
@@ -385,7 +441,7 @@ mod tests {
             1.09310463e-03,  6.72953083e-01,  2.59544797e+01,
             2.24213453e+01,  3.04318306e+00, -3.23278793e-03,
             9.53176056e-05, -9.35687185e-05,  2.96341863e-05];
-        camera::opencv(cameraMatrix, &distortion)
+        OpenCV::opencv(camera_matrix, &distortion)
     }
 
     #[test]

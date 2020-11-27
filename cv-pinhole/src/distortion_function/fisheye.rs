@@ -16,8 +16,17 @@ use cv_core::nalgebra::{storage::Storage, Vector, Vector1, VectorN, U1};
 ///
 /// Varying $k ∈ [-1, 1]$ will gradually transform from orthographic to rectilinear projection. In
 /// particular for $k = 1$ the equation simplifies to $r' = r$ representing the non-Fisheye
-/// rectilinear projection.
+/// rectilinear projection. Other named values are:
 ///
+/// | $k$         | name          | projection            |
+/// |------------:|---------------|-----------------------|
+/// | $-1$        | orthographic  | $r =  \sin θ$         |
+/// | $- 1/2$ | equisolid     | $r = 2 \sin  θ/2$ |
+/// | $0$         | equidistant   | $r = \tan θ$          |
+/// | $1/2$  | stereographic | $r = 2 \tan  θ/2$ |
+/// | $1$         | rectilinear   | $r = \tan θ$          |
+///
+/// Wikipedia has an excellent [comparison][wiki] of the different projections.
 /// # References
 ///
 /// * Wikipedia Fisheye Lens. [link][wiki].
@@ -146,10 +155,10 @@ mod tests {
         proptest!(|(k in -1.0..1.0, r in 0.0..0.75)| {
             test(k, r);
         });
-        proptest!(|(k in -1.0..1.0, r in 0.0..0.75)| {
+        proptest!(|(r in 0.0..0.75)| {
             test(0.0, r);
         });
-        proptest!(|(k in -1.0..1.0, r in 0.0..0.75)| {
+        proptest!(|(r in 0.0..0.75)| {
             test(1.0, r);
         });
     }
