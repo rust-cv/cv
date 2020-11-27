@@ -179,13 +179,16 @@ pub(crate) mod test {
             let epsilon = Float::with_val(prec, Float::i_exp(1, 1 - (prec as i32)));
 
             // Relative stepsize `h` is the cube root of epsilon
-            let h: Float = (x * epsilon.clone().root(3)).max(&epsilon);
+            let h: Float = epsilon.clone().root(3);
+            let h: Float = (x * epsilon.clone().root(3)).max(&h);
             let x = if x > &h { x } else { &h };
             let (xl, xh) = (x - h.clone(), x + h.clone());
             assert!(xl >= 0);
             assert!(xh > xl);
             assert_eq!(xh.clone() - &xl, 2 * h.clone());
-            let deriv = (self.evaluate_float(&xh) - self.evaluate_float(&xl)) / (2 * h);
+            let yl = self.evaluate_float(&xl);
+            let yh = self.evaluate_float(&xh);
+            let deriv = (yh - yl) / (xh - xl);
             // `deriv` should be accurate to about 2/3 of `prec`.
             deriv
         }
