@@ -223,41 +223,41 @@ pub(crate) mod test {
         ) => {
             #[test]
             fn test_evaluate() {
-                proptest!(|(f in $function, x in 0.0..2.0)| {
+                proptest::proptest!(|(f in $function, x in 0.0..2.0)| {
                     let value = f.evaluate(x);
                     let expected = f.evaluate_exact(x);
-                    assert_float_eq!(value, expected, rmax <= $eval * f64::EPSILON);
+                    float_eq::assert_float_eq!(value, expected, rmax <= $eval * f64::EPSILON);
                 });
             }
 
             #[test]
             fn test_derivative() {
-                proptest!(|(f in $function, x in 0.0..2.0)| {
+                proptest::proptest!(|(f in $function, x in 0.0..2.0)| {
                     let value = f.derivative(x);
                     let expected = f.derivative_exact(x);
-                    assert_float_eq!(value, expected, rmax <= $deriv * f64::EPSILON);
+                    float_eq::assert_float_eq!(value, expected, rmax <= $deriv * f64::EPSILON);
                 });
             }
 
             #[test]
             fn test_with_derivative() {
-                proptest!(|(f in $function, x in 0.0..2.0)| {
+                proptest::proptest!(|(f in $function, x in 0.0..2.0)| {
                     let value = f.with_derivative(x);
                     let expected = f.with_derivative_exact(x);
-                    assert_float_eq!(value.0, expected.0, rmax <= $eval * f64::EPSILON);
-                    assert_float_eq!(value.1, expected.1, rmax <= $deriv * f64::EPSILON);
+                    float_eq::assert_float_eq!(value.0, expected.0, rmax <= $eval * f64::EPSILON);
+                    float_eq::assert_float_eq!(value.1, expected.1, rmax <= $deriv * f64::EPSILON);
                 });
             }
 
             #[test]
             fn test_inverse() {
-                proptest!(|(f in $function, x in 0.0..2.0)| {
+                proptest::proptest!(|(f in $function, x in 0.0..2.0)| {
                     let y = f.evaluate_exact(x);
                     let value = f.inverse(y);
                     // There may be a multiple valid inverses, so instead of checking
                     // the answer directly by `value == x`, we check that `f(value) == f(x)`.
                     let y2 = f.evaluate_exact(value);
-                    assert_float_eq!(y, y2, rmax <= $inv * f64::EPSILON);
+                    float_eq::assert_float_eq!(y, y2, rmax <= $inv * f64::EPSILON);
                 });
             }
 

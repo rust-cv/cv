@@ -102,8 +102,6 @@ mod tests {
     use super::*;
     use crate::distortion_function::test::TestFloat;
     use crate::distortion_test_generate;
-    use cv_core::nalgebra::Vector1;
-    use float_eq::assert_float_eq;
     use proptest::prelude::*;
     use rug::Float;
 

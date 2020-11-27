@@ -5,7 +5,7 @@ use crate::{newton2, root};
 
 use cv_core::nalgebra::{
     allocator::Allocator, DefaultAllocator, DimAdd, DimMul, DimName, DimProd, DimSum, Matrix2,
-    Point2, Vector2, VectorN, U1, U2,
+    Point2, VectorN, U1, U2,
 };
 use cv_core::{CameraModel, ImagePoint, KeyPoint};
 use num_traits::Zero;
@@ -208,17 +208,12 @@ where
     }
 
     /// Computes $∇_{\vec θ} \vec f\p{\vec x, \vec θ}$
-    pub fn parameter_jacobian(&self, point: Point2<f64>) -> (Point2<f64>, Matrix2<f64>) {
+    pub fn parameter_jacobian(&self, _point: Point2<f64>) -> (Point2<f64>, Matrix2<f64>) {
         todo!()
     }
 }
 
-type Dim<P>
-where
-    P: DistortionFunction,
-    P::NumParameters: DimMul<U2>,
-    DimProd<P::NumParameters, U2>: DimAdd<U2>,
-= DimSum<DimProd<P::NumParameters, U2>, U2>;
+type Dim<P> = DimSum<DimProd<<P as DistortionFunction>::NumParameters, U2>, U2>;
 
 impl<R, T, P> Camera<R, T, P>
 where
@@ -267,7 +262,6 @@ where
         result
             .fixed_slice_mut::<P::NumParameters, U1>(offset, 0)
             .copy_from(&prism_params_y);
-        offset += prism_params_y.nrows();
         result
     }
 }
@@ -322,7 +316,7 @@ pub mod models {
 
     impl Adobe {
         pub fn adobe(_parameters: [f64; 9]) -> Adobe {
-            let mut camera = Adobe::default();
+            let mut _camera = Adobe::default();
             todo!()
         }
     }

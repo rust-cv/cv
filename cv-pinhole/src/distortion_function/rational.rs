@@ -181,7 +181,6 @@ mod tests {
     use cv_core::nalgebra::{VectorN, U4, U8};
     use float_eq::assert_float_eq;
     use proptest::prelude::*;
-    use rug::ops::Pow;
     use rug::Float;
 
     impl<DP: Dim, DQ: Dim> TestFloat for Rational<DP, DQ>
