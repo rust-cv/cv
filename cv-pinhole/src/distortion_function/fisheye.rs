@@ -100,68 +100,33 @@ impl DistortionFunction for Fisheye {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::distortion_function::test::TestFloat;
+    use crate::distortion_test_generate;
     use cv_core::nalgebra::Vector1;
     use float_eq::assert_float_eq;
     use proptest::prelude::*;
+    use rug::Float;
 
-    #[test]
-    fn test_finite_difference() {
-        let h = f64::EPSILON.powf(1.0 / 3.0);
-        let test = |k, r| {
-            let fisheye = Fisheye::from_parameters(Vector1::new(k));
-            let h = f64::max(h * 0.1, h * r);
-            let deriv = fisheye.derivative(r);
-            let approx = (fisheye.evaluate(r + h) - fisheye.evaluate(r - h)) / (2.0 * h);
-            assert_float_eq!(deriv, approx, rmax <= 2e2 * h * h);
-        };
-        proptest!(|(k in -1.0..1.0, r in 0.0..1.0)| {
-            test(k, r);
-        });
-        proptest!(|(r in 0.0..1.0)| {
-            test(0.0, r);
-        });
-        proptest!(|(r in 0.0..1.0)| {
-            test(1.0, r);
-        });
+    impl TestFloat for Fisheye {
+        fn evaluate_float(&self, x: &Float) -> Float {
+            let x = x.clone();
+            match self.0 {
+                k if k < 0.0 => (k * x.atan()).sin() / k,
+                k if k == 0.0 => x.atan(),
+                k if k < 1.0 => (k * x.atan()).tan() / k,
+                _ => x,
+            }
+        }
     }
 
-    #[test]
-    fn test_roundtrip_forward() {
-        let test = |k, r| {
-            let fisheye = Fisheye::from_parameters(Vector1::new(k));
-            let eval = fisheye.evaluate(r);
-            let inv = fisheye.inverse(eval);
-            assert_float_eq!(inv, r, rmax <= 1e1 * f64::EPSILON);
-        };
-        proptest!(|(k in -1.0..1.0, r in 0.0..2.0)| {
-            test(k, r);
-        });
-        proptest!(|(r in 0.0..1.0)| {
-            test(0.0, r);
-        });
-        proptest!(|(r in 0.0..1.0)| {
-            test(1.0, r);
-        });
+    fn function() -> impl Strategy<Value = Fisheye> {
+        (-1_f64..1.).prop_map(Fisheye)
     }
 
-    #[test]
-    fn test_roundtrip_reverse() {
-        let test = |k, r| {
-            let fisheye = Fisheye::from_parameters(Vector1::new(k));
-            let inv = fisheye.inverse(r);
-            let eval = fisheye.evaluate(inv);
-            assert_float_eq!(eval, r, rmax <= 1e1 * f64::EPSILON);
-        };
-        proptest!(|(k in -1.0..1.0, r in 0.0..0.75)| {
-            test(k, r);
-        });
-        proptest!(|(r in 0.0..0.75)| {
-            test(0.0, r);
-        });
-        proptest!(|(r in 0.0..0.75)| {
-            test(1.0, r);
-        });
-    }
-
-    // TODO: Test parameter gradient using finite differences.
+    distortion_test_generate!(
+        function(),
+        evaluate_eps = 6.0,
+        derivative_eps = 9.0,
+        inverse_eps = 4.0,
+    );
 }

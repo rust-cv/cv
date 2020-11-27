@@ -104,7 +104,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::distortion_function::TestFloat;
+    use crate::distortion_function::test::TestFloat;
+    use crate::distortion_test_generate;
     use cv_core::nalgebra::{Vector4, U4};
     use float_eq::assert_float_eq;
     use proptest::prelude::*;
@@ -140,72 +141,19 @@ mod tests {
         (0_usize..POLYS.len()).prop_map(functions)
     }
 
+    distortion_test_generate!(
+        function(),
+        evaluate_eps = 2.0,
+        derivative_eps = 3.0,
+        inverse_eps = 2.0,
+    );
+
     #[test]
     fn test_evaluate_literal() {
         let f = functions(0);
         let x = 0.06987809296337355;
         let value = f.evaluate(x);
         assert_float_eq!(value, 2.86874326561548, ulps <= 0);
-    }
-
-    #[test]
-    fn test_evaluate() {
-        proptest!(|(f in function(), x in 0.0..2.0)| {
-            let value = f.evaluate(x);
-            let expected = f.with_derivative_exact(x).0;
-            assert_float_eq!(value, expected, rmax <= 2.0 * f64::EPSILON);
-        });
-    }
-
-    #[test]
-    fn test_with_derivative() {
-        proptest!(|(f in function(), x in 0.0..2.0)| {
-            let value = f.with_derivative(x);
-            let expected = f.with_derivative_exact(x);
-            assert_float_eq!(value.0, expected.0, rmax <= 2.0 * f64::EPSILON);
-            assert_float_eq!(value.1, expected.1, rmax <= 1e3 * f64::EPSILON);
-        });
-    }
-
-    #[test]
-    fn test_inverse() {
-        proptest!(|(f in function(), x in 0.0..2.0)| {
-            let y = f.with_derivative_exact(x).0;
-            let value = f.inverse(y);
-            // There may be a multiple valid inverses, so instead of checking
-            // the answer directly by `value == x`, we check that `f(value) == f(x)`.
-            let y2 = f.with_derivative_exact(value).0;
-            assert_float_eq!(y, y2, rmax <= 2.0 * f64::EPSILON);
-        });
-    }
-
-    #[test]
-    fn test_finite_difference() {
-        let h = f64::EPSILON.powf(1.0 / 3.0);
-        proptest!(|(f in function(), x in 0.0..2.0)| {
-            let h = f64::max(h * 0.1, h * x);
-            let deriv = f.derivative(x);
-            let approx = (f.evaluate(x + h) - f.evaluate(x - h)) / (2.0 * h);
-            assert_float_eq!(deriv, approx, rmax <= 1e3 * h * h);
-        });
-    }
-
-    #[test]
-    fn test_roundtrip_forward() {
-        proptest!(|(f in function(), x in 0.0..2.0)| {
-            let eval = f.evaluate(x);
-            let inv = f.inverse(eval);
-            assert_float_eq!(inv, x, rmax <= 1e4 * f64::EPSILON);
-        });
-    }
-
-    #[test]
-    fn test_roundtrip_reverse() {
-        proptest!(|(f in function(), x in 1.0..2.0)| {
-            let inv = f.inverse(x);
-            let eval = f.evaluate(inv);
-            assert_float_eq!(eval, x, rmax <= 1e4 * f64::EPSILON);
-        });
     }
 
     // TODO: Test parameter gradient using finite differences.

@@ -161,9 +161,7 @@ pub fn identity() -> Identity {
 }
 
 #[cfg(test)]
-pub(crate) use test::TestFloat;
-#[cfg(test)]
-mod test {
+pub(crate) mod test {
     use super::*;
     use rug::Float;
 
@@ -181,9 +179,12 @@ mod test {
             let epsilon = Float::with_val(prec, Float::i_exp(1, 1 - (prec as i32)));
 
             // Relative stepsize `h` is the cube root of epsilon
-            let h: Float = x * epsilon.root(3);
-            let xh = x + h.clone();
-            let xl = x - h.clone();
+            let h: Float = (x * epsilon.clone().root(3)).max(&epsilon);
+            let x = if x > &h { x } else { &h };
+            let (xl, xh) = (x - h.clone(), x + h.clone());
+            assert!(xl >= 0);
+            assert!(xh > xl);
+            assert_eq!(xh.clone() - &xl, 2 * h.clone());
             let deriv = (self.evaluate_float(&xh) - self.evaluate_float(&xl)) / (2 * h);
             // `deriv` should be accurate to about 2/3 of `prec`.
             deriv
@@ -210,5 +211,57 @@ mod test {
         }
 
         // TODO: gradient_exact
+    }
+
+    #[macro_export]
+    macro_rules! distortion_test_generate {
+        (
+            $function:expr,
+            evaluate_eps = $eval:expr,
+            derivative_eps = $deriv:expr,
+            inverse_eps = $inv:expr,
+        ) => {
+            #[test]
+            fn test_evaluate() {
+                proptest!(|(f in $function, x in 0.0..2.0)| {
+                    let value = f.evaluate(x);
+                    let expected = f.evaluate_exact(x);
+                    assert_float_eq!(value, expected, rmax <= $eval * f64::EPSILON);
+                });
+            }
+
+            #[test]
+            fn test_derivative() {
+                proptest!(|(f in $function, x in 0.0..2.0)| {
+                    let value = f.derivative(x);
+                    let expected = f.derivative_exact(x);
+                    assert_float_eq!(value, expected, rmax <= $deriv * f64::EPSILON);
+                });
+            }
+
+            #[test]
+            fn test_with_derivative() {
+                proptest!(|(f in $function, x in 0.0..2.0)| {
+                    let value = f.with_derivative(x);
+                    let expected = f.with_derivative_exact(x);
+                    assert_float_eq!(value.0, expected.0, rmax <= $eval * f64::EPSILON);
+                    assert_float_eq!(value.1, expected.1, rmax <= $deriv * f64::EPSILON);
+                });
+            }
+
+            #[test]
+            fn test_inverse() {
+                proptest!(|(f in $function, x in 0.0..2.0)| {
+                    let y = f.evaluate_exact(x);
+                    let value = f.inverse(y);
+                    // There may be a multiple valid inverses, so instead of checking
+                    // the answer directly by `value == x`, we check that `f(value) == f(x)`.
+                    let y2 = f.evaluate_exact(value);
+                    assert_float_eq!(y, y2, rmax <= $inv * f64::EPSILON);
+                });
+            }
+
+            // TODO: Test parameter gradient using finite differences.
+        }
     }
 }
