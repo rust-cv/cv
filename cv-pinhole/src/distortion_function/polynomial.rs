@@ -106,13 +106,14 @@ mod tests {
     use super::*;
     use crate::distortion_function::test::TestFloat;
     use crate::distortion_test_generate;
-    use cv_core::nalgebra::{Vector4, U4};
+    use cv_core::nalgebra::{DimName, Vector4, U4};
     use float_eq::assert_float_eq;
     use proptest::prelude::*;
     use rug::Float;
 
-    impl<Degree: Dim> TestFloat for Polynomial<Degree>
+    impl<Degree> TestFloat for Polynomial<Degree>
     where
+        Degree: Dim + DimName,
         DefaultAllocator: Allocator<f64, Degree>,
     {
         fn evaluate_float(&self, x: &Float) -> Float {
@@ -153,6 +154,7 @@ mod tests {
         let f = functions(0);
         let x = 0.06987809296337355;
         let value = f.evaluate(x);
+        let expected = f.gradient(x);
         assert_float_eq!(value, 2.86874326561548, ulps <= 0);
     }
 

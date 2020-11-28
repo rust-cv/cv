@@ -163,6 +163,8 @@ pub fn identity() -> Identity {
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
+    use cv_core::nalgebra::DimName;
+    use num_traits::Zero;
     use rug::Float;
 
     // Internal precision used to compute exact f64 values.
@@ -170,6 +172,7 @@ pub(crate) mod test {
 
     pub(crate) trait TestFloat: DistortionFunction
     where
+        Self::NumParameters: DimName,
         DefaultAllocator: Allocator<f64, Self::NumParameters>,
     {
         fn evaluate_float(&self, x: &Float) -> Float;
@@ -213,7 +216,30 @@ pub(crate) mod test {
             (value.to_f64(), derivative.to_f64())
         }
 
-        // TODO: gradient_exact
+        fn gradient_exact(&self, x: f64) -> VectorN<f64, Self::NumParameters> {
+            let x = Float::with_val(INTERNAL_PRECISION, x);
+            let theta = self.parameters();
+            let mut gradient = VectorN::<f64, Self::NumParameters>::zero();
+            for i in 0..gradient.nrows() {
+                let p = theta[(i, 0)];
+                let h = if p.is_normal() {
+                    p * f64::EPSILON
+                } else {
+                    f64::EPSILON * f64::EPSILON
+                };
+                let tl = p - h;
+                let th = p + h;
+                let mut theta_l = theta.clone();
+                theta_l[(i, 0)] = tl;
+                let mut theta_h = theta.clone();
+                theta_h[(i, 0)] = th;
+                let yl = Self::from_parameters(theta_l).evaluate_float(&x);
+                let yh = Self::from_parameters(theta_h).evaluate_float(&x);
+                let deriv = (yh - yl) / (th - tl);
+                gradient[(i, 0)] = deriv.to_f64();
+            }
+            gradient
+        }
     }
 
     #[macro_export]
@@ -264,7 +290,16 @@ pub(crate) mod test {
                 });
             }
 
-            // TODO: Test parameter gradient using finite differences.
+            #[test]
+            fn test_gradient() {
+                proptest::proptest!(|(f in $function, x in 0.0..2.0)| {
+                    let value = f.gradient(x);
+                    let expected = f.gradient_exact(x);
+                    for (value, expected) in value.iter().zip(expected.iter()) {
+                        float_eq::assert_float_eq!(value, expected, rmax <= $deriv * f64::EPSILON);
+                    }
+                });
+            }
         }
     }
 }
