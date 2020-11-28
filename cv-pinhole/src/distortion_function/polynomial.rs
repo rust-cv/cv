@@ -147,6 +147,7 @@ mod tests {
         evaluate_eps = 2.0,
         derivative_eps = 3.0,
         inverse_eps = 2.0,
+        gradient_eps = 1.0,
     );
 
     #[test]
@@ -154,7 +155,6 @@ mod tests {
         let f = functions(0);
         let x = 0.06987809296337355;
         let value = f.evaluate(x);
-        let expected = f.gradient(x);
         assert_float_eq!(value, 2.86874326561548, ulps <= 0);
     }
 

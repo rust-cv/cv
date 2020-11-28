@@ -218,8 +218,9 @@ mod tests {
     distortion_test_generate!(
         function(),
         evaluate_eps = 3.0,
-        derivative_eps = 120.0,
+        derivative_eps = 135.0,
         inverse_eps = 2.0,
+        gradient_eps = 4.0,
     );
 
     #[test]

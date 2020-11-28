@@ -92,8 +92,21 @@ impl DistortionFunction for Fisheye {
         }
     }
 
-    fn gradient(&self, _value: f64) -> VectorN<f64, Self::NumParameters> {
-        todo!()
+    fn gradient(&self, value: f64) -> VectorN<f64, Self::NumParameters> {
+        Vector1::new(match self.0 {
+            k if k < 0.0 => {
+                let theta = value.atan();
+                let kt = k * theta;
+                (theta * kt.cos() - kt.sin() / k) / k
+            }
+            k if k == 0.0 => 0.0,
+            k if k < 1.0 => {
+                let theta = value.atan();
+                let kt = k * theta;
+                (theta * (1.0 + kt.tan().powi(2)) - kt.tan() / k) / k
+            }
+            _ => value,
+        })
     }
 }
 
@@ -126,5 +139,6 @@ mod tests {
         evaluate_eps = 6.0,
         derivative_eps = 9.0,
         inverse_eps = 4.0,
+        gradient_eps = 1e10,
     );
 }

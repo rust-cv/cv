@@ -249,6 +249,7 @@ pub(crate) mod test {
             evaluate_eps = $eval:expr,
             derivative_eps = $deriv:expr,
             inverse_eps = $inv:expr,
+            gradient_eps = $grad:expr,
         ) => {
             #[test]
             fn test_evaluate() {
@@ -296,7 +297,10 @@ pub(crate) mod test {
                     let value = f.gradient(x);
                     let expected = f.gradient_exact(x);
                     for (value, expected) in value.iter().zip(expected.iter()) {
-                        float_eq::assert_float_eq!(value, expected, rmax <= $deriv * f64::EPSILON);
+                        float_eq::assert_float_eq!(value, expected,
+                            rmax <= $grad * f64::EPSILON,
+                            abs <= f64::EPSILON * f64::EPSILON
+                        );
                     }
                 });
             }
