@@ -43,18 +43,13 @@ impl Application for Imgshow {
 
     fn subscription(&self) -> Subscription<Message> {
         iced_native::subscription::events().map(|event| {
-            if let iced_native::Event::Keyboard(event) = event {
-                match event {
-                    Event::Input {
-                        state: ButtonState::Pressed,
-                        key_code,
-                        modifiers: _,
-                    } => match key_code {
-                        KeyCode::Space => Message::Close,
-                        _ => Message::Nothing,
-                    },
-                    _ => Message::Nothing,
-                }
+            if let iced_native::Event::Keyboard(Event::Input {
+                state: ButtonState::Pressed,
+                key_code: KeyCode::Space,
+                modifiers: _,
+            }) = event
+            {
+                Message::Close
             } else {
                 Message::Nothing
             }

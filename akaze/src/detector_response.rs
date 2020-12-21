@@ -20,7 +20,7 @@ impl Akaze {
     /// # Arguments
     /// * `evolutions` - The computed evolutions.
     /// * `options` - The options
-    #[allow(non_snake_case)]
+    #[allow(non_snake_case, clippy::suspicious_operation_groupings)]
     pub fn detector_response(&self, evolutions: &mut Vec<EvolutionStep>) {
         self.compute_multiscale_derivatives(evolutions);
         for evolution in evolutions.iter_mut() {
@@ -34,7 +34,7 @@ impl Akaze {
                 &Lyy in evolution.Lyy.ref_array2(),
                 &Lxy in evolution.Lxy.ref_array2(),
             ) {
-                *Ldet = ((Lxx * Lyy) - (Lxy * Lxy)) * sigma_size_quat;
+                *Ldet = (Lxx * Lyy - Lxy * Lxy) * sigma_size_quat;
             });
         }
     }

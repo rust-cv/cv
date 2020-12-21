@@ -304,6 +304,7 @@ fn do_subpixel_refinement(
         let d_xx = x_p + x_m - 2f32 * x_i;
         let d_yy = y_p + y_m - 2f32 * x_i;
         let d_xy = 0.25f32 * (x_p_y_p + x_m_y_m) - 0.25f32 * (x_p_y_m + x_m_y_p);
+        #[allow(clippy::suspicious_operation_groupings)]
         let inv_det_a = (d_xx * d_yy - d_xy * d_xy).recip();
         let inv_a = [
             inv_det_a * d_yy,
