@@ -13,7 +13,7 @@ const EPSILON_APPROX: f64 = 1e-6;
 
 #[test]
 fn arrsac_manual() {
-    let mut arrsac = Arrsac::new(0.01, SmallRng::from_seed([0; 16]));
+    let mut arrsac = Arrsac::new(0.01, SmallRng::seed_from_u64(0));
 
     // Define some points in camera coordinates (with z > 0).
     let camera_depth_points = [
@@ -55,7 +55,7 @@ fn arrsac_manual() {
 
 #[test]
 fn endless_loop_case() {
-    let mut arrsac = Arrsac::new(0.01, SmallRng::from_seed([0; 16]));
+    let mut arrsac = Arrsac::new(0.01, SmallRng::seed_from_u64(0));
 
     let samples = [
         FeatureWorldMatch(

@@ -6,6 +6,6 @@ edition = "2018"
 
 [dependencies]
 iced = { version = "0.1.1", features = ["image"] }
-structopt = "0.3.20"
+structopt = "0.3.21"
 iced_native = "0.2.2"
-image = "0.23.12"
+image = "0.23.14"

@@ -19,4 +19,4 @@ derive_more = "0.99.11"
 num-traits = { version = "0.2.14", default-features = false }
 
 [dev-dependencies]
-nalgebra = "0.23.1"
+nalgebra = { version = "0.25.3", features = ["rand"] }
