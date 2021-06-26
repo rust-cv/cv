@@ -75,7 +75,7 @@ Here are some of the domains of computer vision that Rust CV intends to persue a
   * [ ] Matching ([Wikipedia](https://en.wikipedia.org/wiki/Point_feature_matching))
     * [x] Descriptor matching strategies
       * [x] [Brute force](https://docs.rs/space/0.10.3/space/fn.linear_knn.html) (for camera traking with binary features)
-      * [x] [HNSW](https://docs.rs/hnsw/0.6.1/hnsw/struct.HNSW.html) (for loop closure)
+      * [x] [HNSW](https://docs.rs/hnsw/0.7.0/hnsw/struct.Hnsw.html) (for loop closure)
     * [ ] Filtering strategies
       * [ ] Symmetric matching (exists [within cv-reconstruction](https://github.com/rust-cv/cv/blob/58444de1cb174622ac34cc705ab9142e081f412c/cv-reconstruction/src/lib.rs#L1337))
       * [ ] Lowe's ratio test matching
@@ -131,7 +131,7 @@ Here are some of the domains of computer vision that Rust CV intends to persue a
 * [ ] Pattern recognition
   * [x] k-NN search
     * [x] [Brute force](https://docs.rs/space/0.10.3/space/fn.linear_knn.html)
-    * [x] [HNSW](https://docs.rs/hnsw/0.6.1/hnsw/struct.HNSW.html)
+    * [x] [HNSW](https://docs.rs/hnsw/0.7.0/hnsw/struct.Hnsw.html)
     * [x] [FLANN](https://docs.rs/flann/0.1.0/flann/)
   * [ ] Face recognition ([Wikipedia](https://en.wikipedia.org/wiki/Facial_recognition_system))
   * [ ] Articulated body pose estimation ([Wikipedia](https://en.wikipedia.org/wiki/Articulated_body_pose_estimation))

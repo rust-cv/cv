@@ -18,13 +18,14 @@ use cv_optimize::{
     SingleViewConstraint, TwoViewConstraint,
 };
 use cv_pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix, NormalizedKeyPoint};
-use hnsw::{Searcher, HNSW};
+use hnsw::{Hnsw, Searcher};
 use image::DynamicImage;
 use itertools::{izip, Itertools};
 use log::*;
 use maplit::hashmap;
 use ndarray::{array, Array2};
 use rand::{seq::SliceRandom, Rng};
+use rand_pcg::Pcg64;
 use slotmap::{new_key_type, DenseSlotMap};
 use space::Neighbor;
 use std::cell::RefCell;
@@ -143,9 +144,9 @@ pub struct Reconstruction {
     pub views: DenseSlotMap<ViewKey, View>,
     /// The landmarks contained in this reconstruction
     pub landmarks: DenseSlotMap<LandmarkKey, Landmark>,
-    /// The HNSW to look up all landmarks in the reconstruction
-    pub descriptor_observations: HNSW<BitArray<64>>,
-    /// Vector for each HNSW entry to (Reconstruction::view, Frame::features) indices
+    /// The Hnsw to look up all landmarks in the reconstruction
+    pub descriptor_observations: Hnsw<BitArray<64>, Pcg64, 12, 24>,
+    /// Vector for each Hnsw entry to (Reconstruction::view, Frame::features) indices
     pub observations: Vec<(ViewKey, usize)>,
 }
 
@@ -343,7 +344,7 @@ impl VSlamData {
         });
 
         info!(
-            "adding {} view features to HNSW",
+            "adding {} view features to Hnsw",
             self.frame(frame).features.len()
         );
 
@@ -352,11 +353,11 @@ impl VSlamData {
 
         // Add all of the view's features to the reconstruction.
         for feature in 0..self.frame(frame).features.len() {
-            // Add the feature to the HNSW.
+            // Add the feature to the Hnsw.
             self.reconstructions[reconstruction]
                 .descriptor_observations
                 .insert(*self.frames[frame].descriptor(feature), &mut searcher);
-            // Add the HNSW index to the HNSW index to the feature landmark map.
+            // Add the Hnsw index to the Hnsw index to the feature landmark map.
             self.reconstructions[reconstruction]
                 .observations
                 .push((view, feature));

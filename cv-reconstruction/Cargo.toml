@@ -16,9 +16,10 @@ eight-point = { version = "0.8.0", path = "../eight-point" }
 lambda-twist = { version = "0.7.0", path = "../lambda-twist" }
 cv-optimize = { version = "0.1.0", path = "../cv-optimize" }
 akaze = { version = "0.7.0", path = "../akaze" }
-hnsw = "0.6.1"
+hnsw = "0.7.0"
 space = "0.10.3"
 rand = "0.8.3"
+rand_pcg = { version = "0.3.0", features = ["serde1"] }
 ndarray = "0.14.0"
 maplit = "1.0.2"
 log = "0.4.14"
