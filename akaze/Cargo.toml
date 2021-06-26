@@ -21,7 +21,7 @@ nshare = { version = "0.2.0", features = ["ndarray", "image"] }
 ndarray = { version = "0.14.0", default-features = false }
 float-ord = { version = "0.2.0", default-features = false }
 space = "0.10.3"
-bitarray = "0.2.6"
+bitarray = "0.3.0"
 
 
 [dev-dependencies]
@@ -34,7 +34,7 @@ rand_pcg = "0.3.0"
 criterion = "0.3.4"
 pretty_env_logger = "0.4.0"
 image = "0.23.14"
-bitarray = { version = "0.2.6", features = ["space"] }
+bitarray = { version = "0.3.0", features = ["space"] }
 
 [[bench]]
 name = "criterion"
