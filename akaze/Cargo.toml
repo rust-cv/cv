@@ -27,7 +27,7 @@ bitarray = "0.3.0"
 [dev-dependencies]
 eight-point = { version = "0.8.0", path = "../eight-point" }
 cv-pinhole = { version = "0.6.0", path = "../cv-pinhole" }
-arrsac = "0.6.1"
+arrsac = "0.7.0"
 space = "0.10.3"
 rand = "0.8.3"
 rand_pcg = "0.3.0"
