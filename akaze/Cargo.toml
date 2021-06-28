@@ -20,7 +20,7 @@ derive_more = { version = "0.99.11", default-features = false }
 nshare = { version = "0.7.0", features = ["ndarray", "image"] }
 ndarray = { version = "0.15.3", default-features = false }
 float-ord = { version = "0.2.0", default-features = false }
-space = "0.10.3"
+space = "0.11.0"
 bitarray = "0.3.0"
 
 
@@ -28,7 +28,6 @@ bitarray = "0.3.0"
 eight-point = { version = "0.8.0", path = "../eight-point" }
 cv-pinhole = { version = "0.6.0", path = "../cv-pinhole" }
 arrsac = "0.7.0"
-space = "0.10.3"
 rand = "0.8.3"
 rand_pcg = "0.3.0"
 criterion = "0.3.4"

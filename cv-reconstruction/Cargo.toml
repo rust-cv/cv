@@ -17,7 +17,7 @@ lambda-twist = { version = "0.7.0", path = "../lambda-twist" }
 cv-optimize = { version = "0.1.0", path = "../cv-optimize" }
 akaze = { version = "0.7.0", path = "../akaze" }
 hnsw = "0.7.0"
-space = "0.10.3"
+space = "0.11.0"
 rand = "0.8.3"
 rand_pcg = { version = "0.3.0", features = ["serde1"] }
 ndarray = "0.15.3"
