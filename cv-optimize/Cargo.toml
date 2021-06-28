@@ -10,6 +10,6 @@ cv-core = { version = "0.15.0", path = "../cv-core" }
 nalgebra = { version = "0.27.1", features = ["alloc"], default-features = false }
 num-traits = "0.2.14"
 argmin = { version = "0.4.1", features = ["ndarrayl"] }
-ndarray = "0.14.0"
+ndarray = "0.15.3"
 average = "0.10.6"
 itertools = "0.10.0"
