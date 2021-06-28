@@ -233,7 +233,7 @@ where
     B: Bearing + Clone,
 {
     /// Storage type used for the residuals. Use `nalgebra::storage::Owned<F, M>`
-    /// if you want to use `VectorN` or `MatrixMN`.
+    /// if you want to use `OVector` or `OMatrix`.
     type ResidualStorage = VecStorage<f64, Dynamic, U1>;
     type JacobianStorage = VecStorage<f64, Dynamic, Dynamic>;
     type ParameterStorage = VecStorage<f64, Dynamic, U1>;

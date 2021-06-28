@@ -1,16 +1,16 @@
 #![no_std]
 
-use cv_core::nalgebra::{self, Matrix3, MatrixMN, VectorN, U3, U8, U9};
+use cv_core::nalgebra::{self, Matrix3, OMatrix, OVector, U3, U8, U9};
 use cv_core::sample_consensus::Estimator;
 use cv_core::FeatureMatch;
 use cv_pinhole::{EssentialMatrix, NormalizedKeyPoint};
 
 fn encode_epipolar_equation(
     matches: impl Iterator<Item = FeatureMatch<NormalizedKeyPoint>>,
-) -> MatrixMN<f64, U8, U9> {
-    let mut out: MatrixMN<f64, U8, U9> = nalgebra::zero();
+) -> OMatrix<f64, U8, U9> {
+    let mut out: OMatrix<f64, U8, U9> = nalgebra::zero();
     for (i, FeatureMatch(a, b)) in (0..8).zip(matches) {
-        let mut row = VectorN::<f64, U9>::zeros();
+        let mut row = OVector::<f64, U9>::zeros();
         let ap = a.virtual_image_point().coords;
         let bp = b.virtual_image_point().coords;
         for j in 0..3 {

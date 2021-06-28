@@ -24,7 +24,7 @@ const BASIS_1: usize = 19;
 use cv_core::nalgebra::{
     self,
     dimension::{U10, U20, U3, U4, U5, U9},
-    DimName, Matrix3, MatrixMN, MatrixN, Vector4, VectorN,
+    DimName, Matrix3, OMatrix, OVector, Vector4,
 };
 use cv_pinhole::{EssentialMatrix, NormalizedKeyPoint};
 
@@ -37,18 +37,18 @@ const SVD_ITERATIONS: usize = 50;
 /// to be considered the null-space.
 const SVD_NULL_THRESHOLD: f64 = 1e-6;
 
-type PolyBasisVec = VectorN<f64, U20>;
-type NullspaceMat = MatrixMN<f64, U9, U4>;
-type ConstraintMat = MatrixMN<f64, U10, U20>;
-type Square10 = MatrixN<f64, U10>;
+type PolyBasisVec = OVector<f64, U20>;
+type NullspaceMat = OMatrix<f64, U9, U4>;
+type ConstraintMat = OMatrix<f64, U10, U20>;
+type Square10 = OMatrix<f64, U10, U10>;
 
 fn encode_epipolar_equation(
     a: &[NormalizedKeyPoint; 5],
     b: &[NormalizedKeyPoint; 5],
-) -> MatrixMN<f64, U5, U9> {
-    let mut out: MatrixMN<f64, U5, U9> = nalgebra::zero();
+) -> OMatrix<f64, U5, U9> {
+    let mut out: OMatrix<f64, U5, U9> = nalgebra::zero();
     for i in 0..U5::dim() {
-        let mut row = VectorN::<f64, U9>::zeros();
+        let mut row = OVector::<f64, U9>::zeros();
         let ap = a[i].virtual_image_point().coords;
         let bp = b[i].virtual_image_point().coords;
         for j in 0..3 {
@@ -198,7 +198,7 @@ fn five_points_polynomial_constraints(nullspace: &NullspaceMat) -> ConstraintMat
     m
 }
 
-fn compute_eigenvector(m: &Square10, lambda: f64) -> Option<VectorN<f64, U10>> {
+fn compute_eigenvector(m: &Square10, lambda: f64) -> Option<OVector<f64, U10>> {
     (m - Square10::from_diagonal_element(lambda))
         .try_svd(false, true, SVD_CONVERGENCE, SVD_ITERATIONS)
         .and_then(|svd| {
