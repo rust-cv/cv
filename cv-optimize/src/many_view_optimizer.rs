@@ -4,7 +4,7 @@ use argmin::{
 };
 use average::Mean;
 use cv_core::nalgebra::{
-    dimension::{Dynamic, U1, U4, U6},
+    dimension::{Dynamic, U1},
     DMatrix, DVector, Matrix3, VecStorage, Vector4, Vector6,
 };
 use cv_core::{Bearing, Pose, Projective, TriangulatorObservations, WorldPoint, WorldToCamera};
@@ -242,11 +242,11 @@ where
     fn set_params(&mut self, params: &DVector<f64>) {
         let poses_len = self.poses.len() * 6;
         for (ix, pose) in self.poses.iter_mut().enumerate() {
-            *pose = Pose::from_se3(params.fixed_rows::<U6>(6 * ix).into_owned());
+            *pose = Pose::from_se3(params.fixed_rows::<6>(6 * ix).into_owned());
         }
         for (ix, point) in self.points.iter_mut().enumerate() {
             if let Some(p) = point {
-                *p = WorldPoint(params.fixed_rows::<U4>(poses_len + 4 * ix).into_owned());
+                *p = WorldPoint(params.fixed_rows::<4>(poses_len + 4 * ix).into_owned());
             }
         }
     }
@@ -336,9 +336,9 @@ where
 
             let pose_ix = ix % self.poses.len();
             let point_ix = ix / self.poses.len();
-            row.fixed_columns_mut::<U6>(6 * pose_ix)
+            row.fixed_columns_mut::<6>(6 * pose_ix)
                 .copy_from(&jacobian_res_pose);
-            row.fixed_columns_mut::<U4>(pose_len + 4 * point_ix)
+            row.fixed_columns_mut::<4>(pose_len + 4 * point_ix)
                 .copy_from(&jacobian_res_wp);
         }
         Some(mat)
