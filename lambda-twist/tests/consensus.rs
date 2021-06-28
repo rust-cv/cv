@@ -1,5 +1,3 @@
-#![feature(array_map)]
-
 use approx::assert_relative_eq;
 use arrsac::Arrsac;
 use cv_core::nalgebra::{IsometryMatrix3, Point2, Point3, Rotation3, Translation, Vector3};

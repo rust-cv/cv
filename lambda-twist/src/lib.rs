@@ -105,7 +105,7 @@ impl LambdaTwist {
     fn compute_poses_nordberg<P: Bearing>(
         &self,
         samples: [FeatureWorldMatch<P>; 3],
-    ) -> ArrayVec<[WorldToCamera; 4]> {
+    ) -> ArrayVec<WorldToCamera, 4> {
         // Extraction of 3D points vectors
         let to_wp = |&FeatureWorldMatch(_, point)| point.point();
         let wps = [
@@ -192,7 +192,7 @@ impl LambdaTwist {
 
         // Initialize the possible depths triplets for the three image points.
         // There might be between 0 and 4 possible solutions.
-        let mut lambdas: ArrayVec<[Vec3; 4]> = ArrayVec::new();
+        let mut lambdas: ArrayVec<Vec3, 4> = ArrayVec::new();
 
         // Solve the four possible solutions for the depths values.
         let eigen_ratio = (0.0_f64.max(-eig_values[1] / eig_values[0])).sqrt();
@@ -327,7 +327,7 @@ where
     P: Bearing,
 {
     type Model = WorldToCamera;
-    type ModelIter = ArrayVec<[WorldToCamera; 4]>;
+    type ModelIter = ArrayVec<WorldToCamera, 4>;
     const MIN_SAMPLES: usize = 3;
     fn estimate<I>(&self, mut data: I) -> Self::ModelIter
     where
