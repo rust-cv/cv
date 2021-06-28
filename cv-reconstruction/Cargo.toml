@@ -8,7 +8,7 @@ edition = "2018"
 serde-serialize = ["serde", "cv-core/serde-serialize", "hnsw/serde1", "bitarray/serde", "cv-pinhole/serde-serialize"]
 
 [dependencies]
-argmin = "0.4.1"
+argmin = "0.4.5"
 cv-core = { version = "0.15.0", path = "../cv-core" }
 cv-pinhole = { version = "0.6.0", path = "../cv-pinhole" }
 cv-geom = { version = "0.7.0", path = "../cv-geom" }
