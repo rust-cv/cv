@@ -5,7 +5,7 @@ use argmin::{
 use average::Mean;
 use core::iter::once;
 use cv_core::nalgebra::{
-    dimension::{Dynamic, U1, U4, U6},
+    dimension::{Dynamic, U1},
     DMatrix, DVector, Matrix3, VecStorage, Vector4, Vector6,
 };
 use cv_core::{
@@ -167,7 +167,7 @@ where
         self.pose = Pose::from_se3(Vector6::new(x[0], x[1], x[2], x[3], x[4], x[5]));
         for (ix, point) in self.points.iter_mut().enumerate() {
             if let Some(p) = point {
-                *p = CameraPoint(x.fixed_rows::<U4>(6 + 4 * ix).into_owned());
+                *p = CameraPoint(x.fixed_rows::<4>(6 + 4 * ix).into_owned());
             }
         }
     }
@@ -270,16 +270,16 @@ where
             // Assign the a_res jacobian for the point only (pose doesn't affect this one).
             let mut sim_a_row = mat.row_mut(ix * 2);
             sim_a_row
-                .fixed_columns_mut::<U4>(6 + 4 * ix)
+                .fixed_columns_mut::<4>(6 + 4 * ix)
                 .copy_from(&jacobian_ares_ap);
 
             // Assign the b_res jacobians for both the pose and the point.
             let mut sim_b_row = mat.row_mut(ix * 2 + 1);
             sim_b_row
-                .fixed_columns_mut::<U6>(0)
+                .fixed_columns_mut::<6>(0)
                 .copy_from(&jacobian_bres_pose);
             sim_b_row
-                .fixed_columns_mut::<U4>(6 + 4 * ix)
+                .fixed_columns_mut::<4>(6 + 4 * ix)
                 .copy_from(&jacobian_bres_ap);
         }
         Some(mat)

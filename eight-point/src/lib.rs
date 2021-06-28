@@ -1,6 +1,6 @@
 #![no_std]
 
-use cv_core::nalgebra::{self, Matrix3, OMatrix, OVector, U3, U8, U9};
+use cv_core::nalgebra::{self, Matrix3, OMatrix, OVector, U8, U9};
 use cv_core::sample_consensus::Estimator;
 use cv_core::FeatureMatch;
 use cv_pinhole::{EssentialMatrix, NormalizedKeyPoint};
@@ -15,7 +15,7 @@ fn encode_epipolar_equation(
         let bp = b.virtual_image_point().coords;
         for j in 0..3 {
             let v = ap[j] * bp;
-            row.fixed_rows_mut::<U3>(3 * j).copy_from(&v);
+            row.fixed_rows_mut::<3>(3 * j).copy_from(&v);
         }
         out.row_mut(i).copy_from(&row.transpose());
     }
