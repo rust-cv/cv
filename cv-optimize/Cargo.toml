@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 levenberg-marquardt = { version = "0.8.0", path = "../../levenberg-marquardt" }
 cv-core = { version = "0.15.0", path = "../cv-core" }
-nalgebra = { version = "0.25.3", features = ["alloc"], default-features = false }
+nalgebra = { version = "0.27.1", features = ["alloc"], default-features = false }
 num-traits = "0.2.14"
 argmin = { version = "0.4.1", features = ["ndarrayl"] }
 ndarray = "0.14.0"
