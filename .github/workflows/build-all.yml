@@ -9,6 +9,10 @@ jobs:
     name: Build All
     runs-on: ubuntu-latest
     steps:
+      - name: Install package
+        run: |
+          sudo apt-get -y install libxkbcommon-dev
+
       - name: Checkout sources
         uses: actions/checkout@v2
 

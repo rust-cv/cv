@@ -9,6 +9,10 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
+      - name: Install system dependencies
+        run: |
+          sudo apt-get -y install libxkbcommon-dev
+
       - name: Checkout sources
         uses: actions/checkout@v2
 
