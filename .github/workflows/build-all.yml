@@ -1,6 +1,10 @@
 # Cargo test
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - master
+  pull_request:
 
 name: build
 
@@ -9,7 +13,7 @@ jobs:
     name: Build All
     runs-on: ubuntu-latest
     steps:
-      - name: Install package
+      - name: Install system dependencies
         run: |
           sudo apt-get -y install libxkbcommon-dev
 
