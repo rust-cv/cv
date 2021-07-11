@@ -14,8 +14,8 @@ readme = "README.md"
 [dependencies]
 cv-core = { version = "0.15.0", path = "../cv-core" }
 cv-pinhole = { version = "0.6.0", path = "../cv-pinhole" }
-float-ord = "0.2.0"
-derive_more = "0.99.11"
+float-ord = "0.3.1"
+derive_more = "0.99.16"
 num-traits = { version = "0.2.14", default-features = false }
 
 [dev-dependencies]

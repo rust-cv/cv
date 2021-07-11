@@ -1,12 +1,11 @@
-use iced::{Application, Command, Element, Settings, Subscription};
-use iced_native::input::{
+use iced::{
     keyboard::{Event, KeyCode},
-    ButtonState,
+    Application, Clipboard, Command, Element, Error, Settings, Subscription,
 };
 use image::{DynamicImage, GenericImageView};
 
 /// This function shows an image and will not return until the user presses space or closes the window.
-pub fn imgshow(image: &DynamicImage) {
+pub fn imgshow(image: &DynamicImage) -> Result<(), Error> {
     let mut settings = Settings::with_flags(image.clone());
     settings.window.size = (image.width(), image.height());
     Imgshow::run(settings)
@@ -43,9 +42,8 @@ impl Application for Imgshow {
 
     fn subscription(&self) -> Subscription<Message> {
         iced_native::subscription::events().map(|event| {
-            if let iced_native::Event::Keyboard(Event::Input {
-                state: ButtonState::Pressed,
-                key_code: KeyCode::Space,
+            if let iced_native::Event::Keyboard(Event::KeyPressed {
+                key_code: KeyCode::Space | KeyCode::Escape,
                 modifiers: _,
             }) = event
             {
@@ -56,7 +54,7 @@ impl Application for Imgshow {
         })
     }
 
-    fn update(&mut self, message: Message) -> Command<Message> {
+    fn update(&mut self, message: Message, _: &mut Clipboard) -> Command<Message> {
         match message {
             Message::Close => std::process::exit(0),
             Message::Nothing => Command::none(),

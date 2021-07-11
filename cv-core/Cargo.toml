@@ -15,11 +15,11 @@ readme = "README.md"
 serde-serialize = ["serde", "nalgebra/serde-serialize"]
 
 [dependencies]
-nalgebra = { version = "0.27.1", default-features = false, features = ["libm"] }
-derive_more = "0.99.11"
+nalgebra = { version = "0.27.1", default-features = false, features = ["std"] }
+derive_more = "0.99.16"
 sample-consensus = "1.0.1"
 num-traits = { version = "0.2.14", default-features = false }
-serde = { version = "1.0.124", default-features = false, features = ["derive"], optional = true }
+serde = { version = "1.0.126", default-features = false, features = ["derive"], optional = true }
 
 [package.metadata.docs.rs]
 all-features = true

@@ -16,24 +16,24 @@ cv-core = { version = "0.15.0", path = "../cv-core" }
 image = { version = "0.23.14", default-features = false }
 log = { version = "0.4.14", default-features = false }
 primal = { version = "0.3.0", default-features = false }
-derive_more = { version = "0.99.11", default-features = false }
+derive_more = { version = "0.99.16", default-features = false }
 nshare = { version = "0.7.0", features = ["ndarray", "image"] }
 ndarray = { version = "0.15.3", default-features = false }
-float-ord = { version = "0.2.0", default-features = false }
-space = "0.11.0"
-bitarray = "0.3.0"
+float-ord = { version = "0.3.1", default-features = false }
+space = "0.13.1"
+bitarray = "0.4.0"
 
 
 [dev-dependencies]
 eight-point = { version = "0.8.0", path = "../eight-point" }
 cv-pinhole = { version = "0.6.0", path = "../cv-pinhole" }
 arrsac = "0.7.0"
-rand = "0.8.3"
-rand_pcg = "0.3.0"
+rand = "0.8.4"
+rand_pcg = "0.3.1"
 criterion = "0.3.4"
 pretty_env_logger = "0.4.0"
 image = "0.23.14"
-bitarray = { version = "0.3.0", features = ["space"] }
+bitarray = { version = "0.4.0", features = ["space"] }
 
 [[bench]]
 name = "criterion"

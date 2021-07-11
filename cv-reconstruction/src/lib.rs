@@ -23,7 +23,6 @@ use image::DynamicImage;
 use itertools::{izip, Itertools};
 use log::*;
 use maplit::hashmap;
-use ndarray::{array, Array2};
 use rand::{seq::SliceRandom, Rng};
 use rand_pcg::Pcg64;
 use slotmap::{new_key_type, DenseSlotMap};
@@ -403,12 +402,15 @@ impl VSlamData {
         reconstruction: ReconstructionKey,
         frame: FrameKey,
         feature: usize,
-        distance_threshold: usize,
-        searcher: &mut Searcher,
+        distance_threshold: u32,
+        searcher: &mut Searcher<u32>,
     ) -> Option<LandmarkKey> {
         // Find the nearest neighbors.
         let descriptor = self.descriptor(frame, feature);
-        let mut neighbors = [Neighbor::invalid(); 1];
+        let mut neighbors = [Neighbor {
+            index: !0,
+            distance: !0,
+        }; 1];
         let best_observation = self.reconstructions[reconstruction]
             .descriptor_observations
             .nearest(descriptor, 24, searcher, &mut neighbors)
@@ -416,7 +418,7 @@ impl VSlamData {
             .cloned()?;
         let best_descriptor = self.reconstructions[reconstruction]
             .descriptor_observations
-            .feature(best_observation.index as u32);
+            .feature(best_observation.index);
         let best_distance = best_descriptor.distance(descriptor);
 
         // Find the index of the best feature match from the frame to the best landmark descriptor.
@@ -743,7 +745,7 @@ where
                     .loss_cutoff(self.settings.loss_cutoff);
 
             // The initial parameter is empty becasue nelder mead is passed its own initial parameter directly.
-            let opti_state = Executor::new(constraint, solver, array![])
+            let opti_state = Executor::new(constraint, solver, vec![])
                 .add_observer(OptimizationObserver, ObserverMode::Always)
                 .max_iters(self.settings.two_view_patience as u64)
                 .run()
@@ -755,12 +757,7 @@ where
                 opti_state.best_cost
             );
 
-            pose = Pose::from_se3(Vector6::from_row_slice(
-                opti_state
-                    .best_param
-                    .as_slice()
-                    .expect("param was not contiguous array"),
-            ));
+            pose = Pose::from_se3(Vector6::from_row_slice(&opti_state.best_param));
 
             // Filter outlier matches based on cosine distance.
             matches = self
@@ -874,7 +871,7 @@ where
             SingleViewConstraint::new(matches_3d).loss_cutoff(self.settings.loss_cutoff);
 
         // The initial parameter is empty becasue nelder mead is passed its own initial parameter directly.
-        let opti_state = Executor::new(constraint, solver, array![])
+        let opti_state = Executor::new(constraint, solver, vec![])
             .add_observer(OptimizationObserver, ObserverMode::Always)
             .max_iters(self.settings.single_view_patience as u64)
             .run()
@@ -886,12 +883,7 @@ where
             opti_state.best_cost
         );
 
-        let pose = Pose::from_se3(Vector6::from_row_slice(
-            opti_state
-                .best_param
-                .as_slice()
-                .expect("param was not contiguous array"),
-        ));
+        let pose = Pose::from_se3(Vector6::from_row_slice(&opti_state.best_param));
 
         // Filter outlier matches and return all others for inclusion.
         let matches: Vec<(LandmarkKey, usize)> = matches
@@ -1177,7 +1169,7 @@ where
             .loss_cutoff(self.settings.loss_cutoff);
 
             // The initial parameter is empty becasue nelder mead is passed its own initial parameter directly.
-            let opti_state = Executor::new(constraint, solver, Array2::zeros((0, 0)))
+            let opti_state = Executor::new(constraint, solver, vec![])
                 .add_observer(OptimizationObserver, ObserverMode::Always)
                 .max_iters(self.settings.many_view_patience as u64)
                 .run()
@@ -1191,12 +1183,8 @@ where
 
             let poses: Vec<WorldToCamera> = opti_state
                 .best_param
-                .outer_iter()
-                .map(|arr| {
-                    Pose::from_se3(Vector6::from_row_slice(
-                        arr.as_slice().expect("param was not contiguous array"),
-                    ))
-                })
+                .iter()
+                .map(|arr| Pose::from_se3(Vector6::from_row_slice(arr)))
                 .collect();
 
             BundleAdjustment {
@@ -1638,7 +1626,7 @@ where
 fn matching(
     a_descriptors: impl Iterator<Item = BitArray<64>>,
     b_descriptors: impl Iterator<Item = BitArray<64>> + Clone,
-) -> Vec<(usize, usize)> {
+) -> Vec<(usize, u32)> {
     a_descriptors
         .map(|a| {
             b_descriptors
@@ -1654,7 +1642,7 @@ fn matching(
 fn symmetric_matching<'a>(
     a: &'a Frame,
     b: &'a Frame,
-) -> impl Iterator<Item = (FeatureMatch<usize>, usize)> + 'a {
+) -> impl Iterator<Item = (FeatureMatch<usize>, u32)> + 'a {
     // The best match for each feature in frame a to frame b's features.
     let forward_matches = matching(a.descriptors(), b.descriptors());
     // The best match for each feature in frame b to frame a's features.

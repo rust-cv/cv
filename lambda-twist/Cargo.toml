@@ -25,5 +25,5 @@ arrsac = "0.7.0"
 rand = { version = "0.8.4", features = ["small_rng"] }
 quickcheck = "1.0.3"
 quickcheck_macros = "1.0.0"
-itertools = "0.10.0"
+itertools = "0.10.1"
 cv-pinhole = { version = "0.6.0", path = "../cv-pinhole" }

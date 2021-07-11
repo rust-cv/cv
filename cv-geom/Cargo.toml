@@ -13,4 +13,4 @@ readme = "README.md"
 
 [dependencies]
 cv-core = { version = "0.15.0", path = "../cv-core" }
-float-ord = "0.2.0"
+float-ord = "0.3.1"

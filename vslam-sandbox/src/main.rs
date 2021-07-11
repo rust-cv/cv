@@ -79,7 +79,7 @@ fn main() {
     info!("trying to load existing reconstruction data");
     let data = std::fs::File::open(&opt.data)
         .ok()
-        .and_then(|file| bincode::deserialize_from(file).ok());
+        .map(|file| bincode::deserialize_from(file).expect("failed to deserialize reconstruction"));
     if data.is_some() {
         info!("loaded existing reconstruction");
     } else {

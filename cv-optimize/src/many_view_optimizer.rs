@@ -9,38 +9,28 @@ use cv_core::nalgebra::{
 };
 use cv_core::{Bearing, Pose, Projective, TriangulatorObservations, WorldPoint, WorldToCamera};
 use levenberg_marquardt::LeastSquaresProblem;
-use ndarray::{s, Array2};
 
-pub fn many_view_nelder_mead(poses: Vec<WorldToCamera>) -> NelderMead<Array2<f64>, f64> {
+pub fn many_view_nelder_mead(poses: Vec<WorldToCamera>) -> NelderMead<Vec<Vec<f64>>, f64> {
     let num_poses = poses.len();
-    let se3s: Vec<Vector6<f64>> = poses.iter().map(|p| p.se3()).collect();
-    let original = Array2::from_shape_vec(
-        (num_poses, 6),
-        se3s.iter().flat_map(|se3| se3.iter().copied()).collect(),
-    )
-    .expect("failed to convert poses into Array2");
-    let translation_scale: Mean = original
-        .outer_iter()
-        .map(|pose| {
-            pose.slice(s![0..3])
-                .iter()
-                .map(|n| n.powi(2))
-                .sum::<f64>()
-                .sqrt()
-                * 0.5
-        })
+    let se3s: Vec<Vec<f64>> = poses
+        .iter()
+        .map(|p| p.se3().iter().copied().collect())
         .collect();
-    let mut variants = vec![original; num_poses * 6 + 1];
+    let translation_scale: Mean = se3s
+        .iter()
+        .map(|pose| pose[..3].iter().map(|n| n.powi(2)).sum::<f64>().sqrt() * 0.5)
+        .collect();
+    let mut variants = vec![se3s; num_poses * 6 + 1];
     #[allow(clippy::needless_range_loop)]
     for i in 0..num_poses * 6 {
         let pose = i / 6;
         let subi = i % 6;
         if subi < 3 {
             // Translation simplex must be relative to existing translation.
-            variants[i][(pose, subi)] += translation_scale.mean() * 0.01;
+            variants[i][pose][subi] += translation_scale.mean() * 0.01;
         } else {
             // Rotation simplex must be kept within a small rotation (2 pi would be a complete revolution).
-            variants[i][(pose, subi)] += std::f64::consts::PI * 0.001;
+            variants[i][pose][subi] += std::f64::consts::PI * 0.001;
         }
     }
     NelderMead::new().with_initial_params(variants)
@@ -150,7 +140,7 @@ where
     B: Bearing + Clone,
     T: TriangulatorObservations,
 {
-    type Param = Array2<f64>;
+    type Param = Vec<Vec<f64>>;
     type Output = f64;
     type Hessian = ();
     type Jacobian = ();
@@ -158,12 +148,8 @@ where
 
     fn apply(&self, p: &Self::Param) -> Result<Self::Output, Error> {
         let poses: Vec<WorldToCamera> = p
-            .outer_iter()
-            .map(|pose_arr| {
-                Pose::from_se3(Vector6::from_row_slice(
-                    pose_arr.as_slice().expect("param was not contiguous array"),
-                ))
-            })
+            .iter()
+            .map(|pose_arr| Pose::from_se3(Vector6::from_row_slice(pose_arr)))
             .collect();
         let mean: Mean = self.residuals(poses.iter().copied()).collect();
         Ok(mean.mean())
