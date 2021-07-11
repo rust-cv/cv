@@ -51,6 +51,7 @@ impl Bearing for Unit<Vector3<f64>> {
         Unit::new_normalize(bearing)
     }
 
+    #[allow(clippy::wrong_self_convention)]
     fn from_bearing_unit_vector(bearing: Unit<Vector3<f64>>) -> Self {
         bearing
     }

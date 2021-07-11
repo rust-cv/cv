@@ -14,5 +14,5 @@ fn main() {
         drawing::draw_cross_mut(&mut image, Rgba([0, 255, 255, 128]), x as i32, y as i32);
     }
     let out_image = DynamicImage::ImageRgba8(image.0);
-    cv::vis::imgshow(&out_image);
+    cv::vis::imgshow(&out_image).expect("showing image failed");
 }
