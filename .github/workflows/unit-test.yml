@@ -23,15 +23,6 @@ jobs:
         with:
           cache-on-failure: true
 
-      - name: Cache test
-        uses: actions/cache@v2
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: test-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
       - name: Run cargo test
         uses: actions-rs/cargo@v1
         with:
