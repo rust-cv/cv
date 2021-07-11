@@ -74,10 +74,11 @@ Here are some of the domains of computer vision that Rust CV intends to persue a
     * [ ] Equirectangular ([Wikipedia](https://en.wikipedia.org/wiki/Equirectangular_projection))
   * [ ] Matching ([Wikipedia](https://en.wikipedia.org/wiki/Point_feature_matching))
     * [x] Descriptor matching strategies
-      * [x] [Brute force](https://docs.rs/space/0.10.3/space/fn.linear_knn.html) (for camera traking with binary features)
-      * [x] [HNSW](https://docs.rs/hnsw/0.7.0/hnsw/struct.Hnsw.html) (for loop closure)
+      * [x] [Brute force](https://docs.rs/space/0.13.1/space/struct.LinearKnn.html) (for camera traking with binary features)
+      * [x] [HGG](https://docs.rs/hgg/0.2.0/hgg/) (for loop closure)
+      * [x] [HNSW](https://docs.rs/hnsw/0.9.1/hnsw/struct.Hnsw.html) (for loop closure)
     * [ ] Filtering strategies
-      * [ ] Symmetric matching (exists [within cv-reconstruction](https://github.com/rust-cv/cv/blob/58444de1cb174622ac34cc705ab9142e081f412c/cv-reconstruction/src/lib.rs#L1337))
+      * [ ] Symmetric matching/uniquely best match (exists [within cv-reconstruction](https://github.com/rust-cv/cv/blob/58444de1cb174622ac34cc705ab9142e081f412c/cv-reconstruction/src/lib.rs#L1337), but not reusable)
       * [ ] Lowe's ratio test matching
   * [ ] Geometric verification (utilized abstractions in [sample-consensus](https://docs.rs/sample-consensus/0.2.0/sample_consensus/))
     * [ ] [Consensus algorithms](https://docs.rs/sample-consensus/0.2.0/sample_consensus/trait.Consensus.html)
@@ -129,9 +130,10 @@ Here are some of the domains of computer vision that Rust CV intends to persue a
     * [ ] Surface refinement
     * [ ] Texturing ([related Wikipedia](https://en.wikipedia.org/wiki/Texture_mapping))
 * [ ] Pattern recognition
-  * [x] k-NN search
-    * [x] [Brute force](https://docs.rs/space/0.10.3/space/fn.linear_knn.html)
-    * [x] [HNSW](https://docs.rs/hnsw/0.7.0/hnsw/struct.Hnsw.html)
+  * [x] [k-NN search](https://docs.rs/space/0.13.1/space/trait.Knn.html)
+    * [x] [Brute force](https://docs.rs/space/0.13.1/space/struct.LinearKnn.html)
+    * [x] [HGG](https://docs.rs/hgg/0.2.0/hgg/) (for loop closure)
+    * [x] [HNSW](https://docs.rs/hnsw/0.9.1/hnsw/struct.Hnsw.html)
     * [x] [FLANN](https://docs.rs/flann/0.1.0/flann/)
   * [ ] Face recognition ([Wikipedia](https://en.wikipedia.org/wiki/Facial_recognition_system))
   * [ ] Articulated body pose estimation ([Wikipedia](https://en.wikipedia.org/wiki/Articulated_body_pose_estimation))

@@ -18,15 +18,14 @@ use cv_optimize::{
     SingleViewConstraint, TwoViewConstraint,
 };
 use cv_pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix, NormalizedKeyPoint};
-use hnsw::{Hnsw, Searcher};
+use hgg::Hgg;
 use image::DynamicImage;
 use itertools::{izip, Itertools};
 use log::*;
 use maplit::hashmap;
 use rand::{seq::SliceRandom, Rng};
-use rand_pcg::Pcg64;
 use slotmap::{new_key_type, DenseSlotMap};
-use space::Neighbor;
+use space::Knn;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
@@ -136,17 +135,15 @@ pub struct Feed {
 }
 
 /// A series of views and points which exist in the same world space
-#[derive(Clone, Default)]
-#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
+#[derive(Default)]
+// #[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct Reconstruction {
     /// The VSlam::views IDs contained in this reconstruction
     pub views: DenseSlotMap<ViewKey, View>,
     /// The landmarks contained in this reconstruction
     pub landmarks: DenseSlotMap<LandmarkKey, Landmark>,
-    /// The Hnsw to look up all landmarks in the reconstruction
-    pub descriptor_observations: Hnsw<BitArray<64>, Pcg64, 12, 24>,
-    /// Vector for each Hnsw entry to (Reconstruction::view, Frame::features) indices
-    pub observations: Vec<(ViewKey, usize)>,
+    /// The HGG to search descriptors for keypoint `(Reconstruction::view, Frame::features)` instances
+    pub descriptor_observations: Hgg<BitArray<64>, (ViewKey, usize)>,
 }
 
 /// Contains the results of a bundle adjust
@@ -160,8 +157,8 @@ pub struct BundleAdjustment {
 }
 
 /// The mapping data for VSlam.
-#[derive(Clone, Default)]
-#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
+#[derive(Default)]
+// #[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct VSlamData {
     /// Contains the camera intrinsics for each feed
     feeds: DenseSlotMap<FeedKey, Feed>,
@@ -343,23 +340,16 @@ impl VSlamData {
         });
 
         info!(
-            "adding {} view features to Hnsw",
+            "adding {} view features to HGG",
             self.frame(frame).features.len()
         );
 
-        // Init a searcher only once to avoid allocation durring k-NN searches.
-        let mut searcher = Searcher::default();
-
         // Add all of the view's features to the reconstruction.
         for feature in 0..self.frame(frame).features.len() {
-            // Add the feature to the Hnsw.
+            // Add the feature to the HGG.
             self.reconstructions[reconstruction]
                 .descriptor_observations
-                .insert(*self.frames[frame].descriptor(feature), &mut searcher);
-            // Add the Hnsw index to the Hnsw index to the feature landmark map.
-            self.reconstructions[reconstruction]
-                .observations
-                .push((view, feature));
+                .insert(*self.frames[frame].descriptor(feature), (view, feature));
             // Check if the feature is part of an existing landmark.
             let landmark = if let Some(landmark) = existing_landmark(feature) {
                 // Add this observation to the observations of this landmark.
@@ -395,6 +385,7 @@ impl VSlamData {
     }
 
     /// Find the best matching landmark, filtering appropriately.
+    /// Must have smaller distance than `distance_threshold`.
     ///
     /// Returns a Reconstruction::landmark index.
     fn locate_landmark(
@@ -403,36 +394,47 @@ impl VSlamData {
         frame: FrameKey,
         feature: usize,
         distance_threshold: u32,
-        searcher: &mut Searcher<u32>,
     ) -> Option<LandmarkKey> {
         // Find the nearest neighbors.
         let descriptor = self.descriptor(frame, feature);
-        let mut neighbors = [Neighbor {
-            index: !0,
-            distance: !0,
-        }; 1];
-        let best_observation = self.reconstructions[reconstruction]
+        let neighbors = self.reconstructions[reconstruction]
             .descriptor_observations
-            .nearest(descriptor, 24, searcher, &mut neighbors)
-            .first()
-            .cloned()?;
+            .knn(descriptor, 16);
+        let best = neighbors[0];
+        if let Some(second_best) = neighbors.get(1) {
+            // Make sure that the second best isn't equally as good.
+            // TODO: Lowe's ratio or another heuristic could be used here.
+            if best.distance == second_best.distance {
+                return None;
+            }
+        }
         let best_descriptor = self.reconstructions[reconstruction]
             .descriptor_observations
-            .feature(best_observation.index);
-        let best_distance = best_descriptor.distance(descriptor);
+            .get_key(best.index)
+            .unwrap();
 
-        // Find the index of the best feature match from the frame to the best landmark descriptor.
-        let symmetric_feature = self
+        // If the match doesn't beat the distance threshold, throw it out.
+        if best.distance >= distance_threshold {
+            return None;
+        }
+
+        // Find out how many features are the same or better match for the found feature in this current frame.
+        let equivalent_or_better_features = self
             .frame(frame)
             .descriptors()
             .enumerate()
-            .min_by_key(|(_, other_descriptor)| best_descriptor.distance(other_descriptor))?
-            .0;
+            .filter(|(_, other_descriptor)| {
+                best_descriptor.distance(other_descriptor) <= best.distance
+            })
+            .count();
 
-        // Ensure the distance is within the threshold and the match is symmetric.
-        if best_distance < distance_threshold && symmetric_feature == feature {
-            let (view, feature) =
-                self.reconstructions[reconstruction].observations[best_observation.index];
+        // Make sure that this that this feature is uncontested as the best match for the found feature.
+        // It should be the only match.
+        if equivalent_or_better_features == 1 {
+            let &(view, feature) = self.reconstructions[reconstruction]
+                .descriptor_observations
+                .get_value(best.index)
+                .unwrap();
             Some(self.reconstructions[reconstruction].views[view].landmarks[feature])
         } else {
             None
@@ -787,7 +789,6 @@ where
         info!("find existing landmarks to track camera");
         // Start by trying to match the frame's features to the landmarks in the reconstruction.
         // Get back a bunch of (Reconstruction::landmarks, Frame::features) correspondences.
-        let mut searcher = Searcher::default();
         let matches: Vec<(LandmarkKey, usize)> = (0..self.data.frame(frame).features.len())
             .filter_map(|feature| {
                 self.data
@@ -796,7 +797,6 @@ where
                         frame,
                         feature,
                         self.settings.match_threshold,
-                        &mut searcher,
                     )
                     .map(|landmark| (landmark, feature))
             })
