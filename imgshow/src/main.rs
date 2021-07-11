@@ -23,5 +23,5 @@ fn main() {
                 .expect("failed to read stdin to memory");
             image::load_from_memory(&buffer).expect("failed to decode image from stdin")
         });
-    imgshow::imgshow(&image)
+    imgshow::imgshow(&image).expect("imgshow failed");
 }

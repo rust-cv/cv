@@ -7,6 +7,7 @@ use cv_core::{CameraModel, FeatureMatch};
 use log::*;
 use rand::SeedableRng;
 use rand_pcg::Pcg64;
+use space::Knn;
 use std::path::Path;
 
 const LOWES_RATIO: f32 = 0.5;
@@ -73,16 +74,11 @@ fn estimate_pose() {
 }
 
 fn match_descriptors(ds1: &[Descriptor], ds2: &[Descriptor]) -> Vec<(usize, usize)> {
-    use space::Neighbor;
     let two_neighbors = ds1
         .iter()
         .map(|d1| {
-            let mut neighbors = [Neighbor::invalid(); 2];
-            assert_eq!(
-                space::linear_knn(d1, &mut neighbors, ds2).len(),
-                2,
-                "there should be at least two matches"
-            );
+            let neighbors = space::LinearKnn(ds2.iter()).knn(d1, 2);
+            assert_eq!(neighbors.len(), 2, "there should be at least two matches");
             neighbors
         })
         .enumerate();
