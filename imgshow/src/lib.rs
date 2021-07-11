@@ -13,6 +13,7 @@ pub fn imgshow(image: &DynamicImage) -> Result<(), Error> {
 
 struct Imgshow {
     image: iced::image::Handle,
+    should_exit: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -31,6 +32,7 @@ impl Application for Imgshow {
         (
             Self {
                 image: iced::image::Handle::from_pixels(image.width(), image.height(), bgra_data),
+                should_exit: false,
             },
             Command::none(),
         )
@@ -55,10 +57,14 @@ impl Application for Imgshow {
     }
 
     fn update(&mut self, message: Message, _: &mut Clipboard) -> Command<Message> {
-        match message {
-            Message::Close => std::process::exit(0),
-            Message::Nothing => Command::none(),
+        if let Message::Close = message {
+            self.should_exit = true;
         }
+        Command::none()
+    }
+
+    fn should_exit(&self) -> bool {
+        self.should_exit
     }
 
     fn view(&mut self) -> Element<Message> {

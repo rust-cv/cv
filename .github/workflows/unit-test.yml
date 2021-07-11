@@ -20,6 +20,8 @@ jobs:
           override: true
 
       - uses: Swatinem/rust-cache@v1
+        with:
+          cache-on-failure: true
 
       - name: Cache test
         uses: actions/cache@v2

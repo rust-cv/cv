@@ -21,6 +21,8 @@ jobs:
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v1
+        with:
+          cache-on-failure: true
       
       - name: Cache lints
         uses: actions/cache@v2
