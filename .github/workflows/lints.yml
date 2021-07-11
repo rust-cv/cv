@@ -19,6 +19,8 @@ jobs:
           toolchain: nightly
           override: true
           components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v1
       
       - name: Cache lints
         uses: actions/cache@v2

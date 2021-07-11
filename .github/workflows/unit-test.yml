@@ -19,6 +19,8 @@ jobs:
           toolchain: nightly
           override: true
 
+      - uses: Swatinem/rust-cache@v1
+
       - name: Cache test
         uses: actions/cache@v2
         with:
