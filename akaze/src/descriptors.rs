@@ -59,7 +59,7 @@ impl Akaze {
                 co,
                 si,
                 scale,
-                &evolutions,
+                evolutions,
             );
             mldb_binary_comparisons(
                 &values,

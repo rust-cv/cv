@@ -13,7 +13,7 @@ use ndarray::{s, Array2, ArrayView2, ArrayViewMut2};
 /// Output image derivative (an image.)
 pub fn scharr_horizontal(image: &GrayFloatImage, sigma_size: u32) -> GrayFloatImage {
     let img_horizontal = scharr_axis(
-        &image,
+        image,
         sigma_size,
         FilterDirection::Horizontal,
         FilterOrder::Main,
@@ -38,7 +38,7 @@ pub fn scharr_horizontal(image: &GrayFloatImage, sigma_size: u32) -> GrayFloatIm
 /// Output image derivative (an image.)
 pub fn scharr_vertical(image: &GrayFloatImage, sigma_size: u32) -> GrayFloatImage {
     let img_horizontal = scharr_axis(
-        &image,
+        image,
         sigma_size,
         FilterDirection::Horizontal,
         FilterOrder::Off,

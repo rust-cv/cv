@@ -257,7 +257,7 @@ pub fn gaussian_blur(image: &GrayFloatImage, r: f32) -> GrayFloatImage {
     // a separable Gaussian kernel
     let kernel_size = (f32::ceil(r) as usize) * 2 + 1usize;
     let kernel = gaussian_kernel(r, kernel_size);
-    let img_horizontal = horizontal_filter(&image, &kernel);
+    let img_horizontal = horizontal_filter(image, &kernel);
     vertical_filter(&img_horizontal, &kernel)
 }
 
