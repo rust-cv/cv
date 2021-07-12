@@ -5,10 +5,10 @@ use cv::{
     estimate::{EightPoint, LambdaTwist},
     geom::MinSquaresTriangulator,
 };
-use cv_reconstruction::{VSlam, VSlamData, VSlamSettings};
+use cv_reconstruction::{VSlam, VSlamSettings};
 use log::*;
 use rand::SeedableRng;
-use rand_pcg::Pcg64;
+use rand_xoshiro::Xoshiro256PlusPlus;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -76,18 +76,16 @@ fn main() {
         opt.radial_distortion,
     );
 
-    // info!("trying to load existing reconstruction data");
-    // let data = std::fs::File::open(&opt.data)
-    //     .ok()
-    //     .map(|file| bincode::deserialize_from(file).expect("failed to deserialize reconstruction"));
-    // if data.is_some() {
-    //     info!("loaded existing reconstruction");
-    // } else {
-    //     info!("used empty reconstruction");
-    // }
-    // let data = data.unwrap_or_default();
-    let data = VSlamData::default();
-    info!("used empty reconstruction");
+    info!("trying to load existing reconstruction data");
+    let data = std::fs::File::open(&opt.data)
+        .ok()
+        .map(|file| bincode::deserialize_from(file).expect("failed to deserialize reconstruction"));
+    if data.is_some() {
+        info!("loaded existing reconstruction");
+    } else {
+        info!("used empty reconstruction");
+    }
+    let data = data.unwrap_or_default();
 
     let settings = std::fs::File::open(&opt.settings)
         .ok()
@@ -103,11 +101,14 @@ fn main() {
     let mut vslam = VSlam::new(
         data,
         settings,
-        Arrsac::new(settings.consensus_threshold, Pcg64::from_seed([5; 32])),
+        Arrsac::new(
+            settings.consensus_threshold,
+            Xoshiro256PlusPlus::seed_from_u64(0),
+        ),
         EightPoint::new(),
         LambdaTwist::new(),
         MinSquaresTriangulator::new(),
-        Pcg64::from_seed([5; 32]),
+        Xoshiro256PlusPlus::seed_from_u64(0),
     );
 
     // Add the feed.
@@ -125,13 +126,12 @@ fn main() {
     }
 
     if !opt.images.is_empty() {
-        // info!("saving the reconstruction data");
-        // if let Ok(file) = std::fs::File::create(opt.data) {
-        //     if let Err(e) = bincode::serialize_into(file, &vslam.data) {
-        //         error!("unable to save reconstruction data: {}", e);
-        //     }
-        // }
-        info!("saving reconstruction feature removed until HGG supports serialization");
+        info!("saving the reconstruction data");
+        if let Ok(file) = std::fs::File::create(opt.data) {
+            if let Err(e) = bincode::serialize_into(file, &vslam.data) {
+                error!("unable to save reconstruction data: {}", e);
+            }
+        }
     } else {
         info!("reconstruction not modified, so not saving reconstruction data");
     }

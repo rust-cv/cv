@@ -1,16 +1,10 @@
-# Cargo test
+on: [push, pull_request]
 
-on:
-  push:
-    branches:
-      - master
-  pull_request:
-
-name: build
+name: tests
 
 jobs:
-  test:
-    name: Build All
+  tests:
+    name: tests
     runs-on: ubuntu-latest
     steps:
       - name: Install system dependencies
@@ -31,8 +25,8 @@ jobs:
         with:
           cache-on-failure: true
 
-      - name: Run cargo build
+      - name: Run cargo test
         uses: actions-rs/cargo@v1
         with:
-          command: build
-          args: --all --all-features
+          command: test
+          args: --all-features

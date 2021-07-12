@@ -136,7 +136,7 @@ pub struct Feed {
 
 /// A series of views and points which exist in the same world space
 #[derive(Default)]
-// #[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct Reconstruction {
     /// The VSlam::views IDs contained in this reconstruction
     pub views: DenseSlotMap<ViewKey, View>,
@@ -158,7 +158,7 @@ pub struct BundleAdjustment {
 
 /// The mapping data for VSlam.
 #[derive(Default)]
-// #[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct VSlamData {
     /// Contains the camera intrinsics for each feed
     feeds: DenseSlotMap<FeedKey, Feed>,

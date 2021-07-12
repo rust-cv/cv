@@ -1,22 +1,12 @@
-# Cargo fmt and cargo clippy
-
-on:
-  push:
-    branches:
-      - master
-  pull_request:
+on: [push, pull_request]
 
 name: lints
 
 jobs:
-  combo:
-    name: Clippy + rustfmt
+  rustfmt:
+    name: rustfmt
     runs-on: ubuntu-latest
     steps:
-      - name: Install system dependencies
-        run: |
-          sudo apt-get -y install libxkbcommon-dev
-
       - name: Checkout sources
         uses: actions/checkout@v2
 
@@ -26,7 +16,7 @@ jobs:
           profile: minimal
           toolchain: nightly
           override: true
-          components: rustfmt, clippy
+          components: rustfmt
 
       - uses: Swatinem/rust-cache@v1
         with:
@@ -37,9 +27,27 @@ jobs:
         with:
           command: fmt
           args: --all -- --check
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Install nightly toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v1
+        with:
+          cache-on-failure: true
 
       - name: Run cargo clippy
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --all-features -- -D warnings
+          args: -- -D warnings

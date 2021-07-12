@@ -1,6 +1,6 @@
 # Rust CV
 
-[![Discord][dci]][dcl] [![Crates.io][ci]][cl] [![docs.rs][di]][dl] ![LoC][lo] ![Tests][btl] ![Lints][bll] ![Build][bbl]
+[![Discord][dci]][dcl] [![Crates.io][ci]][cl] [![docs.rs][di]][dl] ![LoC][lo] ![Tests][btl] ![Lints][bll]
 
 [ci]: https://img.shields.io/crates/v/cv.svg
 [cl]: https://crates.io/crates/cv/
@@ -13,9 +13,8 @@
 [dci]: https://img.shields.io/discord/550706294311485440.svg?logo=discord&colorB=7289DA
 [dcl]: https://discord.gg/d32jaam
 
-[btl]: https://github.com/rust-cv/cv/workflows/unit%20tests/badge.svg
+[btl]: https://github.com/rust-cv/cv/workflows/tests/badge.svg
 [bll]: https://github.com/rust-cv/cv/workflows/lints/badge.svg
-[bbl]: https://github.com/rust-cv/cv/workflows/build/badge.svg
 
 Rust CV is a project to implement computer vision algorithms, abstractions, and systems in Rust. `#[no_std]` is supported where possible.
 
