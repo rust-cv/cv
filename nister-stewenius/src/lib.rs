@@ -23,8 +23,8 @@ const BASIS_1: usize = 19;
 
 use cv_core::nalgebra::{
     self,
-    dimension::{U10, U20, U3, U4, U5, U9},
-    DimName, Matrix3, MatrixMN, MatrixN, Vector4, VectorN,
+    dimension::{U10, U20, U4, U5, U9},
+    DimName, Matrix3, OMatrix, OVector, Vector4,
 };
 use cv_pinhole::{EssentialMatrix, NormalizedKeyPoint};
 
@@ -37,23 +37,23 @@ const SVD_ITERATIONS: usize = 50;
 /// to be considered the null-space.
 const SVD_NULL_THRESHOLD: f64 = 1e-6;
 
-type PolyBasisVec = VectorN<f64, U20>;
-type NullspaceMat = MatrixMN<f64, U9, U4>;
-type ConstraintMat = MatrixMN<f64, U10, U20>;
-type Square10 = MatrixN<f64, U10>;
+type PolyBasisVec = OVector<f64, U20>;
+type NullspaceMat = OMatrix<f64, U9, U4>;
+type ConstraintMat = OMatrix<f64, U10, U20>;
+type Square10 = OMatrix<f64, U10, U10>;
 
 fn encode_epipolar_equation(
     a: &[NormalizedKeyPoint; 5],
     b: &[NormalizedKeyPoint; 5],
-) -> MatrixMN<f64, U5, U9> {
-    let mut out: MatrixMN<f64, U5, U9> = nalgebra::zero();
+) -> OMatrix<f64, U5, U9> {
+    let mut out: OMatrix<f64, U5, U9> = nalgebra::zero();
     for i in 0..U5::dim() {
-        let mut row = VectorN::<f64, U9>::zeros();
+        let mut row = OVector::<f64, U9>::zeros();
         let ap = a[i].virtual_image_point().coords;
         let bp = b[i].virtual_image_point().coords;
         for j in 0..3 {
             let v = ap[j] * bp;
-            row.fixed_rows_mut::<U3>(3 * j).copy_from(&v);
+            row.fixed_rows_mut::<3>(3 * j).copy_from(&v);
         }
         out.row_mut(i).copy_from(&row.transpose());
     }
@@ -198,7 +198,7 @@ fn five_points_polynomial_constraints(nullspace: &NullspaceMat) -> ConstraintMat
     m
 }
 
-fn compute_eigenvector(m: &Square10, lambda: f64) -> Option<VectorN<f64, U10>> {
+fn compute_eigenvector(m: &Square10, lambda: f64) -> Option<OVector<f64, U10>> {
     (m - Square10::from_diagonal_element(lambda))
         .try_svd(false, true, SVD_CONVERGENCE, SVD_ITERATIONS)
         .and_then(|svd| {
@@ -229,7 +229,7 @@ fn essentials_from_action_ebasis(
             if e.im == 0.0 {
                 let e = e.re;
                 // Solve for the eigen vector.
-                compute_eigenvector(&at, e).map(|v| v.fixed_rows::<U4>(5).into_owned())
+                compute_eigenvector(&at, e).map(|v| v.fixed_rows::<4>(5).into_owned())
             } else {
                 None
             }
@@ -255,9 +255,8 @@ pub fn five_points_relative_pose(
     let e_constraints = five_points_polynomial_constraints(&e_basis);
 
     // Step 3: Gauss-Jordan Elimination (done thanks to a LU decomposition).
-    let c_lu = e_constraints.fixed_slice::<U10, U10>(0, 0).full_piv_lu();
-    let m = if let Some(m) = c_lu.solve(&e_constraints.fixed_slice::<U10, U10>(0, 10).into_owned())
-    {
+    let c_lu = e_constraints.fixed_slice::<10, 10>(0, 0).full_piv_lu();
+    let m = if let Some(m) = c_lu.solve(&e_constraints.fixed_slice::<10, 10>(0, 10).into_owned()) {
         m
     } else {
         return essentials_from_action_ebasis(Square10::zeros(), NullspaceMat::zeros());
@@ -268,8 +267,8 @@ pub fn five_points_relative_pose(
     // Build action matrix.
 
     let mut at = Square10::zeros();
-    at.fixed_slice_mut::<U3, U10>(0, 0)
-        .copy_from(&m.fixed_slice::<U3, U10>(0, 0));
+    at.fixed_slice_mut::<3, 10>(0, 0)
+        .copy_from(&m.fixed_slice::<3, 10>(0, 0));
 
     at.row_mut(3).copy_from(&m.row(4));
     at.row_mut(4).copy_from(&m.row(5));

@@ -141,7 +141,7 @@ impl Akaze {
     /// The resulting keypoints.
     pub fn detect_keypoints(&self, evolutions: &mut Vec<EvolutionStep>) -> Vec<KeyPoint> {
         let mut keypoints = self.find_scale_space_extrema(evolutions);
-        keypoints = do_subpixel_refinement(&keypoints, &evolutions);
+        keypoints = do_subpixel_refinement(&keypoints, evolutions);
         keypoints
     }
 }
@@ -332,7 +332,7 @@ fn do_subpixel_refinement(
         in_keypoints.len()
     );
     for mut keypoint in result.iter_mut() {
-        compute_main_orientation(&mut keypoint, &evolutions);
+        compute_main_orientation(&mut keypoint, evolutions);
     }
     result
 }

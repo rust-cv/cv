@@ -5,24 +5,17 @@ use argmin::{
 use average::Mean;
 use core::iter::once;
 use cv_core::nalgebra::{
-    dimension::{Dynamic, U1, U4, U6},
+    dimension::{Dynamic, U1},
     DMatrix, DVector, Matrix3, VecStorage, Vector4, Vector6,
 };
 use cv_core::{
     Bearing, CameraPoint, CameraToCamera, FeatureMatch, Pose, Projective, TriangulatorRelative,
 };
 use levenberg_marquardt::LeastSquaresProblem;
-use ndarray::{s, Array1};
 
-pub fn two_view_nelder_mead(pose: CameraToCamera) -> NelderMead<Array1<f64>, f64> {
-    let original = Array1::from(pose.se3().iter().copied().collect::<Vec<f64>>());
-    let translation_scale = original
-        .slice(s![0..3])
-        .iter()
-        .map(|n| n.powi(2))
-        .sum::<f64>()
-        .sqrt()
-        * 0.001;
+pub fn two_view_nelder_mead(pose: CameraToCamera) -> NelderMead<Vec<f64>, f64> {
+    let original = pose.se3().iter().copied().collect::<Vec<f64>>();
+    let translation_scale = original[..3].iter().map(|n| n.powi(2)).sum::<f64>().sqrt() * 0.001;
     let mut variants = vec![original; 7];
     #[allow(clippy::needless_range_loop)]
     for i in 0..6 {
@@ -98,16 +91,14 @@ where
     P: Bearing + Clone,
     T: TriangulatorRelative + Clone,
 {
-    type Param = Array1<f64>;
+    type Param = Vec<f64>;
     type Output = f64;
     type Hessian = ();
     type Jacobian = ();
     type Float = f64;
 
     fn apply(&self, p: &Self::Param) -> Result<Self::Output, Error> {
-        let pose = Pose::from_se3(Vector6::from_row_slice(
-            p.as_slice().expect("param was not contiguous array"),
-        ));
+        let pose = Pose::from_se3(Vector6::from_row_slice(p));
         let mean: Mean = self.residuals(pose).collect();
         Ok(mean.mean())
     }
@@ -157,7 +148,7 @@ where
     T: TriangulatorRelative + Clone,
 {
     /// Storage type used for the residuals. Use `nalgebra::storage::Owned<F, M>`
-    /// if you want to use `VectorN` or `MatrixMN`.
+    /// if you want to use `OVector` or `OMatrix`.
     type ResidualStorage = VecStorage<f64, Dynamic, U1>;
     type JacobianStorage = VecStorage<f64, Dynamic, Dynamic>;
     type ParameterStorage = VecStorage<f64, Dynamic, U1>;
@@ -167,7 +158,7 @@ where
         self.pose = Pose::from_se3(Vector6::new(x[0], x[1], x[2], x[3], x[4], x[5]));
         for (ix, point) in self.points.iter_mut().enumerate() {
             if let Some(p) = point {
-                *p = CameraPoint(x.fixed_rows::<U4>(6 + 4 * ix).into_owned());
+                *p = CameraPoint(x.fixed_rows::<4>(6 + 4 * ix).into_owned());
             }
         }
     }
@@ -270,16 +261,16 @@ where
             // Assign the a_res jacobian for the point only (pose doesn't affect this one).
             let mut sim_a_row = mat.row_mut(ix * 2);
             sim_a_row
-                .fixed_columns_mut::<U4>(6 + 4 * ix)
+                .fixed_columns_mut::<4>(6 + 4 * ix)
                 .copy_from(&jacobian_ares_ap);
 
             // Assign the b_res jacobians for both the pose and the point.
             let mut sim_b_row = mat.row_mut(ix * 2 + 1);
             sim_b_row
-                .fixed_columns_mut::<U6>(0)
+                .fixed_columns_mut::<6>(0)
                 .copy_from(&jacobian_bres_pose);
             sim_b_row
-                .fixed_columns_mut::<U4>(6 + 4 * ix)
+                .fixed_columns_mut::<4>(6 + 4 * ix)
                 .copy_from(&jacobian_bres_ap);
         }
         Some(mat)

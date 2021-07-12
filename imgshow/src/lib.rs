@@ -1,12 +1,11 @@
-use iced::{Application, Command, Element, Settings, Subscription};
-use iced_native::input::{
+use iced::{
     keyboard::{Event, KeyCode},
-    ButtonState,
+    Application, Clipboard, Command, Element, Error, Settings, Subscription,
 };
 use image::{DynamicImage, GenericImageView};
 
 /// This function shows an image and will not return until the user presses space or closes the window.
-pub fn imgshow(image: &DynamicImage) {
+pub fn imgshow(image: &DynamicImage) -> Result<(), Error> {
     let mut settings = Settings::with_flags(image.clone());
     settings.window.size = (image.width(), image.height());
     Imgshow::run(settings)
@@ -14,6 +13,7 @@ pub fn imgshow(image: &DynamicImage) {
 
 struct Imgshow {
     image: iced::image::Handle,
+    should_exit: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -32,6 +32,7 @@ impl Application for Imgshow {
         (
             Self {
                 image: iced::image::Handle::from_pixels(image.width(), image.height(), bgra_data),
+                should_exit: false,
             },
             Command::none(),
         )
@@ -43,9 +44,8 @@ impl Application for Imgshow {
 
     fn subscription(&self) -> Subscription<Message> {
         iced_native::subscription::events().map(|event| {
-            if let iced_native::Event::Keyboard(Event::Input {
-                state: ButtonState::Pressed,
-                key_code: KeyCode::Space,
+            if let iced_native::Event::Keyboard(Event::KeyPressed {
+                key_code: KeyCode::Space | KeyCode::Escape,
                 modifiers: _,
             }) = event
             {
@@ -56,11 +56,15 @@ impl Application for Imgshow {
         })
     }
 
-    fn update(&mut self, message: Message) -> Command<Message> {
-        match message {
-            Message::Close => std::process::exit(0),
-            Message::Nothing => Command::none(),
+    fn update(&mut self, message: Message, _: &mut Clipboard) -> Command<Message> {
+        if let Message::Close = message {
+            self.should_exit = true;
         }
+        Command::none()
+    }
+
+    fn should_exit(&self) -> bool {
+        self.should_exit
     }
 
     fn view(&mut self) -> Element<Message> {

@@ -69,14 +69,21 @@ pub mod feature {
 
 /// Algorithms for performing k-NN searches
 pub mod knn {
+    /// An approximate nearest neighbor search map (recommended for approximate search)
+    #[cfg(feature = "hgg")]
+    pub mod hgg {
+        pub use hgg::*;
+    }
+
     /// An approximate nearest neighbor index search data structure
     #[cfg(feature = "hnsw")]
     pub mod hnsw {
         pub use hnsw::*;
     }
 
-    #[cfg(feature = "space")]
-    pub use space::linear_knn;
+    /// An exact nearest neighbor search algorithm that checks every item (recommended for exact search)
+    #[cfg(all(feature = "space", feature = "alloc"))]
+    pub use space::LinearKnn;
 }
 
 /// Optimization algorithms

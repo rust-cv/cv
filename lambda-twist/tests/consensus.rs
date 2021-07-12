@@ -1,6 +1,5 @@
-#![feature(array_map)]
-
 use approx::assert_relative_eq;
+use arrayvec::ArrayVec;
 use arrsac::Arrsac;
 use cv_core::nalgebra::{IsometryMatrix3, Point2, Point3, Rotation3, Translation, Vector3};
 use cv_core::sample_consensus::Consensus;
@@ -11,19 +10,26 @@ use rand::{rngs::SmallRng, SeedableRng};
 
 const EPSILON_APPROX: f64 = 1e-6;
 
+fn map<T, U, F: Fn(T) -> U, const N: usize>(f: F, array: ArrayVec<T, N>) -> ArrayVec<U, N> {
+    array.into_iter().map(f).collect()
+}
+
 #[test]
 fn arrsac_manual() {
     let mut arrsac = Arrsac::new(0.01, SmallRng::seed_from_u64(0));
 
     // Define some points in camera coordinates (with z > 0).
-    let camera_depth_points = [
-        [-0.228_125, -0.061_458_334, 1.0],
-        [0.418_75, -0.581_25, 2.0],
-        [1.128_125, 0.878_125, 3.0],
-        [-0.528_125, 0.178_125, 2.5],
-        [-0.923_424, -0.235_125, 2.8],
-    ]
-    .map(Point3::from);
+    let camera_depth_points: ArrayVec<Point3<f64>, 5> = map(
+        Point3::from,
+        [
+            [-0.228_125, -0.061_458_334, 1.0],
+            [0.418_75, -0.581_25, 2.0],
+            [1.128_125, 0.878_125, 3.0],
+            [-0.528_125, 0.178_125, 2.5],
+            [-0.923_424, -0.235_125, 2.8],
+        ]
+        .into(),
+    );
 
     // Define the camera pose.
     let rot = Rotation3::from_euler_angles(0.1, 0.2, 0.3);
@@ -31,10 +37,10 @@ fn arrsac_manual() {
     let pose = IsometryMatrix3::from_parts(trans, rot);
 
     // Compute world coordinates.
-    let world_points = camera_depth_points.map(|p| pose.inverse() * p);
+    let world_points = map(|p| pose.inverse() * p, camera_depth_points.clone());
 
     // Compute normalized image coordinates.
-    let normalized_image_coordinates = camera_depth_points.map(|p| (p / p.z).xy());
+    let normalized_image_coordinates = map(|p| (p / p.z).xy(), camera_depth_points);
 
     let samples: Vec<FeatureWorldMatch<NormalizedKeyPoint>> = world_points
         .iter()

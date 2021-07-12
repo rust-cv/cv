@@ -16,7 +16,7 @@ pub struct VSlamSettings {
         feature = "serde-serialize",
         serde(default = "default_match_threshold")
     )]
-    pub match_threshold: usize,
+    pub match_threshold: u32,
     /// The threshold used for sample consensus
     #[cfg_attr(
         feature = "serde-serialize",
@@ -170,7 +170,7 @@ fn default_akaze_threshold() -> f64 {
     0.00001
 }
 
-fn default_match_threshold() -> usize {
+fn default_match_threshold() -> u32 {
     64
 }
 

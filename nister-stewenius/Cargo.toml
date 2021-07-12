@@ -8,8 +8,8 @@ license = "MIT"
 [dependencies]
 cv-core = { version = "0.15.0", path = "../cv-core" }
 cv-pinhole = { version = "0.6.0", path = "../cv-pinhole" }
-float-ord = "0.2.0"
+float-ord = "0.3.1"
 
 [dev-dependencies]
-itertools = "0.10.0"
-nalgebra = "0.25.3"
+itertools = "0.10.1"
+nalgebra = "0.28.0"
