@@ -18,7 +18,7 @@ use cv_optimize::{
     SingleViewConstraint, TwoViewConstraint,
 };
 use cv_pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix, NormalizedKeyPoint};
-use hgg::Hgg;
+use hgg::HggLite as Hgg;
 use image::DynamicImage;
 use itertools::{izip, Itertools};
 use log::*;
