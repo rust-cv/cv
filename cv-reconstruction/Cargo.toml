@@ -5,7 +5,7 @@ authors = ["Geordon Worley <vadixidav@gmail.com>"]
 edition = "2018"
 
 [features]
-serde-serialize = ["serde", "cv-core/serde-serialize", "bitarray/serde", "cv-pinhole/serde-serialize", "bitarray/serde", "slotmap/serde", "hgg/serde"]
+serde-serialize = ["serde", "cv-core/serde-serialize", "bitarray/serde", "cv-pinhole/serde-serialize", "bitarray/serde", "slotmap/serde", "hgg/serde", "hamming-lsh/serde"]
 
 [dependencies]
 argmin = "0.4.5"
@@ -30,3 +30,4 @@ serde = { version = "1.0.126", features = ["derive"], optional = true }
 slotmap = { version = "1.0.5" }
 hgg = { version = "0.3.0", default-features = false }
 rand = { version = "0.8.4", default-features = false }
+hamming-lsh = "0.2.0"

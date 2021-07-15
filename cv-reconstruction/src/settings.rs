@@ -134,6 +134,12 @@ pub struct VSlamSettings {
         serde(default = "default_reconstruction_optimization_iterations")
     )]
     pub reconstruction_optimization_iterations: usize,
+    /// The number of most similar frames to attempt to match when tracking.
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_tracking_frames")
+    )]
+    pub tracking_frames: usize,
 }
 
 impl Default for VSlamSettings {
@@ -162,6 +168,7 @@ impl Default for VSlamSettings {
             many_view_landmarks: default_many_view_landmarks(),
             reconstruction_optimization_iterations: default_reconstruction_optimization_iterations(
             ),
+            tracking_frames: default_tracking_frames(),
         }
     }
 }
@@ -252,4 +259,8 @@ fn default_many_view_landmarks() -> usize {
 
 fn default_reconstruction_optimization_iterations() -> usize {
     1
+}
+
+fn default_tracking_frames() -> usize {
+    8
 }
