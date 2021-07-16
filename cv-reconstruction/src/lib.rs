@@ -923,23 +923,26 @@ where
             .filter(|&(_, distance)| distance < self.settings.match_threshold)
             .map(|(FeatureMatch(a, b), _)| FeatureMatch(view_a.landmarks[a], view_b.landmarks[b]));
 
-        // Geometrically verify if the landmark pairs would be able to totally combine within tollerances.
+        // Check to make sure the landmarks aren't the same landmark and geometrically
+        // verify if the landmark pairs would be able to totally combine within tollerances.
         let matches: Vec<FeatureMatch<LandmarkKey>> = matches
             .filter(|&FeatureMatch(landmark_a, landmark_b)| {
-                self.triangulate_landmark_with_appended_observations_and_verify(
-                    reconstruction_key,
-                    landmark_a,
-                    reconstruction.landmarks[landmark_b]
-                        .observations
-                        .iter()
-                        .map(|(&view, &feature)| {
-                            (
-                                reconstruction.views[view].pose,
-                                self.data.frames[view_b.frame].features[feature].keypoint,
-                            )
-                        }),
-                )
-                .is_some()
+                landmark_a != landmark_b
+                    && self
+                        .triangulate_landmark_with_appended_observations_and_verify(
+                            reconstruction_key,
+                            landmark_a,
+                            reconstruction.landmarks[landmark_b]
+                                .observations
+                                .iter()
+                                .map(|(&view, &feature)| {
+                                    (
+                                        reconstruction.views[view].pose,
+                                        self.data.frames[view_b.frame].features[feature].keypoint,
+                                    )
+                                }),
+                        )
+                        .is_some()
             })
             .collect();
 
