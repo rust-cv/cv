@@ -938,7 +938,9 @@ where
                                 .map(|(&view, &feature)| {
                                     (
                                         reconstruction.views[view].pose,
-                                        self.data.frames[view_b.frame].features[feature].keypoint,
+                                        self.data.frames[reconstruction.views[view].frame].features
+                                            [feature]
+                                            .keypoint,
                                     )
                                 }),
                         )
