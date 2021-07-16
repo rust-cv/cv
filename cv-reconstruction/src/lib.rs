@@ -353,11 +353,6 @@ impl VSlamData {
         );
         self.frames[frame].view = Some((reconstruction, view));
 
-        info!(
-            "adding {} view features to HGG",
-            self.frame(frame).features.len()
-        );
-
         // Add all of the view's features to the reconstruction.
         for feature in 0..self.frame(frame).features.len() {
             // Check if the feature is part of an existing landmark.
@@ -923,33 +918,45 @@ where
             .filter(|&(_, distance)| distance < self.settings.match_threshold)
             .map(|(FeatureMatch(a, b), _)| FeatureMatch(view_a.landmarks[a], view_b.landmarks[b]));
 
-        // Check to make sure the landmarks aren't the same landmark and geometrically
-        // verify if the landmark pairs would be able to totally combine within tollerances.
-        let matches: Vec<FeatureMatch<LandmarkKey>> = matches
-            .filter(|&FeatureMatch(landmark_a, landmark_b)| {
-                landmark_a != landmark_b
-                    && self
-                        .triangulate_landmark_with_appended_observations_and_verify(
-                            reconstruction_key,
-                            landmark_a,
-                            reconstruction.landmarks[landmark_b]
-                                .observations
-                                .iter()
-                                .map(|(&view, &feature)| {
-                                    (
-                                        reconstruction.views[view].pose,
-                                        self.data.frames[reconstruction.views[view].frame].features
-                                            [feature]
-                                            .keypoint,
-                                    )
-                                }),
+        // Check to make sure the landmarks aren't the same landmark.
+        let matches =
+            matches.filter(|&FeatureMatch(landmark_a, landmark_b)| landmark_a != landmark_b);
+        // Check to make sure that the landmarks do not share any views between them.
+        let matches = matches.filter(|&FeatureMatch(landmark_a, landmark_b)| {
+            !reconstruction.landmarks[landmark_a]
+                .observations
+                .keys()
+                .any(|landmark_a_view| {
+                    reconstruction.landmarks[landmark_b]
+                        .observations
+                        .keys()
+                        .any(|landmark_b_view| landmark_a_view == landmark_b_view)
+                })
+        });
+        // Geometrically verify if the landmark pairs would be able to totally combine within tollerances.
+        let matches = matches.filter(|&FeatureMatch(landmark_a, landmark_b)| {
+            self.triangulate_landmark_with_appended_observations_and_verify(
+                reconstruction_key,
+                landmark_a,
+                reconstruction.landmarks[landmark_b]
+                    .observations
+                    .iter()
+                    .map(|(&view, &feature)| {
+                        (
+                            reconstruction.views[view].pose,
+                            self.data.frames[reconstruction.views[view].frame].features[feature]
+                                .keypoint,
                         )
-                        .is_some()
-            })
-            .collect();
+                    }),
+            )
+            .is_some()
+        });
+
+        // Store the final landmark matches into a vector.
+        let matches: Vec<FeatureMatch<LandmarkKey>> = matches.collect();
 
         info!(
-            "found {} geometrically verified landmark matches",
+            "found {} different, disjoint (by views), and geometrically verified landmark matches",
             matches.len()
         );
 
