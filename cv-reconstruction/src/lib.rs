@@ -602,10 +602,11 @@ where
         let b = &self.data.frames[frame_b];
         // Now we need to see if either or both of the frames is part of a reconstruction already.
         match (a.view, b.view) {
-            (Some((reconstruction_a, _view_a)), Some((reconstruction_b, _view_b))) => {
+            (Some((reconstruction_a, view_a)), Some((reconstruction_b, view_b))) => {
                 if reconstruction_a == reconstruction_b {
                     // In this case, we are simply attempting to perform loop closure and matching within an existing reconstruction.
-                    unimplemented!()
+                    self.match_views(reconstruction_a, view_a, view_b);
+                    Some((reconstruction_a, (view_a, view_b)))
                 } else {
                     // In this case, both views are part of different reconstructions and they may need to be registered together.
                     unimplemented!("joining reconstructions not yet supported")
@@ -871,20 +872,12 @@ where
             .into_iter()
             .filter(|&(landmark, feature)| {
                 let keypoint = new_frame.features[feature].keypoint;
-                self.triangulate_landmark_with_appended_observation_and_verify_existing_observations(
+                self.triangulate_landmark_with_appended_observations_and_verify(
                     reconstruction_key,
                     landmark,
-                    pose,
-                    keypoint,
+                    std::iter::once((pose, keypoint)),
                 )
-                .map(|world_point| {
-                    // Also verify the new observation.
-                    let camera_point = pose.transform(world_point);
-                    let bearing = keypoint.bearing();
-                    let residual = 1.0 - bearing.dot(&camera_point.bearing());
-                    residual.is_finite() && residual < self.settings.cosine_distance_threshold
-                })
-                .unwrap_or(false)
+                .is_some()
             })
             .map(|(landmark, feature)| (feature, landmark))
             .collect();
@@ -901,6 +894,79 @@ where
             });
 
         Some(new_view_key)
+    }
+
+    /// Attempts to match two views in a reconstruction. This may merge some landmarks.
+    ///
+    /// Returns the pose and a vector of indices in the format (Reconstruction::landmarks, Frame::features).
+    fn match_views(
+        &mut self,
+        reconstruction_key: ReconstructionKey,
+        view_a_key: ViewKey,
+        view_b_key: ViewKey,
+    ) {
+        info!("trying to match two frames in existing reconstruction");
+        let reconstruction = self.data.reconstruction(reconstruction_key);
+        let view_a = &reconstruction.views[view_a_key];
+        let view_b = &reconstruction.views[view_b_key];
+        let frame_a = self.data.frame(view_a.frame);
+        let frame_b = self.data.frame(view_b.frame);
+
+        info!(
+            "performing brute-force matching between {} and {} features",
+            frame_a.features.len(),
+            frame_b.features.len(),
+        );
+
+        // Match the features of the two frames and convert the feature pairs to landmark pairs.
+        let matches = symmetric_matching(frame_a, frame_b)
+            .filter(|&(_, distance)| distance < self.settings.match_threshold)
+            .map(|(FeatureMatch(a, b), _)| FeatureMatch(view_a.landmarks[a], view_b.landmarks[b]));
+
+        // Geometrically verify if the landmark pairs would be able to totally combine within tollerances.
+        let matches: Vec<FeatureMatch<LandmarkKey>> = matches
+            .filter(|&FeatureMatch(landmark_a, landmark_b)| {
+                self.triangulate_landmark_with_appended_observations_and_verify(
+                    reconstruction_key,
+                    landmark_a,
+                    reconstruction.landmarks[landmark_b]
+                        .observations
+                        .iter()
+                        .map(|(&view, &feature)| {
+                            (
+                                reconstruction.views[view].pose,
+                                self.data.frames[view_b.frame].features[feature].keypoint,
+                            )
+                        }),
+                )
+                .is_some()
+            })
+            .collect();
+
+        info!(
+            "found {} geometrically verified landmark matches",
+            matches.len()
+        );
+
+        // Combine the landmarks together that pass all the stages.
+        for FeatureMatch(landmark_a, landmark_b) in matches {
+            // We need to totally empty out landmark_b's data first.
+            let landmark_b = self.data.reconstructions[reconstruction_key]
+                .landmarks
+                .remove(landmark_b)
+                .unwrap();
+
+            // For all the old observations of landmark_b
+            for (view, feature) in landmark_b.observations {
+                // Swap landmark_b for landmark_a on all the views landmark_b appears.
+                self.data.reconstructions[reconstruction_key].views[view].landmarks[feature] =
+                    landmark_a;
+                // Add the observation to landmark_a.
+                self.data.reconstructions[reconstruction_key].landmarks[landmark_a]
+                    .observations
+                    .insert(view, feature);
+            }
+        }
     }
 
     fn kps_descriptors(
@@ -1505,12 +1571,11 @@ where
         }
     }
 
-    pub fn triangulate_landmark_with_appended_observation(
+    pub fn triangulate_landmark_with_appended_observations(
         &self,
         reconstruction: ReconstructionKey,
         landmark: LandmarkKey,
-        pose: WorldToCamera,
-        keypoint: NormalizedKeyPoint,
+        observations: impl Iterator<Item = (WorldToCamera, NormalizedKeyPoint)>,
     ) -> Option<WorldPoint> {
         self.triangulator.triangulate_observations(
             self.data
@@ -1522,35 +1587,37 @@ where
                             .observation_keypoint(reconstruction, view, feature),
                     )
                 })
-                .chain(std::iter::once((pose, keypoint))),
+                .chain(observations),
         )
     }
 
-    pub fn triangulate_landmark_with_appended_observation_and_verify_existing_observations(
+    pub fn triangulate_landmark_with_appended_observations_and_verify(
         &self,
         reconstruction: ReconstructionKey,
         landmark: LandmarkKey,
-        pose: WorldToCamera,
-        keypoint: NormalizedKeyPoint,
+        mut observations: impl Iterator<Item = (WorldToCamera, NormalizedKeyPoint)> + Clone,
     ) -> Option<WorldPoint> {
-        self.triangulate_landmark_with_appended_observation(
+        self.triangulate_landmark_with_appended_observations(
             reconstruction,
             landmark,
-            pose,
-            keypoint,
+            observations.clone(),
         )
         .filter(|world_point| {
+            let verify = |pose: WorldToCamera, keypoint: NormalizedKeyPoint| {
+                let camera_point = pose.transform(*world_point);
+                let residual = 1.0 - keypoint.bearing().dot(&camera_point.bearing());
+                residual.is_finite() && residual < self.settings.cosine_distance_threshold
+            };
             self.data
                 .landmark_observations(reconstruction, landmark)
                 .all(|(view, feature)| {
                     let pose = self.data.pose(reconstruction, view);
-                    let camera_point = pose.transform(*world_point);
                     let keypoint = self
                         .data
                         .observation_keypoint(reconstruction, view, feature);
-                    let residual = 1.0 - keypoint.bearing().dot(&camera_point.bearing());
-                    residual.is_finite() && residual < self.settings.cosine_distance_threshold
+                    verify(pose, keypoint)
                 })
+                && observations.all(|(pose, keypoint)| verify(pose, keypoint))
         })
     }
 
