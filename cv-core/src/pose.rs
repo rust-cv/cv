@@ -221,8 +221,8 @@ impl Pose for CameraToWorld {
     }
 }
 
-/// This contains a relative pose, which is a pose that transforms the [`CameraPoint`]
-/// of one image into the corresponding [`CameraPoint`] of another image. This transforms
+/// This contains a relative pose that transforms the [`CameraPoint`] of one image
+/// into the corresponding [`CameraPoint`] of another image. This transforms
 /// the point from the camera space of camera `A` to camera `B`.
 ///
 /// Camera space for a given camera is defined as thus:
@@ -244,5 +244,33 @@ impl Pose for CameraToCamera {
 
     fn isometry(self) -> IsometryMatrix3<f64> {
         self.into()
+    }
+}
+
+/// This contains a relative pose that transforms the [`WorldPoint`] of one reconstruction
+/// into the corresponding [`WorldPoint`] of another reconstruction. This transforms
+/// the point from the world space of reconstruction `A` to reconstruction `B`.
+#[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, From, Into)]
+#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
+pub struct WorldToWorld(pub IsometryMatrix3<f64>);
+
+impl Pose for WorldToWorld {
+    type InputPoint = WorldPoint;
+    type OutputPoint = WorldPoint;
+    type Inverse = WorldToWorld;
+
+    fn isometry(self) -> IsometryMatrix3<f64> {
+        self.into()
+    }
+}
+
+impl WorldToWorld {
+    /// If a camera has a pose in two different reconstructions, we can derive the
+    /// [`WorldToWorld`] transformation from the [`WorldToCamera`] pose of the camera
+    /// in each reconstruction. This must be passed the camera pose in reconstruction `A`
+    /// and then reconstruction `B` in that order. It will return the [`WorldToWorld`]
+    /// transformation from `A` to `B`.
+    pub fn from_camera_poses(a_pose: WorldToCamera, b_pose: WorldToCamera) -> Self {
+        (b_pose.isometry().inverse() * a_pose.isometry()).into()
     }
 }

@@ -11,7 +11,7 @@ use cv_core::nalgebra::{Unit, Vector3, Vector6};
 use cv_core::{
     sample_consensus::{Consensus, Estimator},
     Bearing, CameraModel, CameraToCamera, FeatureMatch, FeatureWorldMatch, Pose, Projective,
-    TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera,
+    TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera, WorldToWorld,
 };
 use cv_optimize::{
     many_view_nelder_mead, single_view_nelder_mead, two_view_nelder_mead, ManyViewConstraint,
@@ -272,6 +272,14 @@ impl VSlamData {
         &self.reconstructions[reconstruction].landmarks[landmark]
     }
 
+    pub fn landmark_mut(
+        &mut self,
+        reconstruction: ReconstructionKey,
+        landmark: LandmarkKey,
+    ) -> &mut Landmark {
+        &mut self.reconstructions[reconstruction].landmarks[landmark]
+    }
+
     /// Retrieves the (view, feature) iterator from a landmark.
     pub fn landmark_observations(
         &self,
@@ -349,7 +357,7 @@ impl VSlamData {
         });
         assert!(
             self.frames[frame].view.is_none(),
-            "merging reconstructions not yet supported; aborting"
+            "if you are merging reconstructions, you MUST call VSlamData::incorporate_reconstruction"
         );
         self.frames[frame].view = Some((reconstruction, view));
 
@@ -358,7 +366,7 @@ impl VSlamData {
             // Check if the feature is part of an existing landmark.
             let landmark = if let Some(landmark) = existing_landmark(feature) {
                 // Add this observation to the observations of this landmark.
-                self.reconstructions[reconstruction].landmarks[landmark]
+                self.landmark_mut(reconstruction, landmark)
                     .observations
                     .insert(view, feature);
                 landmark
@@ -370,6 +378,65 @@ impl VSlamData {
             self.view_mut(reconstruction, view).landmarks.push(landmark);
         }
         view
+    }
+
+    /// Moves all views from one reconstruction to another and then removes the old reconstruction.
+    ///
+    /// `landmark_map` must map landmarks in `src_reconstruction` to landmarks in `dest_reconstruction`.
+    pub fn incorporate_reconstruction(
+        &mut self,
+        src_reconstruction: ReconstructionKey,
+        dest_reconstruction: ReconstructionKey,
+        world_transform: WorldToWorld,
+        mut landmark_map: HashMap<LandmarkKey, LandmarkKey>,
+    ) {
+        let src_views: Vec<ViewKey> = self.reconstructions[src_reconstruction]
+            .views
+            .keys()
+            .collect();
+        for src_view in src_views {
+            let frame = self.view_frame(src_reconstruction, src_view);
+
+            // Transform the pose from the src reconstruction to the dest reconstruction.
+            let pose = (world_transform.isometry()
+                * self.view(src_reconstruction, src_view).pose.isometry())
+            .into();
+
+            // Create the view.
+            let dest_view = self.reconstructions[dest_reconstruction]
+                .views
+                .insert(View {
+                    frame,
+                    pose,
+                    landmarks: vec![],
+                });
+            // Update the frame's view to point to the new view.
+            self.frames[frame].view = Some((dest_reconstruction, dest_view));
+
+            // Add all of the view's features to the reconstruction.
+            for feature in 0..self.frame(frame).features.len() {
+                let src_landmark = self.observation_landmark(src_reconstruction, src_view, feature);
+                // Check if the source landmark is already mapped to a destination landmark.
+                let dest_landmark = if let Some(&dest_landmark) = landmark_map.get(&src_landmark) {
+                    // Add this observation to the observations of this landmark.
+                    self.landmark_mut(dest_reconstruction, dest_landmark)
+                        .observations
+                        .insert(dest_view, feature);
+                    dest_landmark
+                } else {
+                    // Create the landmark otherwise.
+                    let dest_landmark = self.add_landmark(dest_reconstruction, dest_view, feature);
+                    landmark_map.insert(src_landmark, dest_landmark);
+                    dest_landmark
+                };
+                // Add the Reconstruction::landmark index to the feature landmarks vector for this view.
+                self.view_mut(dest_reconstruction, dest_view)
+                    .landmarks
+                    .push(dest_landmark);
+            }
+        }
+
+        self.reconstructions.remove(src_reconstruction);
     }
 
     /// Creates a new landmark. You must give the landmark at least one observation, as landmarks
@@ -409,8 +476,9 @@ impl VSlamData {
         feature: usize,
     ) -> LandmarkKey {
         // Check if this is the only observation in the landmark.
-        let old_landmark = self.reconstructions[reconstruction].views[view].landmarks[feature];
-        if self.reconstructions[reconstruction].landmarks[old_landmark]
+        let old_landmark = self.observation_landmark(reconstruction, view, feature);
+        if self
+            .landmark(reconstruction, old_landmark)
             .observations
             .len()
             >= 2
@@ -418,7 +486,7 @@ impl VSlamData {
             // Since this wasnt the only observation in the landmark, we can split it.
             // Remove the observation from the old_landmark.
             assert_eq!(
-                self.reconstructions[reconstruction].landmarks[old_landmark]
+                self.landmark_mut(reconstruction, old_landmark)
                     .observations
                     .remove(&view),
                 Some(feature)
@@ -432,7 +500,7 @@ impl VSlamData {
                     },
                 });
             // Assign the landmark ID to the observation.
-            self.reconstructions[reconstruction].views[view].landmarks[feature] = new_landmark;
+            self.view_mut(reconstruction, view).landmarks[feature] = new_landmark;
             new_landmark
         } else {
             old_landmark
@@ -452,9 +520,10 @@ impl VSlamData {
             .expect("landmark_b didnt exist");
         for (view, feature) in old_landmark.observations {
             // We must start by updating the landmark in the view for this feature.
-            self.reconstructions[reconstruction].views[view].landmarks[feature] = landmark_a;
+            self.view_mut(reconstruction, view).landmarks[feature] = landmark_a;
             // Add the observation to landmark A.
-            assert!(self.reconstructions[reconstruction].landmarks[landmark_a]
+            assert!(self
+                .landmark_mut(reconstruction, landmark_a)
                 .observations
                 .insert(view, feature)
                 .is_none());
@@ -604,7 +673,26 @@ where
                     Some((reconstruction_a, (view_a, view_b)))
                 } else {
                     // In this case, both views are part of different reconstructions and they may need to be registered together.
-                    unimplemented!("joining reconstructions not yet supported")
+                    // Start by finding which reconstruction has more views.
+                    // Insert the smaller reconstruction into the larger one.
+                    if self.data.reconstructions[reconstruction_b].views.len()
+                        > self.data.reconstructions[reconstruction_a].views.len()
+                    {
+                        self.try_merge_reconstructions(
+                            reconstruction_a,
+                            view_a,
+                            reconstruction_b,
+                            view_b,
+                        )
+                    } else {
+                        self.try_merge_reconstructions(
+                            reconstruction_b,
+                            view_b,
+                            reconstruction_a,
+                            view_a,
+                        )
+                        .map(|(r, (b, a))| (r, (a, b)))
+                    }
                 }
             }
             (None, None) => {
@@ -761,16 +849,16 @@ where
         Some((pose, matches))
     }
 
-    /// Attempts to track the frame in the reconstruction.
+    /// Attempts to register the frame into the given reconstruction.
     ///
-    /// Returns the pose and a vector of indices in the format (Reconstruction::landmarks, Frame::features).
-    fn incorporate_frame(
+    /// Returns the pose and a map from feature indices to landmarks.
+    fn register_frame(
         &mut self,
         reconstruction_key: ReconstructionKey,
         existing_view_key: ViewKey,
         new_frame_key: FrameKey,
-    ) -> Option<ViewKey> {
-        info!("trying to incorporate new frame into existing reconstruction");
+    ) -> Option<(WorldToCamera, HashMap<usize, LandmarkKey>)> {
+        info!("trying to register frame into existing reconstruction");
         let reconstruction = self.data.reconstruction(reconstruction_key);
         let existing_view = &reconstruction.views[existing_view_key];
         let existing_frame = self.data.frame(existing_view.frame);
@@ -877,18 +965,75 @@ where
             .map(|(landmark, feature)| (feature, landmark))
             .collect();
 
-        info!(
-            "frame successfully incorporated with a total of {} matches",
-            matches.len()
-        );
+        info!("registered frame with a total of {} matches", matches.len());
+
+        Some((pose, matches))
+    }
+
+    /// Attempts to track the frame in the reconstruction.
+    ///
+    /// Returns the pose and a vector of indices in the format (Reconstruction::landmarks, Frame::features).
+    fn incorporate_frame(
+        &mut self,
+        reconstruction: ReconstructionKey,
+        existing_view: ViewKey,
+        new_frame: FrameKey,
+    ) -> Option<ViewKey> {
+        let (pose, matches) = self.register_frame(reconstruction, existing_view, new_frame)?;
 
         let new_view_key = self
             .data
-            .add_view(reconstruction_key, new_frame_key, pose, |feature| {
+            .add_view(reconstruction, new_frame, pose, |feature| {
                 matches.get(&feature).copied()
             });
 
         Some(new_view_key)
+    }
+
+    /// Attempts to register the given frame in the given source reconstruction with the landmarks in the given
+    /// view in the destination reconstruction. It also merges the landmarks between the two reconstructions.
+    ///
+    /// Returns the resultant (reconstruction, (src_view, dest_view)) pair if it was successful.
+    /// The views are now all in the final reconstruction space.
+    fn try_merge_reconstructions(
+        &mut self,
+        src_reconstruction: ReconstructionKey,
+        src_view: ViewKey,
+        dest_reconstruction: ReconstructionKey,
+        dest_view: ViewKey,
+    ) -> Option<(ReconstructionKey, (ViewKey, ViewKey))> {
+        let src_frame = self.data.view_frame(src_reconstruction, src_view);
+        // Register the frame in the source reconstruction to the destination reconstruction.
+        let (pose, matches) = self.register_frame(dest_reconstruction, dest_view, src_frame)?;
+
+        // Create the transformation from the source to the destination reconstruction.
+        let world_transform = WorldToWorld::from_camera_poses(
+            self.data.view(src_reconstruction, src_view).pose,
+            pose,
+        );
+
+        // Create a map from src landmarks to dest landmarks.
+        let landmark_to_landmark: HashMap<LandmarkKey, LandmarkKey> = matches
+            .iter()
+            .map(|(&src_feature, &dest_landmark)| {
+                (
+                    self.data.view(src_reconstruction, src_view).landmarks[src_feature],
+                    dest_landmark,
+                )
+            })
+            .collect();
+
+        self.data.incorporate_reconstruction(
+            src_reconstruction,
+            dest_reconstruction,
+            world_transform,
+            landmark_to_landmark,
+        );
+
+        Some((
+            dest_reconstruction,
+            (self.data.frames[src_frame].view.unwrap().1, dest_view),
+        ))
     }
 
     /// Attempts to match two views in a reconstruction. This may merge some landmarks.
@@ -971,10 +1116,10 @@ where
             // For all the old observations of landmark_b
             for (view, feature) in landmark_b.observations {
                 // Swap landmark_b for landmark_a on all the views landmark_b appears.
-                self.data.reconstructions[reconstruction_key].views[view].landmarks[feature] =
-                    landmark_a;
+                self.data.view_mut(reconstruction_key, view).landmarks[feature] = landmark_a;
                 // Add the observation to landmark_a.
-                self.data.reconstructions[reconstruction_key].landmarks[landmark_a]
+                self.data
+                    .landmark_mut(reconstruction_key, landmark_a)
                     .observations
                     .insert(view, feature);
             }
@@ -1677,7 +1822,9 @@ where
                 {
                     error!("SANITY CHECK FAILURE: landmark associated with reconstruction {:?}, view {:?}, and feature {} does not exist, it was landmark {:?}", reconstruction, view, feature, landmark);
                 } else {
-                    let observation = self.data.reconstruction(reconstruction).landmarks[landmark]
+                    let observation = self
+                        .data
+                        .landmark(reconstruction, landmark)
                         .observations
                         .get(&view);
                     if observation != Some(&feature) {
