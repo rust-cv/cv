@@ -262,5 +262,5 @@ fn default_reconstruction_optimization_iterations() -> usize {
 }
 
 fn default_tracking_frames() -> usize {
-    8
+    16
 }
