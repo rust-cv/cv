@@ -81,9 +81,11 @@ pub mod knn {
         pub use hnsw::*;
     }
 
-    /// An exact nearest neighbor search algorithm that checks every item (recommended for exact search)
     #[cfg(all(feature = "space", feature = "alloc"))]
-    pub use space::LinearKnn;
+    pub use space::{KnnMap, KnnPoints, LinearKnn};
+
+    #[cfg(all(feature = "space"))]
+    pub use space::{Knn, MetricPoint, Neighbor};
 }
 
 /// Optimization algorithms

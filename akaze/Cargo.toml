@@ -20,7 +20,7 @@ derive_more = { version = "0.99.16", default-features = false }
 nshare = { version = "0.7.0", features = ["ndarray", "image"] }
 ndarray = { version = "0.15.3", default-features = false }
 float-ord = { version = "0.3.1", default-features = false }
-space = "0.14.0"
+space = "0.14.2"
 bitarray = "0.5.1"
 
 

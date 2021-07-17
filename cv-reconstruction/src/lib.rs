@@ -11,13 +11,14 @@ use cv_core::nalgebra::{Unit, Vector3, Vector6};
 use cv_core::{
     sample_consensus::{Consensus, Estimator},
     Bearing, CameraModel, CameraToCamera, FeatureMatch, FeatureWorldMatch, Pose, Projective,
-    TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera,
+    TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera, WorldToWorld,
 };
 use cv_optimize::{
     many_view_nelder_mead, single_view_nelder_mead, two_view_nelder_mead, ManyViewConstraint,
     SingleViewConstraint, TwoViewConstraint,
 };
 use cv_pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix, NormalizedKeyPoint};
+use hamming_lsh::HammingHasher;
 use hgg::HggLite as Hgg;
 use image::DynamicImage;
 use itertools::{izip, Itertools};
@@ -81,6 +82,10 @@ pub struct Frame {
     pub feed: FeedKey,
     /// The keypoints and corresponding descriptors observed on this frame
     pub features: Vec<Feature>,
+    /// The views this frame produced.
+    pub view: Option<(ReconstructionKey, ViewKey)>,
+    /// The lsh of this frame's features.
+    pub lsh: BitArray<32>,
 }
 
 impl Frame {
@@ -98,6 +103,11 @@ impl Frame {
 
     pub fn color(&self, ix: usize) -> [u8; 3] {
         self.features[ix].color
+    }
+
+    /// Generates a locality-sensitive hash of the features in the frame.
+    pub fn lsh(&self, hasher: &HammingHasher<64, 32>) -> BitArray<32> {
+        hasher.hash_bag(self.features.iter().map(|f| &f.descriptor))
     }
 }
 
@@ -129,9 +139,6 @@ pub struct Feed {
     intrinsics: CameraIntrinsicsK1Distortion,
     /// VSlam::frames indices corresponding to each frame of the feed
     frames: Vec<FrameKey>,
-    /// The VSlam::reconstructions index currently being tracked
-    /// If tracking fails, the reconstruction will be set to None.
-    reconstruction: Option<ReconstructionKey>,
 }
 
 /// A series of views and points which exist in the same world space
@@ -142,8 +149,6 @@ pub struct Reconstruction {
     pub views: DenseSlotMap<ViewKey, View>,
     /// The landmarks contained in this reconstruction
     pub landmarks: DenseSlotMap<LandmarkKey, Landmark>,
-    /// The HGG to search descriptors for keypoint `(Reconstruction::view, Frame::features)` instances
-    pub descriptor_observations: Hgg<BitArray<64>, (ViewKey, usize)>,
 }
 
 /// Contains the results of a bundle adjust
@@ -166,6 +171,10 @@ pub struct VSlamData {
     reconstructions: DenseSlotMap<ReconstructionKey, Reconstruction>,
     /// Contains all the frames
     frames: DenseSlotMap<FrameKey, Frame>,
+    /// Contains the LSH hasher.
+    hasher: HammingHasher<64, 32>,
+    /// The HGG to search descriptors for keypoint `(Reconstruction::view, Frame::features)` instances
+    lsh_to_frame: Hgg<BitArray<32>, FrameKey>,
 }
 
 impl VSlamData {
@@ -263,6 +272,14 @@ impl VSlamData {
         &self.reconstructions[reconstruction].landmarks[landmark]
     }
 
+    pub fn landmark_mut(
+        &mut self,
+        reconstruction: ReconstructionKey,
+        landmark: LandmarkKey,
+    ) -> &mut Landmark {
+        &mut self.reconstructions[reconstruction].landmarks[landmark]
+    }
+
     /// Retrieves the (view, feature) iterator from a landmark.
     pub fn landmark_observations(
         &self,
@@ -298,7 +315,7 @@ impl VSlamData {
         frame_b: FrameKey,
         pose: CameraToCamera,
         matches: Vec<FeatureMatch<usize>>,
-    ) -> ReconstructionKey {
+    ) -> (ReconstructionKey, (ViewKey, ViewKey)) {
         // Create a new empty reconstruction.
         let reconstruction = self.reconstructions.insert(Reconstruction::default());
         // Add frame A to new reconstruction using an empty set of landmarks so all features are added as new landmarks.
@@ -314,13 +331,13 @@ impl VSlamData {
             })
             .collect();
         // Add frame B to new reconstruction using the extracted landmark, bix pairs.
-        self.add_view(
+        let view_b = self.add_view(
             reconstruction,
             frame_b,
             WorldToCamera::from(pose.isometry()),
             |feature| landmarks.get(&feature).copied(),
         );
-        reconstruction
+        (reconstruction, (view_a, view_b))
     }
 
     /// Adds a new View.
@@ -338,22 +355,18 @@ impl VSlamData {
             pose,
             landmarks: vec![],
         });
-
-        info!(
-            "adding {} view features to HGG",
-            self.frame(frame).features.len()
+        assert!(
+            self.frames[frame].view.is_none(),
+            "if you are merging reconstructions, you MUST call VSlamData::incorporate_reconstruction"
         );
+        self.frames[frame].view = Some((reconstruction, view));
 
         // Add all of the view's features to the reconstruction.
         for feature in 0..self.frame(frame).features.len() {
-            // Add the feature to the HGG.
-            self.reconstructions[reconstruction]
-                .descriptor_observations
-                .insert(*self.frames[frame].descriptor(feature), (view, feature));
             // Check if the feature is part of an existing landmark.
             let landmark = if let Some(landmark) = existing_landmark(feature) {
                 // Add this observation to the observations of this landmark.
-                self.reconstructions[reconstruction].landmarks[landmark]
+                self.landmark_mut(reconstruction, landmark)
                     .observations
                     .insert(view, feature);
                 landmark
@@ -365,6 +378,65 @@ impl VSlamData {
             self.view_mut(reconstruction, view).landmarks.push(landmark);
         }
         view
+    }
+
+    /// Moves all views from one reconstruction to another and then removes the old reconstruction.
+    ///
+    /// `landmark_map` must map landmarks in `src_reconstruction` to landmarks in `dest_reconstruction`.
+    pub fn incorporate_reconstruction(
+        &mut self,
+        src_reconstruction: ReconstructionKey,
+        dest_reconstruction: ReconstructionKey,
+        world_transform: WorldToWorld,
+        mut landmark_map: HashMap<LandmarkKey, LandmarkKey>,
+    ) {
+        let src_views: Vec<ViewKey> = self.reconstructions[src_reconstruction]
+            .views
+            .keys()
+            .collect();
+        for src_view in src_views {
+            let frame = self.view_frame(src_reconstruction, src_view);
+
+            // Transform the pose from the src reconstruction to the dest reconstruction.
+            let pose = (world_transform.isometry()
+                * self.view(src_reconstruction, src_view).pose.isometry())
+            .into();
+
+            // Create the view.
+            let dest_view = self.reconstructions[dest_reconstruction]
+                .views
+                .insert(View {
+                    frame,
+                    pose,
+                    landmarks: vec![],
+                });
+            // Update the frame's view to point to the new view.
+            self.frames[frame].view = Some((dest_reconstruction, dest_view));
+
+            // Add all of the view's features to the reconstruction.
+            for feature in 0..self.frame(frame).features.len() {
+                let src_landmark = self.observation_landmark(src_reconstruction, src_view, feature);
+                // Check if the source landmark is already mapped to a destination landmark.
+                let dest_landmark = if let Some(&dest_landmark) = landmark_map.get(&src_landmark) {
+                    // Add this observation to the observations of this landmark.
+                    self.landmark_mut(dest_reconstruction, dest_landmark)
+                        .observations
+                        .insert(dest_view, feature);
+                    dest_landmark
+                } else {
+                    // Create the landmark otherwise.
+                    let dest_landmark = self.add_landmark(dest_reconstruction, dest_view, feature);
+                    landmark_map.insert(src_landmark, dest_landmark);
+                    dest_landmark
+                };
+                // Add the Reconstruction::landmark index to the feature landmarks vector for this view.
+                self.view_mut(dest_reconstruction, dest_view)
+                    .landmarks
+                    .push(dest_landmark);
+            }
+        }
+
+        self.reconstructions.remove(src_reconstruction);
     }
 
     /// Creates a new landmark. You must give the landmark at least one observation, as landmarks
@@ -382,63 +454,6 @@ impl VSlamData {
                     view => feature,
                 },
             })
-    }
-
-    /// Find the best matching landmark, filtering appropriately.
-    /// Must have smaller distance than `distance_threshold`.
-    ///
-    /// Returns a Reconstruction::landmark index.
-    fn locate_landmark(
-        &self,
-        reconstruction: ReconstructionKey,
-        frame: FrameKey,
-        feature: usize,
-        distance_threshold: u32,
-    ) -> Option<LandmarkKey> {
-        // Find the nearest neighbors.
-        let descriptor = self.descriptor(frame, feature);
-        let neighbors = self.reconstructions[reconstruction]
-            .descriptor_observations
-            .knn(descriptor, 16);
-        let best = neighbors[0];
-        if let Some(second_best) = neighbors.get(1) {
-            // Make sure that the second best isn't equally as good.
-            // TODO: Lowe's ratio or another heuristic could be used here.
-            if best.distance == second_best.distance {
-                return None;
-            }
-        }
-        let best_descriptor = self.reconstructions[reconstruction]
-            .descriptor_observations
-            .get_key(best.index)
-            .unwrap();
-
-        // If the match doesn't beat the distance threshold, throw it out.
-        if best.distance >= distance_threshold {
-            return None;
-        }
-
-        // Find out how many features are the same or better match for the found feature in this current frame.
-        let equivalent_or_better_features = self
-            .frame(frame)
-            .descriptors()
-            .enumerate()
-            .filter(|(_, other_descriptor)| {
-                best_descriptor.distance(other_descriptor) <= best.distance
-            })
-            .count();
-
-        // Make sure that this that this feature is uncontested as the best match for the found feature.
-        // It should be the only match.
-        if equivalent_or_better_features == 1 {
-            let &(view, feature) = self.reconstructions[reconstruction]
-                .descriptor_observations
-                .get_value(best.index)
-                .unwrap();
-            Some(self.reconstructions[reconstruction].views[view].landmarks[feature])
-        } else {
-            None
-        }
     }
 
     fn apply_bundle_adjust(&mut self, bundle_adjust: BundleAdjustment) {
@@ -461,8 +476,9 @@ impl VSlamData {
         feature: usize,
     ) -> LandmarkKey {
         // Check if this is the only observation in the landmark.
-        let old_landmark = self.reconstructions[reconstruction].views[view].landmarks[feature];
-        if self.reconstructions[reconstruction].landmarks[old_landmark]
+        let old_landmark = self.observation_landmark(reconstruction, view, feature);
+        if self
+            .landmark(reconstruction, old_landmark)
             .observations
             .len()
             >= 2
@@ -470,7 +486,7 @@ impl VSlamData {
             // Since this wasnt the only observation in the landmark, we can split it.
             // Remove the observation from the old_landmark.
             assert_eq!(
-                self.reconstructions[reconstruction].landmarks[old_landmark]
+                self.landmark_mut(reconstruction, old_landmark)
                     .observations
                     .remove(&view),
                 Some(feature)
@@ -484,7 +500,7 @@ impl VSlamData {
                     },
                 });
             // Assign the landmark ID to the observation.
-            self.reconstructions[reconstruction].views[view].landmarks[feature] = new_landmark;
+            self.view_mut(reconstruction, view).landmarks[feature] = new_landmark;
             new_landmark
         } else {
             old_landmark
@@ -504,14 +520,42 @@ impl VSlamData {
             .expect("landmark_b didnt exist");
         for (view, feature) in old_landmark.observations {
             // We must start by updating the landmark in the view for this feature.
-            self.reconstructions[reconstruction].views[view].landmarks[feature] = landmark_a;
+            self.view_mut(reconstruction, view).landmarks[feature] = landmark_a;
             // Add the observation to landmark A.
-            assert!(self.reconstructions[reconstruction].landmarks[landmark_a]
+            assert!(self
+                .landmark_mut(reconstruction, landmark_a)
                 .observations
                 .insert(view, feature)
                 .is_none());
         }
         landmark_a
+    }
+
+    /// Get the most visually similar frames to a given frame.
+    ///
+    /// Automatically filters out the same frame if it occurs.
+    fn find_visually_similar_frames(&self, frame: FrameKey, num: usize) -> Vec<FrameKey> {
+        let search_num = std::cmp::max(64, num);
+        self.lsh_to_frame
+            .knn(&self.frames[frame].lsh, search_num)
+            .into_iter()
+            .map(|n| *self.lsh_to_frame.get_value(n.index).unwrap())
+            .filter(|&found_frame| found_frame != frame)
+            .take(num)
+            .collect()
+    }
+
+    fn add_frame(&mut self, feed: FeedKey, features: Vec<Feature>) -> FrameKey {
+        let lsh = self.hasher.hash_bag(features.iter().map(|f| &f.descriptor));
+        let frame = self.frames.insert(Frame {
+            feed,
+            features,
+            view: None,
+            lsh,
+        });
+        self.lsh_to_frame.insert(lsh, frame);
+        self.feeds[feed].frames.push(frame);
+        frame
     }
 }
 
@@ -563,15 +607,10 @@ where
     }
 
     /// Adds a new feed with the given intrinsics.
-    pub fn add_feed(
-        &mut self,
-        intrinsics: CameraIntrinsicsK1Distortion,
-        reconstruction: Option<ReconstructionKey>,
-    ) -> FeedKey {
+    pub fn add_feed(&mut self, intrinsics: CameraIntrinsicsK1Distortion) -> FeedKey {
         self.data.feeds.insert(Feed {
             intrinsics,
             frames: vec![],
-            reconstruction,
         })
     }
 
@@ -579,38 +618,34 @@ where
     ///
     /// This may perform camera tracking and will always extract features.
     ///
-    /// Returns a VSlam::reconstructions index if the frame was incorporated in a reconstruction.
-    pub fn add_frame(&mut self, feed: FeedKey, image: &DynamicImage) -> Option<ReconstructionKey> {
+    /// Returns a `(Reconstruction, View)` pair if the frame was incorporated in a reconstruction.
+    /// Returns the `Frame` in all cases.
+    pub fn add_frame(&mut self, feed: FeedKey, image: &DynamicImage) -> FrameKey {
         // Extract the features for the frame and add the frame object.
-        let next_id = self.data.frames.insert(Frame {
-            feed,
-            features: self.kps_descriptors(&self.data.feeds[feed].intrinsics, image),
-        });
-        // Add the frame to the feed.
-        self.data.feeds[feed].frames.push(next_id);
-        // Get the number of frames this feed has.
-        let num_frames = self.data.feeds[feed].frames.len();
+        let features = self.kps_descriptors(&self.data.feeds[feed].intrinsics, image);
+        let frame = self.data.add_frame(feed, features);
 
-        if let Some(reconstruction) = self.data.feeds[feed].reconstruction {
-            // If the feed has an active reconstruction, try to track the frame.
-            if self.try_track(reconstruction, next_id).is_none() {
-                // If tracking fails, set the active reconstruction to None.
-                self.data.feeds[feed].reconstruction = None;
-            }
-        } else if num_frames >= 2 {
-            // If there is no active reconstruction, but we have at least two frames, try to initialize the reconstruction
-            // using the last two frames.
-            let frame_a = self.data.feeds[feed].frames[num_frames - 2];
-            let frame_b = self.data.feeds[feed].frames[num_frames - 1];
-            self.data.feeds[feed].reconstruction = self.try_init(frame_a, frame_b);
+        // Find the frames which are most visually similar to this frame.
+        let similar_frames = self
+            .data
+            .find_visually_similar_frames(frame, self.settings.tracking_frames);
+
+        // Try to localize this new frame with all of the similar frames.
+        for similar_frame in similar_frames {
+            self.try_localize(frame, similar_frame);
         }
-        self.data.feeds[feed].reconstruction
+
+        frame
     }
 
     /// Attempts to match a frame pair, creating a new reconstruction from a two view pair.
     ///
     /// Returns the VSlam::reconstructions ID if successful.
-    fn try_init(&mut self, frame_a: FrameKey, frame_b: FrameKey) -> Option<ReconstructionKey> {
+    fn try_init(
+        &mut self,
+        frame_a: FrameKey,
+        frame_b: FrameKey,
+    ) -> Option<(ReconstructionKey, (ViewKey, ViewKey))> {
         // Add the outcome.
         let (pose, matches) = self.init_reconstruction(frame_a, frame_b)?;
         Some(
@@ -619,23 +654,60 @@ where
         )
     }
 
-    /// Attempts to track the camera.
+    /// Attempts to localize two frames relative to each other and join their reconstructions.
     ///
-    /// Returns Reconstruction::views index if successful.
-    fn try_track(&mut self, reconstruction: ReconstructionKey, frame: FrameKey) -> Option<ViewKey> {
-        // Generate the outcome.
-        let (pose, landmarks) = self.locate_frame(reconstruction, frame)?;
-
-        // For all feature matches, create a map from the feature ix .
-        let landmarks: HashMap<usize, LandmarkKey> = landmarks
-            .into_iter()
-            .map(|(landmark, feature)| (feature, landmark))
-            .collect();
-
-        // Add the outcome.
-        Some(self.data.add_view(reconstruction, frame, pose, |feature| {
-            landmarks.get(&feature).copied()
-        }))
+    /// Returns the (Reconstruction, (View, View)) with the joined reconstruction and the two views if successful.
+    fn try_localize(
+        &mut self,
+        frame_a: FrameKey,
+        frame_b: FrameKey,
+    ) -> Option<(ReconstructionKey, (ViewKey, ViewKey))> {
+        let a = &self.data.frames[frame_a];
+        let b = &self.data.frames[frame_b];
+        // Now we need to see if either or both of the frames is part of a reconstruction already.
+        match (a.view, b.view) {
+            (Some((reconstruction_a, view_a)), Some((reconstruction_b, view_b))) => {
+                if reconstruction_a == reconstruction_b {
+                    // In this case, we are simply attempting to perform loop closure and matching within an existing reconstruction.
+                    self.match_views(reconstruction_a, view_a, view_b);
+                    Some((reconstruction_a, (view_a, view_b)))
+                } else {
+                    // In this case, both views are part of different reconstructions and they may need to be registered together.
+                    // Start by finding which reconstruction has more views.
+                    // Insert the smaller reconstruction into the larger one.
+                    if self.data.reconstructions[reconstruction_b].views.len()
+                        > self.data.reconstructions[reconstruction_a].views.len()
+                    {
+                        self.try_merge_reconstructions(
+                            reconstruction_a,
+                            view_a,
+                            reconstruction_b,
+                            view_b,
+                        )
+                    } else {
+                        self.try_merge_reconstructions(
+                            reconstruction_b,
+                            view_b,
+                            reconstruction_a,
+                            view_a,
+                        )
+                        .map(|(r, (b, a))| (r, (a, b)))
+                    }
+                }
+            }
+            (None, None) => {
+                // In this case, neither frame is part of a reconstruction, so we should initialize a new one.
+                self.try_init(frame_a, frame_b)
+            }
+            // In either of the below cases, we have one frame which is part of a reconstruction and one
+            // frame that is not.
+            (Some((reconstruction, view_a)), None) => self
+                .incorporate_frame(reconstruction, view_a, frame_b)
+                .map(|view_b| (reconstruction, (view_a, view_b))),
+            (None, Some((reconstruction, view_b))) => self
+                .incorporate_frame(reconstruction, view_b, frame_a)
+                .map(|view_a| (reconstruction, (view_a, view_b))),
+        }
     }
 
     /// Triangulates the point of each match, filtering out matches which fail triangulation or chirality test.
@@ -689,19 +761,17 @@ where
             b.features.len(),
         );
         // Retrieve the matches which agree with each other from each frame and filter out ones that aren't within the match threshold.
-        let matches: Vec<FeatureMatch<usize>> = symmetric_matching(a, b)
+        let original_matches: Vec<FeatureMatch<usize>> = symmetric_matching(a, b)
             .filter(|&(_, distance)| distance < self.settings.match_threshold)
             .map(|(m, _)| m)
             .collect();
 
-        let original_matches = matches.clone();
-
-        info!("estimate essential on {} matches", matches.len());
+        info!("estimate essential on {} matches", original_matches.len());
 
         // Estimate the essential matrix and retrieve the inliers
         let (essential, inliers) = self.consensus.borrow_mut().model_inliers(
             &self.essential_estimator,
-            matches
+            original_matches
                 .iter()
                 .copied()
                 .map(match_ix_kps)
@@ -710,7 +780,8 @@ where
                 .copied(),
         )?;
         // Reconstitute only the inlier matches into a matches vector.
-        let matches: Vec<FeatureMatch<usize>> = inliers.into_iter().map(|ix| matches[ix]).collect();
+        let matches: Vec<FeatureMatch<usize>> =
+            inliers.into_iter().map(|ix| original_matches[ix]).collect();
 
         info!("perform chirality test on {}", matches.len());
 
@@ -778,39 +849,33 @@ where
         Some((pose, matches))
     }
 
-    /// Attempts to track the frame in the reconstruction.
+    /// Attempts to register the frame into the given reconstruction.
     ///
-    /// Returns the pose and a vector of indices in the format (Reconstruction::landmarks, Frame::features).
-    fn locate_frame(
-        &self,
-        reconstruction: ReconstructionKey,
-        frame: FrameKey,
-    ) -> Option<(WorldToCamera, Vec<(LandmarkKey, usize)>)> {
-        info!("find existing landmarks to track camera");
-        // Start by trying to match the frame's features to the landmarks in the reconstruction.
-        // Get back a bunch of (Reconstruction::landmarks, Frame::features) correspondences.
-        let matches: Vec<(LandmarkKey, usize)> = (0..self.data.frame(frame).features.len())
-            .filter_map(|feature| {
-                self.data
-                    .locate_landmark(
-                        reconstruction,
-                        frame,
-                        feature,
-                        self.settings.match_threshold,
-                    )
-                    .map(|landmark| (landmark, feature))
-            })
-            .collect();
+    /// Returns the pose and a map from feature indices to landmarks.
+    fn register_frame(
+        &mut self,
+        reconstruction_key: ReconstructionKey,
+        existing_view_key: ViewKey,
+        new_frame_key: FrameKey,
+    ) -> Option<(WorldToCamera, HashMap<usize, LandmarkKey>)> {
+        info!("trying to register frame into existing reconstruction");
+        let reconstruction = self.data.reconstruction(reconstruction_key);
+        let existing_view = &reconstruction.views[existing_view_key];
+        let existing_frame = self.data.frame(existing_view.frame);
+        let new_frame = self.data.frame(new_frame_key);
 
-        info!("removing any landmarks which matched more than one feature");
-        // Create counts of how often each landmark appears.
-        let mut landmark_counts: HashMap<LandmarkKey, usize> = HashMap::new();
-        for &(landmark, _) in &matches {
-            *landmark_counts.entry(landmark).or_default() += 1;
-        }
-        let matches: Vec<(LandmarkKey, usize)> = matches
-            .into_iter()
-            .filter(|&(landmark, _)| landmark_counts[&landmark] == 1)
+        info!(
+            "performing brute-force matching between {} and {} features",
+            existing_frame.features.len(),
+            new_frame.features.len(),
+        );
+        // Retrieve the matches which agree with each other from each frame and filter out ones that aren't within the match threshold.
+        let matches: Vec<(LandmarkKey, usize)> = symmetric_matching(existing_frame, new_frame)
+            .filter(|&(_, distance)| distance < self.settings.match_threshold)
+            .map(|(m, _)| m)
+            .map(|FeatureMatch(existing_feature, new_feature)| {
+                (existing_view.landmarks[existing_feature], new_feature)
+            })
             .collect();
 
         info!("found {} initial feature matches", matches.len());
@@ -820,11 +885,11 @@ where
                 .choose_multiple(&mut *self.rng.borrow_mut(), matches.len())
                 .filter_map(|&(landmark, feature)| {
                     Some(FeatureWorldMatch(
-                        self.data.keypoint(frame, feature),
+                        new_frame.features[feature].keypoint,
                         if robust {
-                            self.triangulate_landmark_robust(reconstruction, landmark)?
+                            self.triangulate_landmark_robust(reconstruction_key, landmark)?
                         } else {
-                            self.triangulate_landmark(reconstruction, landmark)?
+                            self.triangulate_landmark(reconstruction_key, landmark)?
                         },
                     ))
                 })
@@ -886,33 +951,179 @@ where
         let pose = Pose::from_se3(Vector6::from_row_slice(&opti_state.best_param));
 
         // Filter outlier matches and return all others for inclusion.
-        let matches: Vec<(LandmarkKey, usize)> = matches
+        let matches: HashMap<usize, LandmarkKey> = matches
             .into_iter()
             .filter(|&(landmark, feature)| {
-                let keypoint = self.data.keypoint(frame, feature);
-                self.triangulate_landmark_with_appended_observation_and_verify_existing_observations(
-                    reconstruction,
+                let keypoint = new_frame.features[feature].keypoint;
+                self.triangulate_landmark_with_appended_observations_and_verify(
+                    reconstruction_key,
                     landmark,
-                    pose,
-                    keypoint,
+                    std::iter::once((pose, keypoint)),
                 )
-                .map(|world_point| {
-                    // Also verify the new observation.
-                    let camera_point = pose.transform(world_point);
-                    let bearing = keypoint.bearing();
-                    let residual = 1.0 - bearing.dot(&camera_point.bearing());
-                    residual.is_finite() && residual < self.settings.cosine_distance_threshold
-                })
-                .unwrap_or(false)
+                .is_some()
+            })
+            .map(|(landmark, feature)| (feature, landmark))
+            .collect();
+
+        info!("registered frame with a total of {} matches", matches.len());
+
+        Some((pose, matches))
+    }
+
+    /// Attempts to track the frame in the reconstruction.
+    ///
+    /// Returns the pose and a vector of indices in the format (Reconstruction::landmarks, Frame::features).
+    fn incorporate_frame(
+        &mut self,
+        reconstruction: ReconstructionKey,
+        existing_view: ViewKey,
+        new_frame: FrameKey,
+    ) -> Option<ViewKey> {
+        let (pose, matches) = self.register_frame(reconstruction, existing_view, new_frame)?;
+
+        let new_view_key = self
+            .data
+            .add_view(reconstruction, new_frame, pose, |feature| {
+                matches.get(&feature).copied()
+            });
+
+        Some(new_view_key)
+    }
+
+    /// Attempts to register the given frame in the given source reconstruction with the landmarks in the given
+    /// view in the destination reconstruction. It also merges the landmarks between the two reconstructions.
+    ///
+    /// Returns the resultant (reconstruction, (src_view, dest_view)) pair if it was successful.
+    /// The views are now all in the final reconstruction space.
+    fn try_merge_reconstructions(
+        &mut self,
+        src_reconstruction: ReconstructionKey,
+        src_view: ViewKey,
+        dest_reconstruction: ReconstructionKey,
+        dest_view: ViewKey,
+    ) -> Option<(ReconstructionKey, (ViewKey, ViewKey))> {
+        let src_frame = self.data.view_frame(src_reconstruction, src_view);
+        // Register the frame in the source reconstruction to the destination reconstruction.
+        let (pose, matches) = self.register_frame(dest_reconstruction, dest_view, src_frame)?;
+
+        // Create the transformation from the source to the destination reconstruction.
+        let world_transform = WorldToWorld::from_camera_poses(
+            self.data.view(src_reconstruction, src_view).pose,
+            pose,
+        );
+
+        // Create a map from src landmarks to dest landmarks.
+        let landmark_to_landmark: HashMap<LandmarkKey, LandmarkKey> = matches
+            .iter()
+            .map(|(&src_feature, &dest_landmark)| {
+                (
+                    self.data.view(src_reconstruction, src_view).landmarks[src_feature],
+                    dest_landmark,
+                )
             })
             .collect();
 
+        self.data.incorporate_reconstruction(
+            src_reconstruction,
+            dest_reconstruction,
+            world_transform,
+            landmark_to_landmark,
+        );
+
+        Some((
+            dest_reconstruction,
+            (self.data.frames[src_frame].view.unwrap().1, dest_view),
+        ))
+    }
+
+    /// Attempts to match two views in a reconstruction. This may merge some landmarks.
+    ///
+    /// Returns the pose and a vector of indices in the format (Reconstruction::landmarks, Frame::features).
+    fn match_views(
+        &mut self,
+        reconstruction_key: ReconstructionKey,
+        view_a_key: ViewKey,
+        view_b_key: ViewKey,
+    ) {
+        info!("trying to match two frames in existing reconstruction");
+        let reconstruction = self.data.reconstruction(reconstruction_key);
+        let view_a = &reconstruction.views[view_a_key];
+        let view_b = &reconstruction.views[view_b_key];
+        let frame_a = self.data.frame(view_a.frame);
+        let frame_b = self.data.frame(view_b.frame);
+
         info!(
-            "locate_frame ended with a total of {} matches",
+            "performing brute-force matching between {} and {} features",
+            frame_a.features.len(),
+            frame_b.features.len(),
+        );
+
+        // Match the features of the two frames and convert the feature pairs to landmark pairs.
+        let matches = symmetric_matching(frame_a, frame_b)
+            .filter(|&(_, distance)| distance < self.settings.match_threshold)
+            .map(|(FeatureMatch(a, b), _)| FeatureMatch(view_a.landmarks[a], view_b.landmarks[b]));
+
+        // Check to make sure the landmarks aren't the same landmark.
+        let matches =
+            matches.filter(|&FeatureMatch(landmark_a, landmark_b)| landmark_a != landmark_b);
+        // Check to make sure that the landmarks do not share any views between them.
+        let matches = matches.filter(|&FeatureMatch(landmark_a, landmark_b)| {
+            !reconstruction.landmarks[landmark_a]
+                .observations
+                .keys()
+                .any(|landmark_a_view| {
+                    reconstruction.landmarks[landmark_b]
+                        .observations
+                        .keys()
+                        .any(|landmark_b_view| landmark_a_view == landmark_b_view)
+                })
+        });
+        // Geometrically verify if the landmark pairs would be able to totally combine within tollerances.
+        let matches = matches.filter(|&FeatureMatch(landmark_a, landmark_b)| {
+            self.triangulate_landmark_with_appended_observations_and_verify(
+                reconstruction_key,
+                landmark_a,
+                reconstruction.landmarks[landmark_b]
+                    .observations
+                    .iter()
+                    .map(|(&view, &feature)| {
+                        (
+                            reconstruction.views[view].pose,
+                            self.data.frames[reconstruction.views[view].frame].features[feature]
+                                .keypoint,
+                        )
+                    }),
+            )
+            .is_some()
+        });
+
+        // Store the final landmark matches into a vector.
+        let matches: Vec<FeatureMatch<LandmarkKey>> = matches.collect();
+
+        info!(
+            "found {} different, disjoint (by views), and geometrically verified landmark matches",
             matches.len()
         );
 
-        Some((pose, matches))
+        // Combine the landmarks together that pass all the stages.
+        for FeatureMatch(landmark_a, landmark_b) in matches {
+            // We need to totally empty out landmark_b's data first.
+            let landmark_b = self.data.reconstructions[reconstruction_key]
+                .landmarks
+                .remove(landmark_b)
+                .unwrap();
+
+            // For all the old observations of landmark_b
+            for (view, feature) in landmark_b.observations {
+                // Swap landmark_b for landmark_a on all the views landmark_b appears.
+                self.data.view_mut(reconstruction_key, view).landmarks[feature] = landmark_a;
+                // Add the observation to landmark_a.
+                self.data
+                    .landmark_mut(reconstruction_key, landmark_a)
+                    .observations
+                    .insert(view, feature);
+            }
+        }
     }
 
     fn kps_descriptors(
@@ -1517,12 +1728,11 @@ where
         }
     }
 
-    pub fn triangulate_landmark_with_appended_observation(
+    pub fn triangulate_landmark_with_appended_observations(
         &self,
         reconstruction: ReconstructionKey,
         landmark: LandmarkKey,
-        pose: WorldToCamera,
-        keypoint: NormalizedKeyPoint,
+        observations: impl Iterator<Item = (WorldToCamera, NormalizedKeyPoint)>,
     ) -> Option<WorldPoint> {
         self.triangulator.triangulate_observations(
             self.data
@@ -1534,35 +1744,37 @@ where
                             .observation_keypoint(reconstruction, view, feature),
                     )
                 })
-                .chain(std::iter::once((pose, keypoint))),
+                .chain(observations),
         )
     }
 
-    pub fn triangulate_landmark_with_appended_observation_and_verify_existing_observations(
+    pub fn triangulate_landmark_with_appended_observations_and_verify(
         &self,
         reconstruction: ReconstructionKey,
         landmark: LandmarkKey,
-        pose: WorldToCamera,
-        keypoint: NormalizedKeyPoint,
+        mut observations: impl Iterator<Item = (WorldToCamera, NormalizedKeyPoint)> + Clone,
     ) -> Option<WorldPoint> {
-        self.triangulate_landmark_with_appended_observation(
+        self.triangulate_landmark_with_appended_observations(
             reconstruction,
             landmark,
-            pose,
-            keypoint,
+            observations.clone(),
         )
         .filter(|world_point| {
+            let verify = |pose: WorldToCamera, keypoint: NormalizedKeyPoint| {
+                let camera_point = pose.transform(*world_point);
+                let residual = 1.0 - keypoint.bearing().dot(&camera_point.bearing());
+                residual.is_finite() && residual < self.settings.cosine_distance_threshold
+            };
             self.data
                 .landmark_observations(reconstruction, landmark)
                 .all(|(view, feature)| {
                     let pose = self.data.pose(reconstruction, view);
-                    let camera_point = pose.transform(*world_point);
                     let keypoint = self
                         .data
                         .observation_keypoint(reconstruction, view, feature);
-                    let residual = 1.0 - keypoint.bearing().dot(&camera_point.bearing());
-                    residual.is_finite() && residual < self.settings.cosine_distance_threshold
+                    verify(pose, keypoint)
                 })
+                && observations.all(|(pose, keypoint)| verify(pose, keypoint))
         })
     }
 
@@ -1610,7 +1822,9 @@ where
                 {
                     error!("SANITY CHECK FAILURE: landmark associated with reconstruction {:?}, view {:?}, and feature {} does not exist, it was landmark {:?}", reconstruction, view, feature, landmark);
                 } else {
-                    let observation = self.data.reconstruction(reconstruction).landmarks[landmark]
+                    let observation = self
+                        .data
+                        .landmark(reconstruction, landmark)
                         .observations
                         .get(&view);
                     if observation != Some(&feature) {

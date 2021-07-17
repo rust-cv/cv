@@ -112,13 +112,13 @@ fn main() {
     );
 
     // Add the feed.
-    let init_reconstruction = vslam.data.reconstructions().next();
-    let feed = vslam.add_feed(intrinsics, init_reconstruction);
+    let feed = vslam.add_feed(intrinsics);
 
     // Add the frames.
     for path in &opt.images {
         let image = image::open(path).expect("failed to load image");
-        if let Some(reconstruction) = vslam.add_frame(feed, &image) {
+        let frame = vslam.add_frame(feed, &image);
+        if let Some((reconstruction, _)) = vslam.data.frame(frame).view {
             if vslam.data.reconstruction(reconstruction).views.len() >= 3 {
                 vslam.optimize_reconstruction(reconstruction);
             }
