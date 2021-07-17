@@ -1,0 +1,44 @@
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/katex.min.css"
+    integrity="sha384-9eLZqc9ds8eNjO3TmqPeYcDj8n+Qfa4nuSiGYa6DjLNcv9BtN69ZIulL9+8CqC9Y" crossorigin="anonymous">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/katex.min.js"
+    integrity="sha384-K3vbOmF2BtaVai+Qk37uypf7VrgBubhQreNQe9aGsz9lB63dIFiQVlJbr92dw2Lx"
+    crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.10.0/dist/contrib/auto-render.min.js"
+    integrity="sha384-kmZOZB5ObwgQnS/DuDg6TScgOiWWBiVt0plIRkZCmE6rDZGrEOQeHM5PcHi+nyqe"
+    crossorigin="anonymous"></script>
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        var macros = {};
+        katex.renderToString(String.raw`
+            \gdef∅{\varnothing}
+            \gdef\N{\mathbb N}
+            \gdef\R{\mathbb R}
+            \gdef\C{\mathbb C}
+            \gdef\∪{\bigcup}
+            \gdef\∀{\forall}
+            \gdef\vec#1{\bm{#1}}
+            \gdef\delim#1#2#3{\mathopen{}\left#1 #2 \right#3\mathclose{}}
+            \gdef\p#1{\delim({#1})}
+            \gdef\abs#1{\delim\lvert{#1}\rvert}
+            \gdef\norm#1{\delim\lVert{#1}\rVert}
+            \gdef\floor#1{\delim{\lfloor}{#1}{\rfloor}}
+            \gdef\ceil#1{\delim{\lceil}{#1}{\rceil}}
+            \gdef\mod#1{\delim[{#1}]}
+            \gdef\dummyarg{\operatorname{-}}
+            \gdef\set#1{\delim\{{#1}\}}
+            \gdef\setb#1#2{\set{{#1} \middle\vert {#2}}}
+            \gdef\intersection{\cup}
+            \gdef\comp#1{\overline{#1}}
+            \gdef\powerset#1{\mathcal{P}\p{#1}}
+            \gdef\d{\operatorname{d}\!}
+        `, { macros });
+        renderMathInElement(document.body, {
+            delimiters: [
+                { left: '$$', right: '$$', display: true },
+                { left: '$', right: '$', display: false },
+            ],
+            maxExpand: 50,
+            macros
+        });
+    });
+</script>

@@ -26,6 +26,12 @@ nalgebra = { version = "0.28.0", default-features = false }
 
 [dev-dependencies]
 cv-geom = { version = "0.7.0", path = "../cv-geom" }
+criterion = "0.3.3"
+proptest = "0.10.1"
+static_assertions = "1.1.0"
+float_eq = "0.5.0"
+rug = "1.11.0"
 
 [package.metadata.docs.rs]
 all-features = true
+rustdoc-args = ["--html-in-header", ".cargo/katex-header.html"]
