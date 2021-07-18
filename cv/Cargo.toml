@@ -51,8 +51,8 @@ lambda-twist = { optional = true, version = "0.7.0", path = "../lambda-twist" }
 akaze = { optional = true, version = "0.7.0", path = "../akaze" }
 imgshow = { optional = true, version = "0.1.0", path = "../imgshow" }
 space = { version = "0.14.2", optional = true }
-hnsw = { version = "0.10.0", optional = true }
-hgg = { version = "0.3.0", optional = true }
+hnsw = { version = "0.10.1", optional = true }
+hgg = { version = "0.3.1", optional = true }
 levenberg-marquardt = { version = "0.10.0", optional = true }
 arrsac = { version = "0.7.0", optional = true }
 bitarray = { version = "0.5.1", features = ["space"], optional = true }
