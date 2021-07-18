@@ -105,6 +105,7 @@ Here are some of the domains of computer vision that Rust CV intends to persue a
   * [ ] Image registration ([Wikipedia](https://en.wikipedia.org/wiki/Image_registration))
   * [ ] Real-time depth-map estimation (for direct visual odometry algorithms that require it) ([Wikipedia](https://en.wikipedia.org/wiki/Depth_map))
   * [ ] Visual concept detection (used for loop closure)
+    * [X] [Bag LSH/Simhash for binary features](https://docs.rs/hamming-lsh/0.2.0/hamming_lsh/struct.HammingHasher.html)
     * [ ] Bag of Visual Words (BoW, see [Wikpedia article](https://en.wikipedia.org/wiki/Bag-of-words_model_in_computer_vision))
     * [ ] Second order occurence pooling (as per the paper "Higher-order Occurrence Pooling for Bags-of-Words: Visual Concept Detection")
     * [ ] Fisher vector encoding
