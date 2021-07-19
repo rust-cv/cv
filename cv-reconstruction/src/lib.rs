@@ -1026,6 +1026,10 @@ where
         let mut landmark_features: HashMap<LandmarkKey, Vec<(usize, u32)>> = HashMap::new();
         for (landmark, feature, distance) in landmark_features_filtered {
             let features = landmark_features.entry(landmark).or_default();
+            // Don't add duplicate features.
+            if features.iter().any(|&(f, _)| f == feature) {
+                continue;
+            }
             let pos = features.partition_point(|&(_, d)| d <= distance);
             features.insert(pos, (feature, distance));
         }
