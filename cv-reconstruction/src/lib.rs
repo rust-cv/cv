@@ -29,7 +29,6 @@ use slotmap::{new_key_type, DenseSlotMap};
 use space::{KnnInsert, KnnMap};
 use std::cell::RefCell;
 use std::cmp::Ordering;
-use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
@@ -617,8 +616,8 @@ impl VSlamData {
             horizontal_extrema.zip(vertical_extrema)
         {
             // TODO: This needs to use clustering, this is bad.
-            let horizontal_segments = 4;
-            let vertical_segments = 3;
+            let horizontal_segments = 16;
+            let vertical_segments = 9;
             let horizontal_stride = (upper_x - lower_x) / horizontal_segments as f64;
             let vertical_stride = (upper_y - lower_y) / horizontal_segments as f64;
 
@@ -991,66 +990,53 @@ where
                         new_frame_bag,
                         self.settings.match_better_by,
                     )
-                    .map(move |FeatureMatch(existing_feature, new_feature)| {
-                        (found_view.landmarks[existing_feature], new_feature)
-                    })
+                    .map(
+                        move |(FeatureMatch(existing_feature, new_feature), distance)| {
+                            (
+                                found_view.landmarks[existing_feature],
+                                new_feature,
+                                distance,
+                            )
+                        },
+                    )
                 });
-
-        // TODO: It would be smarter to simply remove inferior matches below rather than eliminating the landmark matches entirely.
 
         // We need to get only the matches out which do not violate certain rules.
         // Specifically, two separate features cannot match the same landmark.
         // Additionally, two separate landmarks cannot match the same feature.
         // If this happens, all of the instances of this landmark or feature must be removed
         // from the matches entirely.
-        let mut forbidden_features: HashSet<usize> = HashSet::new();
-        let mut forbidden_landmarks: HashSet<LandmarkKey> = HashSet::new();
-        let mut feature_landmarks: HashMap<usize, LandmarkKey> = HashMap::new();
-        let mut landmark_features: HashMap<LandmarkKey, usize> = HashMap::new();
-        let mut matches: Vec<(LandmarkKey, usize)> = vec![];
-        for (landmark, feature) in inital_landmark_feature_matches {
-            // Add the match either way, we will filter them later.
-            matches.push((landmark, feature));
-
-            // Check if this feature maps to another landmark.
-            match feature_landmarks.entry(feature) {
-                Entry::Occupied(o) => {
-                    let found_landmark = *o.get();
-                    if found_landmark != landmark {
-                        forbidden_landmarks.insert(found_landmark);
-                        forbidden_landmarks.insert(landmark);
-                        forbidden_features.insert(feature);
-                    }
-                }
-                Entry::Vacant(v) => {
-                    v.insert(landmark);
-                }
-            }
-
-            // Check if this landmark maps to another feature.
-            match landmark_features.entry(landmark) {
-                Entry::Occupied(o) => {
-                    let found_feature = *o.get();
-                    if found_feature != feature {
-                        forbidden_features.insert(found_feature);
-                        forbidden_features.insert(feature);
-                        forbidden_landmarks.insert(landmark);
-                    }
-                }
-                Entry::Vacant(v) => {
-                    v.insert(feature);
-                }
-            }
+        // To counter this, we will perform a symmetric match + lowes-like/match_better_by criteria.
+        // Only the best matches will be kept, and matches which violate the filter criteria will be removed.
+        let mut feature_landmarks: HashMap<usize, Vec<(LandmarkKey, u32)>> = HashMap::new();
+        for (landmark, feature, distance) in inital_landmark_feature_matches {
+            let landmarks = feature_landmarks.entry(feature).or_default();
+            let pos = landmarks.partition_point(|&(_, d)| d <= distance);
+            landmarks.insert(pos, (landmark, distance));
         }
-        // Filter the matches vector using the forbidden lists.
-        matches.retain(|(landmark, feature)| {
-            !forbidden_landmarks.contains(landmark) && !forbidden_features.contains(feature)
-        });
-        // Free all the memory we are no longer using now.
-        drop(forbidden_features);
-        drop(forbidden_landmarks);
-        drop(feature_landmarks);
-        drop(landmark_features);
+        let landmark_features_filtered = feature_landmarks
+            .into_iter()
+            .filter(|(_, landmarks)| {
+                landmarks.len() == 1
+                    || landmarks[0].1 + self.settings.match_better_by < landmarks[1].1
+            })
+            .map(|(feature, landmarks)| (landmarks[0].0, feature, landmarks[0].1));
+
+        // Next we need to do the same thing for the landmarks.
+        let mut landmark_features: HashMap<LandmarkKey, Vec<(usize, u32)>> = HashMap::new();
+        for (landmark, feature, distance) in landmark_features_filtered {
+            let features = landmark_features.entry(landmark).or_default();
+            let pos = features.partition_point(|&(_, d)| d <= distance);
+            features.insert(pos, (feature, distance));
+        }
+        let landmark_features_filtered = landmark_features
+            .into_iter()
+            .filter(|(_, features)| {
+                features.len() == 1 || features[0].1 + self.settings.match_better_by < features[1].1
+            })
+            .map(|(landmark, features)| (landmark, features[0].0));
+
+        let matches: Vec<(LandmarkKey, usize)> = landmark_features_filtered.collect();
 
         info!("found {} initial feature matches", matches.len());
 
@@ -1923,7 +1909,7 @@ fn matching<'a>(
     a_descriptors: impl Iterator<Item = &'a BitArray<64>>,
     b_descriptors: impl Iterator<Item = &'a BitArray<64>> + Clone,
     better_by: u32,
-) -> Vec<Option<usize>> {
+) -> Vec<Option<(usize, u32)>> {
     a_descriptors
         .map(|a| {
             let mut b_descriptors = b_descriptors.clone().enumerate();
@@ -1942,7 +1928,7 @@ fn matching<'a>(
                 }
             }
             if sufficiently_best {
-                Some(best.0)
+                Some(best)
             } else {
                 None
             }
@@ -1956,7 +1942,7 @@ fn symmetric_matching_bags<'a>(
     b_frame: &'a Frame,
     b_bag: usize,
     better_by: u32,
-) -> impl Iterator<Item = FeatureMatch<usize>> + 'a {
+) -> impl Iterator<Item = (FeatureMatch<usize>, u32)> + 'a {
     // Get the bag iterators for each.
     let a_bag_descriptors = a_frame.bag_descriptors(a_bag);
     let b_bag_descriptors = b_frame.bag_descriptors(b_bag);
@@ -1985,12 +1971,14 @@ fn symmetric_matching_bags<'a>(
             // Filter out matches which are not symmetric.
             // Symmetric is defined as the best and sufficient match of a being b,
             // and likewise the best and sufficient match of b being a.
-            bix.map(|bix| FeatureMatch(aix, bix))
-                .filter(|&FeatureMatch(aix, bix)| reverse_matches[bix] == Some(aix))
+            bix.map(|(bix, distance)| (FeatureMatch(aix, bix), distance))
+                .filter(|&(FeatureMatch(aix, bix), _)| {
+                    reverse_matches[bix].map(|(bix, _)| bix) == Some(aix)
+                })
         })
-        .map(move |FeatureMatch(aix, bix)| {
+        .map(move |(FeatureMatch(aix, bix), distance)| {
             // We need to map the feature indices into feature vector indices rather than bag indices.
-            FeatureMatch(aix + a_bag_start, bix + b_bag_start)
+            (FeatureMatch(aix + a_bag_start, bix + b_bag_start), distance)
         })
 }
 
@@ -2015,7 +2003,9 @@ fn symmetric_matching<'a>(
             // Filter out matches which are not symmetric.
             // Symmetric is defined as the best and sufficient match of a being b,
             // and likewise the best and sufficient match of b being a.
-            bix.map(|bix| FeatureMatch(aix, bix))
-                .filter(|&FeatureMatch(aix, bix)| reverse_matches[bix] == Some(aix))
+            bix.map(|(bix, _)| FeatureMatch(aix, bix))
+                .filter(|&FeatureMatch(aix, bix)| {
+                    reverse_matches[bix].map(|(bix, _)| bix) == Some(aix)
+                })
         })
 }
