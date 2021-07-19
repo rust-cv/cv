@@ -102,6 +102,10 @@ impl Frame {
         self.bag_features(bag).map(|feature| &feature.descriptor)
     }
 
+    pub fn descriptors(&self) -> impl Iterator<Item = &'_ BitArray<64>> + Clone {
+        self.features.iter().map(|feature| &feature.descriptor)
+    }
+
     pub fn keypoint(&self, ix: usize) -> NormalizedKeyPoint {
         self.features[ix].keypoint
     }
@@ -880,7 +884,7 @@ where
         let mut original_matches: Vec<FeatureMatch<usize>> = bag_matches
             .into_iter()
             .flat_map(|(a_bag, b_bag)| {
-                symmetric_matching(a, a_bag, b, b_bag, self.settings.match_better_by)
+                symmetric_matching_bags(a, a_bag, b, b_bag, self.settings.match_better_by)
             })
             .collect();
 
@@ -1013,7 +1017,7 @@ where
                 .flat_map(|(new_frame_bag, found_view, found_bag)| {
                     let found_view = &reconstruction.views[found_view];
                     let found_frame = found_view.frame;
-                    symmetric_matching(
+                    symmetric_matching_bags(
                         &self.data.frames[found_frame],
                         found_bag,
                         new_frame,
@@ -1977,7 +1981,7 @@ fn matching<'a>(
         .collect::<Vec<_>>()
 }
 
-fn symmetric_matching<'a>(
+fn symmetric_matching_bags<'a>(
     a_frame: &'a Frame,
     a_bag: usize,
     b_frame: &'a Frame,
@@ -2018,5 +2022,31 @@ fn symmetric_matching<'a>(
         .map(move |FeatureMatch(aix, bix)| {
             // We need to map the feature indices into feature vector indices rather than bag indices.
             FeatureMatch(aix + a_bag_start, bix + b_bag_start)
+        })
+}
+
+fn symmetric_matching<'a>(
+    a_frame: &'a Frame,
+    b_frame: &'a Frame,
+    better_by: u32,
+) -> impl Iterator<Item = FeatureMatch<usize>> + 'a {
+    // Get the bag iterators for each.
+    let a_descriptors = a_frame.descriptors();
+    let b_descriptors = b_frame.descriptors();
+
+    // The best match for each feature in frame a to frame b's features.
+    let forward_matches = matching(a_descriptors.clone(), b_descriptors.clone(), better_by);
+    // The best match for each feature in frame b to frame a's features.
+    let reverse_matches = matching(b_descriptors.clone(), a_descriptors.clone(), better_by);
+    forward_matches
+        .into_iter()
+        .enumerate()
+        .filter_map(move |(aix, bix)| {
+            // First we only proceed if there was a sufficient bix match.
+            // Filter out matches which are not symmetric.
+            // Symmetric is defined as the best and sufficient match of a being b,
+            // and likewise the best and sufficient match of b being a.
+            bix.map(|bix| FeatureMatch(aix, bix))
+                .filter(|&FeatureMatch(aix, bix)| reverse_matches[bix] == Some(aix))
         })
 }
