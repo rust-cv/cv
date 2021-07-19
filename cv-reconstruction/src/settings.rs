@@ -178,7 +178,7 @@ fn default_akaze_threshold() -> f64 {
 }
 
 fn default_match_better_by() -> u32 {
-    8
+    0
 }
 
 fn default_consensus_threshold() -> f64 {

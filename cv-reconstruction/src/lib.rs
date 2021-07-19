@@ -556,7 +556,7 @@ impl VSlamData {
     /// Automatically filters out the same frame so the frame wont match to itself.
     ///
     /// Returns (self_bag, found_view, found_bag) pairs for every reconstruction bag match and
-    /// (self_bag, found_bag) for each frame bag match.
+    /// found_frame for each frame match.
     #[allow(clippy::type_complexity)]
     fn find_visually_similar_bags(
         &self,
@@ -564,7 +564,7 @@ impl VSlamData {
         num: usize,
     ) -> (
         Vec<(ReconstructionKey, Vec<(usize, ViewKey, usize)>)>,
-        Vec<(FrameKey, Vec<(usize, usize)>)>,
+        Vec<FrameKey>,
     ) {
         // Get all of the closest `num` bags to each bag in the current frame.
         let bag_matches = (0..self.frames[frame].bags()).flat_map(|self_bag| {
@@ -579,7 +579,7 @@ impl VSlamData {
         let mut reconstruction_bags: HashMap<ReconstructionKey, Vec<(usize, ViewKey, usize)>> =
             HashMap::new();
         // This contains bags which have no reconstruction.
-        let mut free_bags: HashMap<FrameKey, Vec<(usize, usize)>> = HashMap::new();
+        let mut free_bags: HashSet<FrameKey> = HashSet::new();
         // Sort the matches into their respective reconstruction on the free_bags.
         for (self_bag, found_frame, found_bag) in bag_matches {
             if let Some((reconstruction, found_view)) = self.frames[found_frame].view {
@@ -588,10 +588,7 @@ impl VSlamData {
                     .or_default()
                     .push((self_bag, found_view, found_bag));
             } else {
-                free_bags
-                    .entry(found_frame)
-                    .or_default()
-                    .push((self_bag, found_bag));
+                free_bags.insert(found_frame);
             }
         }
         // Reconstitute the reconstruction matches into a vector so we can sort them.
@@ -601,14 +598,7 @@ impl VSlamData {
         sorted_reconstruction_bags
             .sort_unstable_by_key(|(_, bag_matches)| core::cmp::Reverse(bag_matches.len()));
 
-        // Reconstitute the frame matches into a vector so we can sort them.
-        let mut sorted_free_bags: Vec<(FrameKey, Vec<(usize, usize)>)> =
-            free_bags.into_iter().collect();
-        // Sort the frames such that the one with the most bag matches is first.
-        sorted_free_bags
-            .sort_unstable_by_key(|(_, bag_matches)| core::cmp::Reverse(bag_matches.len()));
-
-        (sorted_reconstruction_bags, sorted_free_bags)
+        (sorted_reconstruction_bags, free_bags.into_iter().collect())
     }
 
     fn add_frame(&mut self, feed: FeedKey, features: Vec<Feature>) -> FrameKey {
@@ -627,8 +617,8 @@ impl VSlamData {
             horizontal_extrema.zip(vertical_extrema)
         {
             // TODO: This needs to use clustering, this is bad.
-            let horizontal_segments = 16;
-            let vertical_segments = 9;
+            let horizontal_segments = 4;
+            let vertical_segments = 3;
             let horizontal_stride = (upper_x - lower_x) / horizontal_segments as f64;
             let vertical_stride = (upper_y - lower_y) / horizontal_segments as f64;
 
@@ -760,12 +750,16 @@ where
         let frame = self.data.add_frame(feed, features);
 
         // Find the frames which are most visually similar to this frame.
-        let (reconstruction_bags, free_bags) = self
-            .data
-            .find_visually_similar_bags(frame, self.settings.tracking_bow_matches);
+        let (reconstruction_bags, free_frames) = self.data.find_visually_similar_bags(
+            frame,
+            std::cmp::min(
+                self.settings.tracking_bow_matches,
+                self.data.frames.len() + 1,
+            ),
+        );
 
         // Try to localize this new frame with all of the similar frames.
-        self.try_localize(frame, reconstruction_bags, free_bags);
+        self.try_localize(frame, reconstruction_bags, free_frames);
 
         frame
     }
@@ -777,10 +771,9 @@ where
         &mut self,
         frame_a: FrameKey,
         frame_b: FrameKey,
-        matches: Vec<(usize, usize)>,
     ) -> Option<(ReconstructionKey, (ViewKey, ViewKey))> {
         // Add the outcome.
-        let (pose, matches) = self.init_reconstruction(frame_a, frame_b, matches)?;
+        let (pose, matches) = self.init_reconstruction(frame_a, frame_b)?;
         Some(
             self.data
                 .add_reconstruction(frame_a, frame_b, pose, matches),
@@ -797,7 +790,7 @@ where
         &mut self,
         frame: FrameKey,
         reconstruction_bags: Vec<(ReconstructionKey, Vec<(usize, ViewKey, usize)>)>,
-        frame_bags: Vec<(FrameKey, Vec<(usize, usize)>)>,
+        free_frames: Vec<FrameKey>,
     ) -> Option<(ReconstructionKey, ViewKey)> {
         // Handle all the bag matches with existing reconstructions.
         for (dest_reconstruction, bag_matches) in reconstruction_bags {
@@ -820,8 +813,8 @@ where
         }
 
         // Until we create a reconstruction, keep trying.
-        for (found_frame, matches) in frame_bags {
-            if self.try_init(frame, found_frame, matches).is_some() {
+        for found_frame in free_frames {
+            if self.try_init(frame, found_frame).is_some() {
                 break;
             }
         }
@@ -866,7 +859,6 @@ where
         &self,
         frame_a: FrameKey,
         frame_b: FrameKey,
-        bag_matches: Vec<(usize, usize)>,
     ) -> Option<(CameraToCamera, Vec<FeatureMatch<usize>>)> {
         let a = self.data.frame(frame_a);
         let b = self.data.frame(frame_b);
@@ -876,38 +868,13 @@ where
         };
 
         info!(
-            "performing brute-force matching on {} bag pairs",
-            bag_matches.len()
+            "performing brute-force matching between {} and {} features",
+            a.features.len(),
+            b.features.len(),
         );
-
         // Retrieve the matches which agree with each other from each frame and filter out ones that aren't within the match threshold.
-        let mut original_matches: Vec<FeatureMatch<usize>> = bag_matches
-            .into_iter()
-            .flat_map(|(a_bag, b_bag)| {
-                symmetric_matching_bags(a, a_bag, b, b_bag, self.settings.match_better_by)
-            })
-            .collect();
-
-        let mut a_seen: HashSet<usize> = HashSet::new();
-        let mut a_seen_twice: HashSet<usize> = HashSet::new();
-        let mut b_seen: HashSet<usize> = HashSet::new();
-        let mut b_seen_twice: HashSet<usize> = HashSet::new();
-        for &FeatureMatch(aix, bix) in &original_matches {
-            if !a_seen.insert(aix) {
-                a_seen_twice.insert(aix);
-            }
-            if !b_seen.insert(bix) {
-                b_seen_twice.insert(bix);
-            }
-        }
-
-        original_matches.retain(|FeatureMatch(aix, bix)| {
-            !a_seen_twice.contains(aix) && !b_seen_twice.contains(bix)
-        });
-        drop(a_seen);
-        drop(a_seen_twice);
-        drop(b_seen);
-        drop(b_seen_twice);
+        let original_matches: Vec<FeatureMatch<usize>> =
+            symmetric_matching(a, b, self.settings.match_better_by).collect();
 
         info!("estimate essential on {} matches", original_matches.len());
 
@@ -1028,6 +995,8 @@ where
                         (found_view.landmarks[existing_feature], new_feature)
                     })
                 });
+
+        // TODO: It would be smarter to simply remove inferior matches below rather than eliminating the landmark matches entirely.
 
         // We need to get only the matches out which do not violate certain rules.
         // Specifically, two separate features cannot match the same landmark.
