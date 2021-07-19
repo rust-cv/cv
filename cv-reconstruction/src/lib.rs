@@ -749,13 +749,9 @@ where
         let frame = self.data.add_frame(feed, features);
 
         // Find the frames which are most visually similar to this frame.
-        let (reconstruction_bags, free_frames) = self.data.find_visually_similar_bags(
-            frame,
-            std::cmp::min(
-                self.settings.tracking_bow_matches,
-                self.data.frames.len() + 1,
-            ),
-        );
+        let (reconstruction_bags, free_frames) = self
+            .data
+            .find_visually_similar_bags(frame, self.settings.tracking_bow_matches);
 
         // Try to localize this new frame with all of the similar frames.
         self.try_localize(frame, reconstruction_bags, free_frames);
