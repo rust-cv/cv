@@ -116,6 +116,7 @@ fn main() {
 
     // Add the frames.
     for path in &opt.images {
+        info!("loading image {}", path.display());
         let image = image::open(path).expect("failed to load image");
         let frame = vslam.add_frame(feed, &image);
         if let Some((reconstruction, _)) = vslam.data.frame(frame).view {
