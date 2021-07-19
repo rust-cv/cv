@@ -52,7 +52,7 @@ struct Opt {
     /// The K1 radial distortion
     #[structopt(long, default_value = "-0.3728755")]
     radial_distortion: f64,
-    /// Output PLY file to deposit point cloud
+    /// Output directory for reconstruction PLY files
     #[structopt(short, long)]
     output: Option<PathBuf>,
     /// List of image files
@@ -137,17 +137,25 @@ fn main() {
         info!("reconstruction not modified, so not saving reconstruction data");
     }
 
-    info!("exporting the reconstruction");
+    info!("exporting all reconstructions");
     if let Some(path) = opt.output {
-        // Set the settings based on the command line arguments for export purposes.
-        vslam.settings.cosine_distance_threshold = opt.export_cosine_distance_threshold;
-        vslam.settings.reconstruction_optimization_iterations =
-            opt.export_reconstruction_optimization_iterations;
-        let reconstruction = vslam.data.reconstructions().next().unwrap();
-        vslam.optimize_reconstruction(reconstruction);
-        // Set settings for robustness to control what is rendered.
-        vslam.settings.robust_maximum_cosine_distance = opt.export_cosine_distance_threshold;
-        vslam.settings.robust_minimum_observations = opt.export_robust_minimum_observations;
-        vslam.export_reconstruction(reconstruction, path);
+        if !path.is_dir() {
+            warn!("output path is not a directory; it must be a directory; skipping export");
+        } else {
+            // Set the settings based on the command line arguments for export purposes.
+            vslam.settings.cosine_distance_threshold = opt.export_cosine_distance_threshold;
+            vslam.settings.reconstruction_optimization_iterations =
+                opt.export_reconstruction_optimization_iterations;
+            let reconstructions: Vec<_> = vslam.data.reconstructions().enumerate().collect();
+            for (ix, reconstruction) in reconstructions {
+                let path = path.join(format!("reconstruction_{}.ply", ix));
+                vslam.optimize_reconstruction(reconstruction);
+                // Set settings for robustness to control what is rendered.
+                vslam.settings.robust_maximum_cosine_distance =
+                    opt.export_cosine_distance_threshold;
+                vslam.settings.robust_minimum_observations = opt.export_robust_minimum_observations;
+                vslam.export_reconstruction(reconstruction, path);
+            }
+        }
     }
 }
