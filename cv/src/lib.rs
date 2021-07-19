@@ -26,7 +26,7 @@ pub use cv_core::sample_consensus::*;
 pub use cv_core::*;
 
 #[cfg(feature = "space")]
-pub use space::MetricPoint;
+pub use space::Metric;
 
 #[cfg(feature = "bitarray")]
 pub use bitarray::BitArray;
@@ -82,10 +82,10 @@ pub mod knn {
     }
 
     #[cfg(all(feature = "space", feature = "alloc"))]
-    pub use space::{KnnMap, KnnPoints, LinearKnn};
+    pub use space::{KnnInsert, KnnMap, KnnPoints, LinearKnn};
 
     #[cfg(all(feature = "space"))]
-    pub use space::{Knn, MetricPoint, Neighbor};
+    pub use space::{Knn, Metric, Neighbor};
 }
 
 /// Optimization algorithms

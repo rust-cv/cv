@@ -6,7 +6,7 @@ pub use export::*;
 pub use settings::*;
 
 use argmin::core::{ArgminKV, ArgminOp, Error, Executor, IterState, Observe, ObserverMode};
-use bitarray::BitArray;
+use bitarray::{BitArray, Hamming};
 use cv_core::nalgebra::{Unit, Vector3, Vector6};
 use cv_core::{
     sample_consensus::{Consensus, Estimator},
@@ -26,9 +26,11 @@ use log::*;
 use maplit::hashmap;
 use rand::{seq::SliceRandom, Rng};
 use slotmap::{new_key_type, DenseSlotMap};
-use space::Knn;
+use space::{KnnInsert, KnnMap};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::cmp::Ordering;
+use std::collections::hash_map::Entry;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 #[cfg(feature = "serde-serialize")]
@@ -84,13 +86,20 @@ pub struct Frame {
     pub features: Vec<Feature>,
     /// The views this frame produced.
     pub view: Option<(ReconstructionKey, ViewKey)>,
-    /// The lsh of this frame's features.
-    pub lsh: BitArray<32>,
+    /// LSHes for each bag of features on this frame.
+    ///
+    /// The two `usize` is a [first, second) range of the features vector that corresponds to the bag.
+    pub bags: Vec<(BitArray<32>, usize, usize)>,
 }
 
 impl Frame {
-    pub fn descriptors(&self) -> impl Iterator<Item = BitArray<64>> + Clone + '_ {
-        self.features.iter().map(|f| f.descriptor)
+    pub fn bag_features(&self, bag: usize) -> impl Iterator<Item = &'_ Feature> + Clone {
+        let (_, start, end) = self.bags[bag];
+        self.features[start..end].iter()
+    }
+
+    pub fn bag_descriptors(&self, bag: usize) -> impl Iterator<Item = &'_ BitArray<64>> + Clone {
+        self.bag_features(bag).map(|feature| &feature.descriptor)
     }
 
     pub fn keypoint(&self, ix: usize) -> NormalizedKeyPoint {
@@ -105,9 +114,16 @@ impl Frame {
         self.features[ix].color
     }
 
-    /// Generates a locality-sensitive hash of the features in the frame.
-    pub fn lsh(&self, hasher: &HammingHasher<64, 32>) -> BitArray<32> {
-        hasher.hash_bag(self.features.iter().map(|f| &f.descriptor))
+    pub fn bags(&self) -> usize {
+        self.bags.len()
+    }
+
+    pub fn bag_lsh(&self, bag: usize) -> BitArray<32> {
+        self.bags[bag].0
+    }
+
+    pub fn bag_start(&self, bag: usize) -> usize {
+        self.bags[bag].1
     }
 }
 
@@ -174,7 +190,7 @@ pub struct VSlamData {
     /// Contains the LSH hasher.
     hasher: HammingHasher<64, 32>,
     /// The HGG to search descriptors for keypoint `(Reconstruction::view, Frame::features)` instances
-    lsh_to_frame: Hgg<BitArray<32>, FrameKey>,
+    lsh_to_bag: Hgg<Hamming, BitArray<32>, (FrameKey, usize)>,
 }
 
 impl VSlamData {
@@ -531,29 +547,143 @@ impl VSlamData {
         landmark_a
     }
 
-    /// Get the most visually similar frames to a given frame.
+    /// Get the most visually similar bags to the bags on a given frame.
     ///
-    /// Automatically filters out the same frame if it occurs.
-    fn find_visually_similar_frames(&self, frame: FrameKey, num: usize) -> Vec<FrameKey> {
-        let search_num = std::cmp::max(64, num);
-        self.lsh_to_frame
-            .knn(&self.frames[frame].lsh, search_num)
-            .into_iter()
-            .map(|n| *self.lsh_to_frame.get_value(n.index).unwrap())
-            .filter(|&found_frame| found_frame != frame)
-            .take(num)
-            .collect()
+    /// Automatically filters out the same frame so the frame wont match to itself.
+    ///
+    /// Returns (self_bag, found_view, found_bag) pairs for every reconstruction bag match and
+    /// (self_bag, found_bag) for each frame bag match.
+    #[allow(clippy::type_complexity)]
+    fn find_visually_similar_bags(
+        &self,
+        frame: FrameKey,
+        num: usize,
+    ) -> (
+        Vec<(ReconstructionKey, Vec<(usize, ViewKey, usize)>)>,
+        Vec<(FrameKey, Vec<(usize, usize)>)>,
+    ) {
+        // Get all of the closest `num` bags to each bag in the current frame.
+        let bag_matches = (0..self.frames[frame].bags()).flat_map(|self_bag| {
+            self.lsh_to_bag
+                .knn_values(&self.frames[frame].bag_lsh(self_bag), num)
+                .into_iter()
+                .map(move |(_, &(found_frame, found_bag))| (self_bag, found_frame, found_bag))
+                .filter(|&(_, found_frame, _)| found_frame != frame)
+        });
+
+        // This will map reconstructions to their bag matches.
+        let mut reconstruction_bags: HashMap<ReconstructionKey, Vec<(usize, ViewKey, usize)>> =
+            HashMap::new();
+        // This contains bags which have no reconstruction.
+        let mut free_bags: HashMap<FrameKey, Vec<(usize, usize)>> = HashMap::new();
+        // Sort the matches into their respective reconstruction on the free_bags.
+        for (self_bag, found_frame, found_bag) in bag_matches {
+            if let Some((reconstruction, found_view)) = self.frames[found_frame].view {
+                reconstruction_bags
+                    .entry(reconstruction)
+                    .or_default()
+                    .push((self_bag, found_view, found_bag));
+            } else {
+                free_bags
+                    .entry(found_frame)
+                    .or_default()
+                    .push((self_bag, found_bag));
+            }
+        }
+        // Reconstitute the reconstruction matches into a vector so we can sort them.
+        let mut sorted_reconstruction_bags: Vec<(ReconstructionKey, Vec<(usize, ViewKey, usize)>)> =
+            reconstruction_bags.into_iter().collect();
+        // Sort the reconstructions such that the one with the most bag matches is first.
+        sorted_reconstruction_bags
+            .sort_unstable_by_key(|(_, bag_matches)| core::cmp::Reverse(bag_matches.len()));
+
+        // Reconstitute the frame matches into a vector so we can sort them.
+        let mut sorted_free_bags: Vec<(FrameKey, Vec<(usize, usize)>)> =
+            free_bags.into_iter().collect();
+        // Sort the frames such that the one with the most bag matches is first.
+        sorted_free_bags
+            .sort_unstable_by_key(|(_, bag_matches)| core::cmp::Reverse(bag_matches.len()));
+
+        (sorted_reconstruction_bags, sorted_free_bags)
     }
 
     fn add_frame(&mut self, feed: FeedKey, features: Vec<Feature>) -> FrameKey {
-        let lsh = self.hasher.hash_bag(features.iter().map(|f| &f.descriptor));
+        let horizontal_extrema = features
+            .iter()
+            .map(|f| f.keypoint.x)
+            .minmax_by_key(|&v| float_ord::FloatOrd(v))
+            .into_option();
+        let vertical_extrema = features
+            .iter()
+            .map(|f| f.keypoint.y)
+            .minmax_by_key(|&v| float_ord::FloatOrd(v))
+            .into_option();
+
+        let (features, bags) = if let Some(((lower_x, upper_x), (lower_y, upper_y))) =
+            horizontal_extrema.zip(vertical_extrema)
+        {
+            // TODO: This needs to use clustering, this is bad.
+            let horizontal_segments = 16;
+            let vertical_segments = 9;
+            let horizontal_stride = (upper_x - lower_x) / horizontal_segments as f64;
+            let vertical_stride = (upper_y - lower_y) / horizontal_segments as f64;
+
+            // Collect all the hashes into their bags.
+            let mut feature_groups: Vec<Vec<Feature>> =
+                vec![vec![]; horizontal_segments * vertical_segments];
+            let more_than_zero = |f| {
+                if f <= 0.0 {
+                    0.0
+                } else {
+                    f
+                }
+            };
+            for feature in features {
+                let x = more_than_zero((feature.keypoint.x - lower_x) / horizontal_stride) as usize;
+                let x = if x >= horizontal_segments {
+                    horizontal_segments - 1
+                } else {
+                    x
+                };
+                let y = more_than_zero((feature.keypoint.y - lower_y) / vertical_stride) as usize;
+                let y = if y >= vertical_segments {
+                    vertical_segments - 1
+                } else {
+                    y
+                };
+                feature_groups[y * horizontal_segments + x].push(feature);
+            }
+
+            // Create the final feature list and bags from the above feature_groups.
+            let mut features = vec![];
+            let mut bags = vec![];
+            for mut feature_group in feature_groups {
+                if !feature_group.is_empty() {
+                    let lsh = self
+                        .hasher
+                        .hash_bag(feature_group.iter().map(|f| &f.descriptor));
+                    let start = features.len();
+                    features.append(&mut feature_group);
+                    let end = features.len();
+                    bags.push((lsh, start, end));
+                }
+            }
+
+            (features, bags)
+        } else {
+            let lsh = self.hasher.hash_bag(features.iter().map(|f| &f.descriptor));
+            let end = features.len();
+            (features, vec![(lsh, 0, end)])
+        };
         let frame = self.frames.insert(Frame {
             feed,
             features,
             view: None,
-            lsh,
+            bags,
         });
-        self.lsh_to_frame.insert(lsh, frame);
+        for (ix, &(lsh, _, _)) in self.frames[frame].bags.iter().enumerate() {
+            self.lsh_to_bag.insert(lsh, (frame, ix));
+        }
         self.feeds[feed].frames.push(frame);
         frame
     }
@@ -626,14 +756,12 @@ where
         let frame = self.data.add_frame(feed, features);
 
         // Find the frames which are most visually similar to this frame.
-        let similar_frames = self
+        let (reconstruction_bags, free_bags) = self
             .data
-            .find_visually_similar_frames(frame, self.settings.tracking_frames);
+            .find_visually_similar_bags(frame, self.settings.tracking_bow_matches);
 
         // Try to localize this new frame with all of the similar frames.
-        for similar_frame in similar_frames {
-            self.try_localize(frame, similar_frame);
-        }
+        self.try_localize(frame, reconstruction_bags, free_bags);
 
         frame
     }
@@ -645,69 +773,56 @@ where
         &mut self,
         frame_a: FrameKey,
         frame_b: FrameKey,
+        matches: Vec<(usize, usize)>,
     ) -> Option<(ReconstructionKey, (ViewKey, ViewKey))> {
         // Add the outcome.
-        let (pose, matches) = self.init_reconstruction(frame_a, frame_b)?;
+        let (pose, matches) = self.init_reconstruction(frame_a, frame_b, matches)?;
         Some(
             self.data
                 .add_reconstruction(frame_a, frame_b, pose, matches),
         )
     }
 
-    /// Attempts to localize two frames relative to each other and join their reconstructions.
+    /// Attempts to localize a frame or initalize a reconstruction otherwise.
+    ///
+    /// Only call this on frames that dont already have a reconstruction.
     ///
     /// Returns the (Reconstruction, (View, View)) with the joined reconstruction and the two views if successful.
+    #[allow(clippy::type_complexity)]
     fn try_localize(
         &mut self,
-        frame_a: FrameKey,
-        frame_b: FrameKey,
-    ) -> Option<(ReconstructionKey, (ViewKey, ViewKey))> {
-        let a = &self.data.frames[frame_a];
-        let b = &self.data.frames[frame_b];
-        // Now we need to see if either or both of the frames is part of a reconstruction already.
-        match (a.view, b.view) {
-            (Some((reconstruction_a, view_a)), Some((reconstruction_b, view_b))) => {
-                if reconstruction_a == reconstruction_b {
-                    // In this case, we are simply attempting to perform loop closure and matching within an existing reconstruction.
-                    self.match_views(reconstruction_a, view_a, view_b);
-                    Some((reconstruction_a, (view_a, view_b)))
-                } else {
-                    // In this case, both views are part of different reconstructions and they may need to be registered together.
-                    // Start by finding which reconstruction has more views.
-                    // Insert the smaller reconstruction into the larger one.
-                    if self.data.reconstructions[reconstruction_b].views.len()
-                        > self.data.reconstructions[reconstruction_a].views.len()
-                    {
-                        self.try_merge_reconstructions(
-                            reconstruction_a,
-                            view_a,
-                            reconstruction_b,
-                            view_b,
-                        )
-                    } else {
-                        self.try_merge_reconstructions(
-                            reconstruction_b,
-                            view_b,
-                            reconstruction_a,
-                            view_a,
-                        )
-                        .map(|(r, (b, a))| (r, (a, b)))
-                    }
+        frame: FrameKey,
+        reconstruction_bags: Vec<(ReconstructionKey, Vec<(usize, ViewKey, usize)>)>,
+        frame_bags: Vec<(FrameKey, Vec<(usize, usize)>)>,
+    ) -> Option<(ReconstructionKey, ViewKey)> {
+        // Handle all the bag matches with existing reconstructions.
+        for (dest_reconstruction, bag_matches) in reconstruction_bags {
+            if let Some((src_reconstruction, view)) = self.data.frames[frame].view {
+                // The current frame is already in a reconstruction.
+                if src_reconstruction != dest_reconstruction {
+                    // The frame is present in two separate reconstructions. Try to register them together.
+                    self.try_merge_reconstructions(
+                        src_reconstruction,
+                        view,
+                        dest_reconstruction,
+                        bag_matches,
+                    );
                 }
+                // Otherwise the frame was already in this reconstruction, so we can skip that.
+            } else {
+                // The current frame is not already in a reconstruction, so it must be incorporated.
+                self.incorporate_frame(dest_reconstruction, frame, bag_matches);
             }
-            (None, None) => {
-                // In this case, neither frame is part of a reconstruction, so we should initialize a new one.
-                self.try_init(frame_a, frame_b)
-            }
-            // In either of the below cases, we have one frame which is part of a reconstruction and one
-            // frame that is not.
-            (Some((reconstruction, view_a)), None) => self
-                .incorporate_frame(reconstruction, view_a, frame_b)
-                .map(|view_b| (reconstruction, (view_a, view_b))),
-            (None, Some((reconstruction, view_b))) => self
-                .incorporate_frame(reconstruction, view_b, frame_a)
-                .map(|view_a| (reconstruction, (view_a, view_b))),
         }
+
+        // Until we create a reconstruction, keep trying.
+        for (found_frame, matches) in frame_bags {
+            if self.try_init(frame, found_frame, matches).is_some() {
+                break;
+            }
+        }
+
+        self.data.frames[frame].view
     }
 
     /// Triangulates the point of each match, filtering out matches which fail triangulation or chirality test.
@@ -747,6 +862,7 @@ where
         &self,
         frame_a: FrameKey,
         frame_b: FrameKey,
+        bag_matches: Vec<(usize, usize)>,
     ) -> Option<(CameraToCamera, Vec<FeatureMatch<usize>>)> {
         let a = self.data.frame(frame_a);
         let b = self.data.frame(frame_b);
@@ -756,15 +872,38 @@ where
         };
 
         info!(
-            "performing brute-force matching between {} and {} features",
-            a.features.len(),
-            b.features.len(),
+            "performing brute-force matching on {} bag pairs",
+            bag_matches.len()
         );
+
         // Retrieve the matches which agree with each other from each frame and filter out ones that aren't within the match threshold.
-        let original_matches: Vec<FeatureMatch<usize>> = symmetric_matching(a, b)
-            .filter(|&(_, distance)| distance < self.settings.match_threshold)
-            .map(|(m, _)| m)
+        let mut original_matches: Vec<FeatureMatch<usize>> = bag_matches
+            .into_iter()
+            .flat_map(|(a_bag, b_bag)| {
+                symmetric_matching(a, a_bag, b, b_bag, self.settings.match_better_by)
+            })
             .collect();
+
+        let mut a_seen: HashSet<usize> = HashSet::new();
+        let mut a_seen_twice: HashSet<usize> = HashSet::new();
+        let mut b_seen: HashSet<usize> = HashSet::new();
+        let mut b_seen_twice: HashSet<usize> = HashSet::new();
+        for &FeatureMatch(aix, bix) in &original_matches {
+            if !a_seen.insert(aix) {
+                a_seen_twice.insert(aix);
+            }
+            if !b_seen.insert(bix) {
+                b_seen_twice.insert(bix);
+            }
+        }
+
+        original_matches.retain(|FeatureMatch(aix, bix)| {
+            !a_seen_twice.contains(aix) && !b_seen_twice.contains(bix)
+        });
+        drop(a_seen);
+        drop(a_seen_twice);
+        drop(b_seen);
+        drop(b_seen_twice);
 
         info!("estimate essential on {} matches", original_matches.len());
 
@@ -855,28 +994,90 @@ where
     fn register_frame(
         &mut self,
         reconstruction_key: ReconstructionKey,
-        existing_view_key: ViewKey,
         new_frame_key: FrameKey,
+        bag_matches: Vec<(usize, ViewKey, usize)>,
     ) -> Option<(WorldToCamera, HashMap<usize, LandmarkKey>)> {
         info!("trying to register frame into existing reconstruction");
         let reconstruction = self.data.reconstruction(reconstruction_key);
-        let existing_view = &reconstruction.views[existing_view_key];
-        let existing_frame = self.data.frame(existing_view.frame);
         let new_frame = self.data.frame(new_frame_key);
 
         info!(
-            "performing brute-force matching between {} and {} features",
-            existing_frame.features.len(),
-            new_frame.features.len(),
+            "performing brute-force matching on {} bag pairs",
+            bag_matches.len()
         );
+
         // Retrieve the matches which agree with each other from each frame and filter out ones that aren't within the match threshold.
-        let matches: Vec<(LandmarkKey, usize)> = symmetric_matching(existing_frame, new_frame)
-            .filter(|&(_, distance)| distance < self.settings.match_threshold)
-            .map(|(m, _)| m)
-            .map(|FeatureMatch(existing_feature, new_feature)| {
-                (existing_view.landmarks[existing_feature], new_feature)
-            })
-            .collect();
+        let inital_landmark_feature_matches =
+            bag_matches
+                .into_iter()
+                .flat_map(|(new_frame_bag, found_view, found_bag)| {
+                    let found_view = &reconstruction.views[found_view];
+                    let found_frame = found_view.frame;
+                    symmetric_matching(
+                        &self.data.frames[found_frame],
+                        found_bag,
+                        new_frame,
+                        new_frame_bag,
+                        self.settings.match_better_by,
+                    )
+                    .map(move |FeatureMatch(existing_feature, new_feature)| {
+                        (found_view.landmarks[existing_feature], new_feature)
+                    })
+                });
+
+        // We need to get only the matches out which do not violate certain rules.
+        // Specifically, two separate features cannot match the same landmark.
+        // Additionally, two separate landmarks cannot match the same feature.
+        // If this happens, all of the instances of this landmark or feature must be removed
+        // from the matches entirely.
+        let mut forbidden_features: HashSet<usize> = HashSet::new();
+        let mut forbidden_landmarks: HashSet<LandmarkKey> = HashSet::new();
+        let mut feature_landmarks: HashMap<usize, LandmarkKey> = HashMap::new();
+        let mut landmark_features: HashMap<LandmarkKey, usize> = HashMap::new();
+        let mut matches: Vec<(LandmarkKey, usize)> = vec![];
+        for (landmark, feature) in inital_landmark_feature_matches {
+            // Add the match either way, we will filter them later.
+            matches.push((landmark, feature));
+
+            // Check if this feature maps to another landmark.
+            match feature_landmarks.entry(feature) {
+                Entry::Occupied(o) => {
+                    let found_landmark = *o.get();
+                    if found_landmark != landmark {
+                        forbidden_landmarks.insert(found_landmark);
+                        forbidden_landmarks.insert(landmark);
+                        forbidden_features.insert(feature);
+                    }
+                }
+                Entry::Vacant(v) => {
+                    v.insert(landmark);
+                }
+            }
+
+            // Check if this landmark maps to another feature.
+            match landmark_features.entry(landmark) {
+                Entry::Occupied(o) => {
+                    let found_feature = *o.get();
+                    if found_feature != feature {
+                        forbidden_features.insert(found_feature);
+                        forbidden_features.insert(feature);
+                        forbidden_landmarks.insert(landmark);
+                    }
+                }
+                Entry::Vacant(v) => {
+                    v.insert(feature);
+                }
+            }
+        }
+        // Filter the matches vector using the forbidden lists.
+        matches.retain(|(landmark, feature)| {
+            !forbidden_landmarks.contains(landmark) && !forbidden_features.contains(feature)
+        });
+        // Free all the memory we are no longer using now.
+        drop(forbidden_features);
+        drop(forbidden_landmarks);
+        drop(feature_landmarks);
+        drop(landmark_features);
 
         info!("found {} initial feature matches", matches.len());
 
@@ -976,10 +1177,10 @@ where
     fn incorporate_frame(
         &mut self,
         reconstruction: ReconstructionKey,
-        existing_view: ViewKey,
         new_frame: FrameKey,
+        bag_matches: Vec<(usize, ViewKey, usize)>,
     ) -> Option<ViewKey> {
-        let (pose, matches) = self.register_frame(reconstruction, existing_view, new_frame)?;
+        let (pose, matches) = self.register_frame(reconstruction, new_frame, bag_matches)?;
 
         let new_view_key = self
             .data
@@ -1000,11 +1201,12 @@ where
         src_reconstruction: ReconstructionKey,
         src_view: ViewKey,
         dest_reconstruction: ReconstructionKey,
-        dest_view: ViewKey,
-    ) -> Option<(ReconstructionKey, (ViewKey, ViewKey))> {
+        dest_bag_matches: Vec<(usize, ViewKey, usize)>,
+    ) -> Option<ReconstructionKey> {
         let src_frame = self.data.view_frame(src_reconstruction, src_view);
         // Register the frame in the source reconstruction to the destination reconstruction.
-        let (pose, matches) = self.register_frame(dest_reconstruction, dest_view, src_frame)?;
+        let (pose, matches) =
+            self.register_frame(dest_reconstruction, src_frame, dest_bag_matches)?;
 
         // Create the transformation from the source to the destination reconstruction.
         let world_transform = WorldToWorld::from_camera_poses(
@@ -1030,100 +1232,7 @@ where
             landmark_to_landmark,
         );
 
-        Some((
-            dest_reconstruction,
-            (self.data.frames[src_frame].view.unwrap().1, dest_view),
-        ))
-    }
-
-    /// Attempts to match two views in a reconstruction. This may merge some landmarks.
-    ///
-    /// Returns the pose and a vector of indices in the format (Reconstruction::landmarks, Frame::features).
-    fn match_views(
-        &mut self,
-        reconstruction_key: ReconstructionKey,
-        view_a_key: ViewKey,
-        view_b_key: ViewKey,
-    ) {
-        info!("trying to match two frames in existing reconstruction");
-        let reconstruction = self.data.reconstruction(reconstruction_key);
-        let view_a = &reconstruction.views[view_a_key];
-        let view_b = &reconstruction.views[view_b_key];
-        let frame_a = self.data.frame(view_a.frame);
-        let frame_b = self.data.frame(view_b.frame);
-
-        info!(
-            "performing brute-force matching between {} and {} features",
-            frame_a.features.len(),
-            frame_b.features.len(),
-        );
-
-        // Match the features of the two frames and convert the feature pairs to landmark pairs.
-        let matches = symmetric_matching(frame_a, frame_b)
-            .filter(|&(_, distance)| distance < self.settings.match_threshold)
-            .map(|(FeatureMatch(a, b), _)| FeatureMatch(view_a.landmarks[a], view_b.landmarks[b]));
-
-        // Check to make sure the landmarks aren't the same landmark.
-        let matches =
-            matches.filter(|&FeatureMatch(landmark_a, landmark_b)| landmark_a != landmark_b);
-        // Check to make sure that the landmarks do not share any views between them.
-        let matches = matches.filter(|&FeatureMatch(landmark_a, landmark_b)| {
-            !reconstruction.landmarks[landmark_a]
-                .observations
-                .keys()
-                .any(|landmark_a_view| {
-                    reconstruction.landmarks[landmark_b]
-                        .observations
-                        .keys()
-                        .any(|landmark_b_view| landmark_a_view == landmark_b_view)
-                })
-        });
-        // Geometrically verify if the landmark pairs would be able to totally combine within tollerances.
-        let matches = matches.filter(|&FeatureMatch(landmark_a, landmark_b)| {
-            self.triangulate_landmark_with_appended_observations_and_verify(
-                reconstruction_key,
-                landmark_a,
-                reconstruction.landmarks[landmark_b]
-                    .observations
-                    .iter()
-                    .map(|(&view, &feature)| {
-                        (
-                            reconstruction.views[view].pose,
-                            self.data.frames[reconstruction.views[view].frame].features[feature]
-                                .keypoint,
-                        )
-                    }),
-            )
-            .is_some()
-        });
-
-        // Store the final landmark matches into a vector.
-        let matches: Vec<FeatureMatch<LandmarkKey>> = matches.collect();
-
-        info!(
-            "found {} different, disjoint (by views), and geometrically verified landmark matches",
-            matches.len()
-        );
-
-        // Combine the landmarks together that pass all the stages.
-        for FeatureMatch(landmark_a, landmark_b) in matches {
-            // We need to totally empty out landmark_b's data first.
-            let landmark_b = self.data.reconstructions[reconstruction_key]
-                .landmarks
-                .remove(landmark_b)
-                .unwrap();
-
-            // For all the old observations of landmark_b
-            for (view, feature) in landmark_b.observations {
-                // Swap landmark_b for landmark_a on all the views landmark_b appears.
-                self.data.view_mut(reconstruction_key, view).landmarks[feature] = landmark_a;
-                // Add the observation to landmark_a.
-                self.data
-                    .landmark_mut(reconstruction_key, landmark_a)
-                    .observations
-                    .insert(view, feature);
-            }
-        }
+        Some(dest_reconstruction)
     }
 
     fn kps_descriptors(
@@ -1837,40 +1946,77 @@ where
     }
 }
 
-fn matching(
-    a_descriptors: impl Iterator<Item = BitArray<64>>,
-    b_descriptors: impl Iterator<Item = BitArray<64>> + Clone,
-) -> Vec<(usize, u32)> {
+fn matching<'a>(
+    a_descriptors: impl Iterator<Item = &'a BitArray<64>>,
+    b_descriptors: impl Iterator<Item = &'a BitArray<64>> + Clone,
+    better_by: u32,
+) -> Vec<Option<usize>> {
     a_descriptors
         .map(|a| {
-            b_descriptors
-                .clone()
-                .map(|b| a.distance(&b))
-                .enumerate()
-                .min_by_key(|&(_, d)| d)
-                .unwrap()
+            let mut b_descriptors = b_descriptors.clone().enumerate();
+            let mut sufficiently_best = true;
+            let mut best = (0usize, a.distance(b_descriptors.next()?.1));
+            for (ix, b) in b_descriptors {
+                let distance = a.distance(b);
+                match distance.cmp(&best.1) {
+                    Ordering::Less => {
+                        // The match must be better than `better_by`, or it is not sufficiently the best.
+                        sufficiently_best = best.1 - distance > better_by;
+                        best = (ix, distance);
+                    }
+                    Ordering::Equal => sufficiently_best = false,
+                    Ordering::Greater => {}
+                }
+            }
+            if sufficiently_best {
+                Some(best.0)
+            } else {
+                None
+            }
         })
         .collect::<Vec<_>>()
 }
 
 fn symmetric_matching<'a>(
-    a: &'a Frame,
-    b: &'a Frame,
-) -> impl Iterator<Item = (FeatureMatch<usize>, u32)> + 'a {
+    a_frame: &'a Frame,
+    a_bag: usize,
+    b_frame: &'a Frame,
+    b_bag: usize,
+    better_by: u32,
+) -> impl Iterator<Item = FeatureMatch<usize>> + 'a {
+    // Get the bag iterators for each.
+    let a_bag_descriptors = a_frame.bag_descriptors(a_bag);
+    let b_bag_descriptors = b_frame.bag_descriptors(b_bag);
+
+    // Get the bag starts (the index the bag features start at in each frame).
+    let a_bag_start = a_frame.bag_start(a_bag);
+    let b_bag_start = b_frame.bag_start(b_bag);
+
     // The best match for each feature in frame a to frame b's features.
-    let forward_matches = matching(a.descriptors(), b.descriptors());
+    let forward_matches = matching(
+        a_bag_descriptors.clone(),
+        b_bag_descriptors.clone(),
+        better_by,
+    );
     // The best match for each feature in frame b to frame a's features.
-    let reverse_matches = matching(b.descriptors(), a.descriptors());
+    let reverse_matches = matching(
+        b_bag_descriptors.clone(),
+        a_bag_descriptors.clone(),
+        better_by,
+    );
     forward_matches
         .into_iter()
         .enumerate()
-        .filter_map(move |(aix, (bix, distance))| {
-            // Does the feature in b match with this feature too?
-            let is_symmetric = reverse_matches[bix].0 == aix;
-            if is_symmetric {
-                Some((FeatureMatch(aix, bix), distance))
-            } else {
-                None
-            }
+        .filter_map(move |(aix, bix)| {
+            // First we only proceed if there was a sufficient bix match.
+            // Filter out matches which are not symmetric.
+            // Symmetric is defined as the best and sufficient match of a being b,
+            // and likewise the best and sufficient match of b being a.
+            bix.map(|bix| FeatureMatch(aix, bix))
+                .filter(|&FeatureMatch(aix, bix)| reverse_matches[bix] == Some(aix))
+        })
+        .map(move |FeatureMatch(aix, bix)| {
+            // We need to map the feature indices into feature vector indices rather than bag indices.
+            FeatureMatch(aix + a_bag_start, bix + b_bag_start)
         })
 }

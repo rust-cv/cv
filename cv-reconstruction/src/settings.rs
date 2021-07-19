@@ -11,12 +11,12 @@ pub struct VSlamSettings {
         serde(default = "default_akaze_threshold")
     )]
     pub akaze_threshold: f64,
-    /// The threshold distance below which a match is allowed
+    /// The threshold difference between the first and second best match above which a match is allowed
     #[cfg_attr(
         feature = "serde-serialize",
-        serde(default = "default_match_threshold")
+        serde(default = "default_match_better_by")
     )]
-    pub match_threshold: u32,
+    pub match_better_by: u32,
     /// The threshold used for sample consensus
     #[cfg_attr(
         feature = "serde-serialize",
@@ -137,16 +137,16 @@ pub struct VSlamSettings {
     /// The number of most similar frames to attempt to match when tracking.
     #[cfg_attr(
         feature = "serde-serialize",
-        serde(default = "default_tracking_frames")
+        serde(default = "default_tracking_bow_matches")
     )]
-    pub tracking_frames: usize,
+    pub tracking_bow_matches: usize,
 }
 
 impl Default for VSlamSettings {
     fn default() -> Self {
         Self {
             akaze_threshold: default_akaze_threshold(),
-            match_threshold: default_match_threshold(),
+            match_better_by: default_match_better_by(),
             consensus_threshold: default_consensus_threshold(),
             optimization_points: default_optimization_points(),
             incidence_minimum_cosine_distance: default_incidence_minimum_cosine_distance(),
@@ -168,7 +168,7 @@ impl Default for VSlamSettings {
             many_view_landmarks: default_many_view_landmarks(),
             reconstruction_optimization_iterations: default_reconstruction_optimization_iterations(
             ),
-            tracking_frames: default_tracking_frames(),
+            tracking_bow_matches: default_tracking_bow_matches(),
         }
     }
 }
@@ -177,8 +177,8 @@ fn default_akaze_threshold() -> f64 {
     0.00001
 }
 
-fn default_match_threshold() -> u32 {
-    64
+fn default_match_better_by() -> u32 {
+    8
 }
 
 fn default_consensus_threshold() -> f64 {
@@ -261,6 +261,6 @@ fn default_reconstruction_optimization_iterations() -> usize {
     1
 }
 
-fn default_tracking_frames() -> usize {
-    16
+fn default_tracking_bow_matches() -> usize {
+    64
 }

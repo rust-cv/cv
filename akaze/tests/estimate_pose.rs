@@ -1,6 +1,6 @@
 use akaze::Akaze;
 use arrsac::Arrsac;
-use bitarray::BitArray;
+use bitarray::{BitArray, Hamming};
 use cv_core::nalgebra::{Point2, Vector2};
 use cv_core::sample_consensus::Consensus;
 use cv_core::{CameraModel, FeatureMatch};
@@ -77,7 +77,11 @@ fn match_descriptors(ds1: &[Descriptor], ds2: &[Descriptor]) -> Vec<(usize, usiz
     let two_neighbors = ds1
         .iter()
         .map(|d1| {
-            let neighbors = space::LinearKnn(ds2.iter()).knn(d1, 2);
+            let neighbors = space::LinearKnn {
+                metric: Hamming,
+                iter: ds2.iter(),
+            }
+            .knn(d1, 2);
             assert_eq!(neighbors.len(), 2, "there should be at least two matches");
             neighbors
         })
