@@ -569,6 +569,7 @@ impl VSlamData {
         Vec<(ReconstructionKey, Vec<(usize, ViewKey, usize)>)>,
         Vec<FrameKey>,
     ) {
+        info!("trying to find visually similar bags to frame");
         // This will map reconstructions to their bag matches.
         let mut reconstruction_bags: HashMap<ReconstructionKey, Vec<(usize, ViewKey, usize)>> =
             HashMap::new();
@@ -600,6 +601,15 @@ impl VSlamData {
         // Sort the reconstructions such that the one with the most bag matches is first.
         sorted_reconstruction_bags
             .sort_unstable_by_key(|(_, bag_matches)| core::cmp::Reverse(bag_matches.len()));
+
+        info!(
+            "found {} reconstructionless frame matches and reconstruction bag matches: {:?}",
+            free_bags.len(),
+            sorted_reconstruction_bags
+                .iter()
+                .map(|(_, bags)| bags.len())
+                .collect_vec(),
+        );
 
         (sorted_reconstruction_bags, free_bags.into_iter().collect())
     }
