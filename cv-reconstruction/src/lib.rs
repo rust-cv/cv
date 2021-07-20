@@ -1062,7 +1062,7 @@ where
         // Extract the FeatureWorldMatch for each of the features.
         let matches_3d: Vec<FeatureWorldMatch<NormalizedKeyPoint>> = create_3d_matches(true);
 
-        let mut matches_3d = if matches_3d.len() < self.settings.single_view_minimum_landmarks {
+        let matches_3d = if matches_3d.len() < self.settings.single_view_minimum_landmarks {
             info!(
                 "only found {} robust triangulatable landmarks, need {}; trying non-robust landmarks",
                 matches_3d.len(),
