@@ -11,12 +11,6 @@ pub struct VSlamSettings {
         serde(default = "default_akaze_threshold")
     )]
     pub akaze_threshold: f64,
-    /// The threshold difference between the first and second best match above which a match is allowed
-    #[cfg_attr(
-        feature = "serde-serialize",
-        serde(default = "default_match_better_by")
-    )]
-    pub match_better_by: u32,
     /// The threshold used for sample consensus
     #[cfg_attr(
         feature = "serde-serialize",
@@ -80,6 +74,12 @@ pub struct VSlamSettings {
         serde(default = "default_single_view_minimum_landmarks")
     )]
     pub single_view_minimum_landmarks: usize,
+    /// The difference between the first and second best match above which a match is allowed for frame registration
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_single_view_match_better_by")
+    )]
+    pub single_view_match_better_by: u32,
     /// The cosine distance threshold during initialization.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -104,6 +104,12 @@ pub struct VSlamSettings {
         serde(default = "default_two_view_filter_loop_iterations")
     )]
     pub two_view_filter_loop_iterations: usize,
+    /// The difference between the first and second best match above which a match is allowed for initialization
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_two_view_match_better_by")
+    )]
+    pub two_view_match_better_by: u32,
     /// The maximum number of landmarks to use for pose estimation during tracking.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -146,7 +152,6 @@ impl Default for VSlamSettings {
     fn default() -> Self {
         Self {
             akaze_threshold: default_akaze_threshold(),
-            match_better_by: default_match_better_by(),
             consensus_threshold: default_consensus_threshold(),
             optimization_points: default_optimization_points(),
             incidence_minimum_cosine_distance: default_incidence_minimum_cosine_distance(),
@@ -158,10 +163,12 @@ impl Default for VSlamSettings {
             single_view_patience: default_single_view_patience(),
             single_view_std_dev_threshold: default_single_view_std_dev_threshold(),
             single_view_minimum_landmarks: default_single_view_minimum_landmarks(),
+            single_view_match_better_by: default_single_view_match_better_by(),
             two_view_cosine_distance_threshold: default_two_view_cosine_distance_threshold(),
             two_view_patience: default_two_view_patience(),
             two_view_std_dev_threshold: default_two_view_std_dev_threshold(),
             two_view_filter_loop_iterations: default_two_view_filter_loop_iterations(),
+            two_view_match_better_by: default_two_view_match_better_by(),
             track_landmarks: default_track_landmarks(),
             many_view_patience: default_many_view_patience(),
             many_view_std_dev_threshold: default_many_view_std_dev_threshold(),
@@ -175,10 +182,6 @@ impl Default for VSlamSettings {
 
 fn default_akaze_threshold() -> f64 {
     0.00001
-}
-
-fn default_match_better_by() -> u32 {
-    0
 }
 
 fn default_consensus_threshold() -> f64 {
@@ -225,6 +228,10 @@ fn default_single_view_minimum_landmarks() -> usize {
     32
 }
 
+fn default_single_view_match_better_by() -> u32 {
+    1
+}
+
 fn default_two_view_cosine_distance_threshold() -> f64 {
     0.001
 }
@@ -239,6 +246,10 @@ fn default_two_view_std_dev_threshold() -> f64 {
 
 fn default_two_view_filter_loop_iterations() -> usize {
     3
+}
+
+fn default_two_view_match_better_by() -> u32 {
+    1
 }
 
 fn default_track_landmarks() -> usize {
@@ -262,5 +273,5 @@ fn default_reconstruction_optimization_iterations() -> usize {
 }
 
 fn default_tracking_bow_matches() -> usize {
-    64
+    128
 }

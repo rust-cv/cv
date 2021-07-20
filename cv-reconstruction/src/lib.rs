@@ -88,7 +88,7 @@ pub struct Frame {
     /// LSHes for each bag of features on this frame.
     ///
     /// The two `usize` is a [first, second) range of the features vector that corresponds to the bag.
-    pub bags: Vec<(BitArray<32>, usize, usize)>,
+    pub bags: Vec<(BitArray<128>, usize, usize)>,
 }
 
 impl Frame {
@@ -121,12 +121,16 @@ impl Frame {
         self.bags.len()
     }
 
-    pub fn bag_lsh(&self, bag: usize) -> BitArray<32> {
+    pub fn bag_lsh(&self, bag: usize) -> BitArray<128> {
         self.bags[bag].0
     }
 
     pub fn bag_start(&self, bag: usize) -> usize {
         self.bags[bag].1
+    }
+
+    pub fn bag_range(&self, bag: usize) -> std::ops::Range<usize> {
+        self.bags[bag].1..self.bags[bag].2
     }
 }
 
@@ -191,9 +195,9 @@ pub struct VSlamData {
     /// Contains all the frames
     frames: DenseSlotMap<FrameKey, Frame>,
     /// Contains the LSH hasher.
-    hasher: HammingHasher<64, 32>,
+    hasher: HammingHasher<64, 128>,
     /// The HGG to search descriptors for keypoint `(Reconstruction::view, Frame::features)` instances
-    lsh_to_bag: Hgg<Hamming, BitArray<32>, (FrameKey, usize)>,
+    lsh_to_bag: Hgg<Hamming, BitArray<128>, (FrameKey, usize)>,
 }
 
 impl VSlamData {
@@ -565,29 +569,29 @@ impl VSlamData {
         Vec<(ReconstructionKey, Vec<(usize, ViewKey, usize)>)>,
         Vec<FrameKey>,
     ) {
-        // Get all of the closest `num` bags to each bag in the current frame.
-        let bag_matches = (0..self.frames[frame].bags()).flat_map(|self_bag| {
-            self.lsh_to_bag
-                .knn_values(&self.frames[frame].bag_lsh(self_bag), num)
-                .into_iter()
-                .map(move |(_, &(found_frame, found_bag))| (self_bag, found_frame, found_bag))
-                .filter(|&(_, found_frame, _)| found_frame != frame)
-        });
-
         // This will map reconstructions to their bag matches.
         let mut reconstruction_bags: HashMap<ReconstructionKey, Vec<(usize, ViewKey, usize)>> =
             HashMap::new();
         // This contains bags which have no reconstruction.
         let mut free_bags: HashSet<FrameKey> = HashSet::new();
         // Sort the matches into their respective reconstruction on the free_bags.
-        for (self_bag, found_frame, found_bag) in bag_matches {
-            if let Some((reconstruction, found_view)) = self.frames[found_frame].view {
-                reconstruction_bags
-                    .entry(reconstruction)
-                    .or_default()
-                    .push((self_bag, found_view, found_bag));
-            } else {
-                free_bags.insert(found_frame);
+        for self_bag in 0..self.frames[frame].bags() {
+            // Get all of the closest `num` bags to self_bag in the current frame.
+            for (found_frame, found_bag) in self
+                .lsh_to_bag
+                .knn_values(&self.frames[frame].bag_lsh(self_bag), num)
+                .into_iter()
+                .map(move |(_, &(found_frame, found_bag))| (found_frame, found_bag))
+                .filter(|&(found_frame, _)| found_frame != frame)
+            {
+                if let Some((reconstruction, found_view)) = self.frames[found_frame].view {
+                    reconstruction_bags
+                        .entry(reconstruction)
+                        .or_default()
+                        .push((self_bag, found_view, found_bag));
+                } else {
+                    free_bags.insert(found_frame);
+                }
             }
         }
         // Reconstitute the reconstruction matches into a vector so we can sort them.
@@ -616,8 +620,8 @@ impl VSlamData {
             horizontal_extrema.zip(vertical_extrema)
         {
             // TODO: This needs to use clustering, this is bad.
-            let horizontal_segments = 16;
-            let vertical_segments = 9;
+            let horizontal_segments = 16 * 2;
+            let vertical_segments = 9 * 2;
             let horizontal_stride = (upper_x - lower_x) / horizontal_segments as f64;
             let vertical_stride = (upper_y - lower_y) / horizontal_segments as f64;
 
@@ -668,6 +672,11 @@ impl VSlamData {
             let end = features.len();
             (features, vec![(lsh, 0, end)])
         };
+        info!(
+            "added frame with {} bags and {} features per bag",
+            bags.len(),
+            features.len() as f64 / bags.len() as f64
+        );
         let frame = self.frames.insert(Frame {
             feed,
             features,
@@ -869,7 +878,7 @@ where
         );
         // Retrieve the matches which agree with each other from each frame and filter out ones that aren't within the match threshold.
         let original_matches: Vec<FeatureMatch<usize>> =
-            symmetric_matching(a, b, self.settings.match_better_by).collect();
+            symmetric_matching(a, b, self.settings.two_view_match_better_by).collect();
 
         info!("estimate essential on {} matches", original_matches.len());
 
@@ -972,75 +981,55 @@ where
             bag_matches.len()
         );
 
-        // Retrieve the matches which agree with each other from each frame and filter out ones that aren't within the match threshold.
-        let inital_landmark_feature_matches =
-            bag_matches
-                .into_iter()
-                .flat_map(|(new_frame_bag, found_view, found_bag)| {
-                    let found_view = &reconstruction.views[found_view];
-                    let found_frame = found_view.frame;
-                    symmetric_matching_bags(
-                        &self.data.frames[found_frame],
-                        found_bag,
-                        new_frame,
-                        new_frame_bag,
-                        self.settings.match_better_by,
-                    )
-                    .map(
-                        move |(FeatureMatch(existing_feature, new_feature), distance)| {
-                            (
-                                found_view.landmarks[existing_feature],
-                                new_feature,
-                                distance,
-                            )
-                        },
-                    )
-                });
+        let self_bag_to_found_bag: HashMap<usize, Vec<(ViewKey, usize)>> = bag_matches
+            .iter()
+            .copied()
+            .map(|(self_bag, found_view, found_bag)| (self_bag, (found_view, found_bag)))
+            .into_group_map();
 
-        // We need to get only the matches out which do not violate certain rules.
-        // Specifically, two separate features cannot match the same landmark.
-        // Additionally, two separate landmarks cannot match the same feature.
-        // If this happens, all of the instances of this landmark or feature must be removed
-        // from the matches entirely.
-        // To counter this, we will perform a symmetric match + lowes-like/match_better_by criteria.
-        // Only the best matches will be kept, and matches which violate the filter criteria will be removed.
-        let mut feature_landmarks: HashMap<usize, Vec<(LandmarkKey, u32)>> = HashMap::new();
-        for (landmark, feature, distance) in inital_landmark_feature_matches {
-            let landmarks = feature_landmarks.entry(feature).or_default();
-            // Don't add duplicate landmarks.
-            if landmarks.iter().any(|&(l, _)| l == landmark) {
-                continue;
+        let mut matches: Vec<(LandmarkKey, usize)> = vec![];
+        for (self_bag, found_bags) in self_bag_to_found_bag {
+            for self_feature in new_frame.bag_range(self_bag) {
+                // Get the actual descriptor.
+                let self_descriptor = &new_frame.features[self_feature].descriptor;
+                // Create the initial best matches by just duplicating the first landmark twice.
+                let mut best = {
+                    let (found_view, found_bag) = found_bags[0];
+                    let found_frame = reconstruction.views[found_view].frame;
+                    let first_landmark = reconstruction.views[found_view].landmarks
+                        [self.data.frames[found_frame].bag_start(found_bag)];
+                    let first_descriptor = self.data.frames[found_frame]
+                        .bag_descriptors(found_bag)
+                        .next()
+                        .unwrap();
+                    let first_distance = first_descriptor.distance(self_descriptor);
+                    [(first_landmark, first_distance); 2]
+                };
+                for &(found_view, found_bag) in &found_bags {
+                    let found_frame = reconstruction.views[found_view].frame;
+                    for found_feature in self.data.frames[found_frame].bag_range(found_bag) {
+                        let found_landmark =
+                            reconstruction.views[found_view].landmarks[found_feature];
+                        let found_descriptor =
+                            &self.data.frames[found_frame].features[found_feature].descriptor;
+                        let distance = self_descriptor.distance(found_descriptor);
+                        if distance < best[1].1 {
+                            best[1] = (found_landmark, distance);
+                            if distance < best[0].1 {
+                                // Swap the items.
+                                best.rotate_right(1);
+                            }
+                        }
+                    }
+                }
+                if best[0].1 + self.settings.single_view_match_better_by <= best[1].1 {
+                    matches.push((best[0].0, self_feature));
+                }
             }
-            let pos = landmarks.partition_point(|&(_, d)| d <= distance);
-            landmarks.insert(pos, (landmark, distance));
         }
-        let landmark_features_filtered = feature_landmarks
-            .into_iter()
-            .filter(|(_, landmarks)| {
-                landmarks.len() == 1
-                    || landmarks[0].1 + self.settings.match_better_by < landmarks[1].1
-            })
-            .map(|(feature, landmarks)| (landmarks[0].0, feature, landmarks[0].1));
 
-        // Next we need to do the same thing for the landmarks.
-        let mut landmark_features: HashMap<LandmarkKey, Vec<(usize, u32)>> = HashMap::new();
-        for (landmark, feature, distance) in landmark_features_filtered {
-            let features = landmark_features.entry(landmark).or_default();
-            // Don't add duplicate features.
-            if features.iter().any(|&(f, _)| f == feature) {
-                continue;
-            }
-            let pos = features.partition_point(|&(_, d)| d <= distance);
-            features.insert(pos, (feature, distance));
-        }
-        let landmark_features_filtered = landmark_features
-            .into_iter()
-            .filter(|(_, features)| {
-                features.len() == 1 || features[0].1 + self.settings.match_better_by < features[1].1
-            })
-            .map(|(landmark, features)| (landmark, features[0].0));
-
-        let matches: Vec<(LandmarkKey, usize)> = landmark_features_filtered.collect();
+        let landmark_counts = matches.iter().counts_by(|&(landmark, _)| landmark);
+        matches.retain(|(landmark, _)| landmark_counts[landmark] == 1);
 
         info!("found {} initial feature matches", matches.len());
 
@@ -1066,8 +1055,12 @@ where
         // Extract the FeatureWorldMatch for each of the features.
         let matches_3d: Vec<FeatureWorldMatch<NormalizedKeyPoint>> = create_3d_matches(true);
 
-        let matches_3d = if matches_3d.len() < 32 {
-            info!("unable to find enough robust landmarks, trying all triangulatable landmarks");
+        let matches_3d = if matches_3d.len() < self.settings.single_view_minimum_landmarks {
+            info!(
+                "only found {} robust triangulatable landmarks, need {}; trying non-robust landmarks",
+                matches_3d.len(),
+                self.settings.single_view_minimum_landmarks,
+            );
             create_3d_matches(false)
         } else {
             matches_3d
@@ -1075,9 +1068,9 @@ where
 
         if matches_3d.len() < self.settings.single_view_minimum_landmarks {
             info!(
-                "unable to find at least {} 3d matches to track frame (found {})",
+                "only found {} triangulatable landmarks, need {}; frame registration aborted",
+                matches_3d.len(),
                 self.settings.single_view_minimum_landmarks,
-                matches_3d.len()
             );
             return None;
         }
@@ -1922,12 +1915,11 @@ fn matching<'a>(
             for (ix, b) in b_descriptors {
                 let distance = a.distance(b);
                 match distance.cmp(&best.1) {
-                    Ordering::Less => {
+                    Ordering::Less | Ordering::Equal => {
                         // The match must be better than `better_by`, or it is not sufficiently the best.
-                        sufficiently_best = best.1 - distance > better_by;
+                        sufficiently_best = best.1 - distance >= better_by;
                         best = (ix, distance);
                     }
-                    Ordering::Equal => sufficiently_best = false,
                     Ordering::Greater => {}
                 }
             }
@@ -1938,52 +1930,6 @@ fn matching<'a>(
             }
         })
         .collect::<Vec<_>>()
-}
-
-fn symmetric_matching_bags<'a>(
-    a_frame: &'a Frame,
-    a_bag: usize,
-    b_frame: &'a Frame,
-    b_bag: usize,
-    better_by: u32,
-) -> impl Iterator<Item = (FeatureMatch<usize>, u32)> + 'a {
-    // Get the bag iterators for each.
-    let a_bag_descriptors = a_frame.bag_descriptors(a_bag);
-    let b_bag_descriptors = b_frame.bag_descriptors(b_bag);
-
-    // Get the bag starts (the index the bag features start at in each frame).
-    let a_bag_start = a_frame.bag_start(a_bag);
-    let b_bag_start = b_frame.bag_start(b_bag);
-
-    // The best match for each feature in frame a to frame b's features.
-    let forward_matches = matching(
-        a_bag_descriptors.clone(),
-        b_bag_descriptors.clone(),
-        better_by,
-    );
-    // The best match for each feature in frame b to frame a's features.
-    let reverse_matches = matching(
-        b_bag_descriptors.clone(),
-        a_bag_descriptors.clone(),
-        better_by,
-    );
-    forward_matches
-        .into_iter()
-        .enumerate()
-        .filter_map(move |(aix, bix)| {
-            // First we only proceed if there was a sufficient bix match.
-            // Filter out matches which are not symmetric.
-            // Symmetric is defined as the best and sufficient match of a being b,
-            // and likewise the best and sufficient match of b being a.
-            bix.map(|(bix, distance)| (FeatureMatch(aix, bix), distance))
-                .filter(|&(FeatureMatch(aix, bix), _)| {
-                    reverse_matches[bix].map(|(bix, _)| bix) == Some(aix)
-                })
-        })
-        .map(move |(FeatureMatch(aix, bix), distance)| {
-            // We need to map the feature indices into feature vector indices rather than bag indices.
-            (FeatureMatch(aix + a_bag_start, bix + b_bag_start), distance)
-        })
 }
 
 fn symmetric_matching<'a>(
