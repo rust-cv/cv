@@ -623,7 +623,7 @@ impl VSlamData {
             let horizontal_segments = 16 * 2;
             let vertical_segments = 9 * 2;
             let horizontal_stride = (upper_x - lower_x) / horizontal_segments as f64;
-            let vertical_stride = (upper_y - lower_y) / horizontal_segments as f64;
+            let vertical_stride = (upper_y - lower_y) / vertical_segments as f64;
 
             // Collect all the hashes into their bags.
             let mut feature_groups: Vec<Vec<Feature>> =
@@ -897,14 +897,14 @@ where
         let matches: Vec<FeatureMatch<usize>> =
             inliers.into_iter().map(|ix| original_matches[ix]).collect();
 
-        info!("perform chirality test on {}", matches.len());
+        info!("perform chirality test on {} matches", matches.len());
 
-        // Perform a chirality test to retain only the points in front of both cameras.
+        // Perform chirality test to determine the pose from the four possible poses using the given data.
         let mut pose = essential
             .pose_solver()
             .solve_unscaled(matches.iter().copied().map(match_ix_kps))?;
 
-        // Initialize the camera points.
+        // Perform a chirality test to retain only the points in front of both cameras.
         let mut matches: Vec<FeatureMatch<usize>> = self
             .camera_to_camera_match_points(a, b, pose, original_matches.iter().copied())
             .collect();
