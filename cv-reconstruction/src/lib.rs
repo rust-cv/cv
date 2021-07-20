@@ -877,8 +877,15 @@ where
             b.features.len(),
         );
         // Retrieve the matches which agree with each other from each frame and filter out ones that aren't within the match threshold.
-        let original_matches: Vec<FeatureMatch<usize>> =
+        let mut original_matches: Vec<FeatureMatch<usize>> =
             symmetric_matching(a, b, self.settings.two_view_match_better_by).collect();
+
+        info!(
+            "shuffle {} matches before consensus process",
+            original_matches.len()
+        );
+
+        original_matches.shuffle(&mut *self.rng.borrow_mut());
 
         info!("estimate essential on {} matches", original_matches.len());
 
@@ -1055,7 +1062,7 @@ where
         // Extract the FeatureWorldMatch for each of the features.
         let matches_3d: Vec<FeatureWorldMatch<NormalizedKeyPoint>> = create_3d_matches(true);
 
-        let matches_3d = if matches_3d.len() < self.settings.single_view_minimum_landmarks {
+        let mut matches_3d = if matches_3d.len() < self.settings.single_view_minimum_landmarks {
             info!(
                 "only found {} robust triangulatable landmarks, need {}; trying non-robust landmarks",
                 matches_3d.len(),
@@ -1074,6 +1081,13 @@ where
             );
             return None;
         }
+
+        info!(
+            "shuffle {} triangulatable landmarks before consensus process",
+            matches_3d.len()
+        );
+
+        matches_3d.shuffle(&mut *self.rng.borrow_mut());
 
         info!(
             "estimate the pose of the camera using {} triangulatable landmarks",
