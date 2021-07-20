@@ -1083,13 +1083,6 @@ where
         }
 
         info!(
-            "shuffle {} triangulatable landmarks before consensus process",
-            matches_3d.len()
-        );
-
-        matches_3d.shuffle(&mut *self.rng.borrow_mut());
-
-        info!(
             "estimate the pose of the camera using {} triangulatable landmarks",
             matches_3d.len()
         );
