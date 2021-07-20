@@ -36,6 +36,31 @@ Each library was originally its own separate repository before being incorporate
 
 Many people are familiar with covolutional neural networks and machine learning (ML) in computer vision, but computer vision is much more than that. Computer vision broadly encompases image processing, photogrammetry, and pattern recognition. Machine learning can be used in all of these domains (e.g. denoisers, depth map prediction, and face detection), but it is not required. Almost all of the algorithms in this repository are not based on machine learning, but that does not mean you cannot use machine learning with these tools. Please take a look at https://www.arewelearningyet.com/ for Rust ML tools. We may expand into ML more in the future for tasks at which ML outperforms statistical algorithms.
 
+## Build
+
+Be sure to have installed rust: . The following packages will be needed on Ubuntu 20.04 (Built using Rust 1.53.0):
+
+* Cmake
+  * `sudo apt install cmake`
+* build-essential
+  * `sudo apt-get install build-essential`
+* freetype2
+  * `sudo apt-get install libfreetype-dev`
+* libxkbcommon
+  * `sudo apt install libxkbcommon-dev`
+
+If you have not already done so, [install Rust](https://doc.rust-lang.org/cargo/getting-started/installation.html):
+```
+curl https://sh.rustup.rs -sSf | sh
+```
+Clone and Build
+```
+cd <directory to keep cloned repo>
+git clone https://github.com/rust-cv/cv.git
+cd cv
+cargo build
+```
+
 ## Goals
 
 One of the first things that Rust CV focused on was algorithms in the domain of photogrammetry. Today, Rust now has enough photogrammetry algorithms to perform SfM and visual SLAM. Weakness still exists within image processing and pattern recognition domains.
