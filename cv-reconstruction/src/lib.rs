@@ -1199,6 +1199,11 @@ where
         dest_reconstruction: ReconstructionKey,
         dest_bag_matches: Vec<(usize, ViewKey, usize)>,
     ) -> Option<ReconstructionKey> {
+        info!(
+            "merging two reconstructions with source {} views and destination {} views",
+            self.data.reconstructions[src_reconstruction].views.len(),
+            self.data.reconstructions[dest_reconstruction].views.len()
+        );
         let src_frame = self.data.view_frame(src_reconstruction, src_view);
         // Register the frame in the source reconstruction to the destination reconstruction.
         let (pose, matches) =
@@ -1227,6 +1232,8 @@ where
             world_transform,
             landmark_to_landmark,
         );
+
+        info!("merging completed successfully");
 
         Some(dest_reconstruction)
     }
