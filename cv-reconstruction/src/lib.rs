@@ -6,7 +6,7 @@ pub use export::*;
 pub use settings::*;
 
 use argmin::core::{ArgminKV, ArgminOp, Error, Executor, IterState, Observe, ObserverMode};
-use bitarray::{BitArray, Hamming};
+use bitarray::{BitArray, Jaccard};
 use cv_core::nalgebra::{Unit, Vector3, Vector6};
 use cv_core::{
     sample_consensus::{Consensus, Estimator},
@@ -18,7 +18,7 @@ use cv_optimize::{
     SingleViewConstraint, TwoViewConstraint,
 };
 use cv_pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix, NormalizedKeyPoint};
-use hamming_lsh::HammingHasher;
+use hamming_bow::HammingHasher;
 use hgg::HggLite as Hgg;
 use image::DynamicImage;
 use itertools::{izip, Itertools};
@@ -88,7 +88,7 @@ pub struct Frame {
     /// LSHes for each bag of features on this frame.
     ///
     /// The two `usize` is a [first, second) range of the features vector that corresponds to the bag.
-    pub bags: Vec<(BitArray<128>, usize, usize)>,
+    pub bags: Vec<(BitArray<32>, usize, usize)>,
 }
 
 impl Frame {
@@ -121,7 +121,7 @@ impl Frame {
         self.bags.len()
     }
 
-    pub fn bag_lsh(&self, bag: usize) -> BitArray<128> {
+    pub fn bag_lsh(&self, bag: usize) -> BitArray<32> {
         self.bags[bag].0
     }
 
@@ -195,9 +195,9 @@ pub struct VSlamData {
     /// Contains all the frames
     frames: DenseSlotMap<FrameKey, Frame>,
     /// Contains the LSH hasher.
-    hasher: HammingHasher<64, 128>,
+    hasher: HammingHasher<64, 32>,
     /// The HGG to search descriptors for keypoint `(Reconstruction::view, Frame::features)` instances
-    lsh_to_bag: Hgg<Hamming, BitArray<128>, (FrameKey, usize)>,
+    lsh_to_bag: Hgg<Jaccard, BitArray<32>, (FrameKey, usize)>,
 }
 
 impl VSlamData {
@@ -630,8 +630,8 @@ impl VSlamData {
             horizontal_extrema.zip(vertical_extrema)
         {
             // TODO: This needs to use clustering, this is bad.
-            let horizontal_segments = 16 * 2;
-            let vertical_segments = 9 * 2;
+            let horizontal_segments = 16 * 4;
+            let vertical_segments = 9 * 4;
             let horizontal_stride = (upper_x - lower_x) / horizontal_segments as f64;
             let vertical_stride = (upper_y - lower_y) / vertical_segments as f64;
 
@@ -826,10 +826,12 @@ where
             }
         }
 
-        // Until we create a reconstruction, keep trying.
-        for found_frame in free_frames {
-            if self.try_init(frame, found_frame).is_some() {
-                break;
+        // Until we create a reconstruction, keep trying with free frames with no reconstruction.
+        if self.data.frames[frame].view.is_none() {
+            for found_frame in free_frames {
+                if self.try_init(frame, found_frame).is_some() {
+                    break;
+                }
             }
         }
 
@@ -971,10 +973,19 @@ where
             info!("filtering left us with {} matches", matches.len());
         }
 
+        let inlier_ratio = matches.len() as f64 / original_matches.len() as f64;
         info!(
-            "matches remaining after all filtering stages: {}",
-            matches.len()
+            "matches remaining after all filtering stages: {}; inlier ratio {}",
+            matches.len(),
+            inlier_ratio
         );
+
+        if inlier_ratio < self.settings.two_view_inlier_minimum_threshold {
+            info!(
+                "inlier ratio was less than the threshold for acceptance ({}), rejecting two-view match", self.settings.two_view_inlier_minimum_threshold
+            );
+            return None;
+        }
 
         // Add the new covisibility.
         Some((pose, matches))
@@ -1004,7 +1015,7 @@ where
             .map(|(self_bag, found_view, found_bag)| (self_bag, (found_view, found_bag)))
             .into_group_map();
 
-        let mut matches: Vec<(LandmarkKey, usize)> = vec![];
+        let mut original_matches: Vec<(LandmarkKey, usize)> = vec![];
         for (self_bag, found_bags) in self_bag_to_found_bag {
             for self_feature in new_frame.bag_range(self_bag) {
                 // Get the actual descriptor.
@@ -1040,19 +1051,19 @@ where
                     }
                 }
                 if best[0].1 + self.settings.single_view_match_better_by <= best[1].1 {
-                    matches.push((best[0].0, self_feature));
+                    original_matches.push((best[0].0, self_feature));
                 }
             }
         }
 
-        let landmark_counts = matches.iter().counts_by(|&(landmark, _)| landmark);
-        matches.retain(|(landmark, _)| landmark_counts[landmark] == 1);
+        let landmark_counts = original_matches.iter().counts_by(|&(landmark, _)| landmark);
+        original_matches.retain(|(landmark, _)| landmark_counts[landmark] == 1);
 
-        info!("found {} initial feature matches", matches.len());
+        info!("found {} initial feature matches", original_matches.len());
 
         let create_3d_matches = |robust| {
-            matches
-                .choose_multiple(&mut *self.rng.borrow_mut(), matches.len())
+            original_matches
+                .choose_multiple(&mut *self.rng.borrow_mut(), original_matches.len())
                 .filter_map(|&(landmark, feature)| {
                     Some(FeatureWorldMatch(
                         new_frame.features[feature].keypoint,
@@ -1125,9 +1136,9 @@ where
         let pose = Pose::from_se3(Vector6::from_row_slice(&opti_state.best_param));
 
         // Filter outlier matches and return all others for inclusion.
-        let matches: HashMap<usize, LandmarkKey> = matches
-            .into_iter()
-            .filter(|&(landmark, feature)| {
+        let matches: HashMap<usize, LandmarkKey> = original_matches
+            .iter()
+            .filter(|&&(landmark, feature)| {
                 let keypoint = new_frame.features[feature].keypoint;
                 self.triangulate_landmark_with_appended_observations_and_verify(
                     reconstruction_key,
@@ -1136,10 +1147,22 @@ where
                 )
                 .is_some()
             })
-            .map(|(landmark, feature)| (feature, landmark))
+            .map(|&(landmark, feature)| (feature, landmark))
             .collect();
 
-        info!("registered frame with a total of {} matches", matches.len());
+        let inlier_ratio = matches.len() as f64 / original_matches.len() as f64;
+        info!(
+            "matches remaining after all filtering stages: {}; inlier ratio {}",
+            matches.len(),
+            inlier_ratio
+        );
+
+        if inlier_ratio < self.settings.single_view_inlier_minimum_threshold {
+            info!(
+                "inlier ratio was less than the threshold for acceptance ({}), rejecting single-view match", self.settings.single_view_inlier_minimum_threshold
+            );
+            return None;
+        }
 
         Some((pose, matches))
     }

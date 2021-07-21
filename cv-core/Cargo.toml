@@ -18,7 +18,7 @@ serde-serialize = ["serde", "nalgebra/serde-serialize"]
 # TODO: Fix this once alloc feature is working again.
 nalgebra = { version = "0.28.0", default-features = false, features = ["std"] }
 derive_more = "0.99.16"
-sample-consensus = "1.0.1"
+sample-consensus = "1.0.2"
 num-traits = { version = "0.2.14", default-features = false }
 serde = { version = "1.0.126", default-features = false, features = ["derive"], optional = true }
 
