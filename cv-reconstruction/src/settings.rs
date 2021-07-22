@@ -155,9 +155,15 @@ pub struct VSlamSettings {
     /// The number of most similar frames to attempt to match when tracking.
     #[cfg_attr(
         feature = "serde-serialize",
-        serde(default = "default_tracking_bow_matches")
+        serde(default = "default_tracking_similar_frames")
     )]
-    pub tracking_bow_matches: usize,
+    pub tracking_similar_frames: usize,
+    /// The number of most recent frames to attempt to match when tracking.
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_tracking_similar_frames")
+    )]
+    pub tracking_recent_frames: usize,
 }
 
 impl Default for VSlamSettings {
@@ -189,7 +195,8 @@ impl Default for VSlamSettings {
             many_view_landmarks: default_many_view_landmarks(),
             reconstruction_optimization_iterations: default_reconstruction_optimization_iterations(
             ),
-            tracking_bow_matches: default_tracking_bow_matches(),
+            tracking_similar_frames: default_tracking_similar_frames(),
+            tracking_recent_frames: default_tracking_recent_frames(),
         }
     }
 }
@@ -294,6 +301,10 @@ fn default_reconstruction_optimization_iterations() -> usize {
     1
 }
 
-fn default_tracking_bow_matches() -> usize {
-    8192
+fn default_tracking_similar_frames() -> usize {
+    8
+}
+
+fn default_tracking_recent_frames() -> usize {
+    8
 }
