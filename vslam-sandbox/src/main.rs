@@ -104,8 +104,7 @@ fn main() {
         Arrsac::new(
             settings.consensus_threshold,
             Xoshiro256PlusPlus::seed_from_u64(0),
-        )
-        .likelyhood_ratio_threshold(1e12),
+        ),
         EightPoint::new(),
         LambdaTwist::new(),
         MinSquaresTriangulator::new(),

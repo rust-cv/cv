@@ -6,7 +6,7 @@ pub use export::*;
 pub use settings::*;
 
 use argmin::core::{ArgminKV, ArgminOp, Error, Executor, IterState, Observe, ObserverMode};
-use bitarray::{BitArray, Jaccard};
+use bitarray::{BitArray, Hamming};
 use cv_core::nalgebra::{Unit, Vector3, Vector6};
 use cv_core::{
     sample_consensus::{Consensus, Estimator},
@@ -18,7 +18,7 @@ use cv_optimize::{
     SingleViewConstraint, TwoViewConstraint,
 };
 use cv_pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix, NormalizedKeyPoint};
-use hamming_bow::HammingHasher;
+use hamming_lsh::HammingHasher;
 use hgg::HggLite as Hgg;
 use image::DynamicImage;
 use itertools::{izip, Itertools};
@@ -197,7 +197,7 @@ pub struct VSlamData {
     /// Contains the LSH hasher.
     hasher: HammingHasher<64, 32>,
     /// The HGG to search descriptors for keypoint `(Reconstruction::view, Frame::features)` instances
-    lsh_to_bag: Hgg<Jaccard, BitArray<32>, (FrameKey, usize)>,
+    lsh_to_bag: Hgg<Hamming, BitArray<32>, (FrameKey, usize)>,
 }
 
 impl VSlamData {

@@ -295,5 +295,5 @@ fn default_reconstruction_optimization_iterations() -> usize {
 }
 
 fn default_tracking_bow_matches() -> usize {
-    256
+    8192
 }
