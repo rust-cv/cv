@@ -164,6 +164,22 @@ pub struct VSlamSettings {
         serde(default = "default_tracking_similar_frames")
     )]
     pub tracking_similar_frames: usize,
+    /// The number of frames in the future or past in the feed the frame comes from
+    /// that it must be distant by for it to be included in the similar frames.
+    /// Similar frames from other feeds are always permitted to match.
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_tracking_similar_frame_recent_threshold")
+    )]
+    pub tracking_similar_frame_recent_threshold: usize,
+    /// The number of frames to search when trying to find similar frames for tracking.
+    /// Increasing this number only increases the search size and does not
+    /// cause more than `tracking_similar_frames` frames to be matched.
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_tracking_similar_frame_search_num")
+    )]
+    pub tracking_similar_frame_search_num: usize,
     /// The number of most recent frames to attempt to match when tracking.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -203,6 +219,9 @@ impl Default for VSlamSettings {
             reconstruction_optimization_iterations: default_reconstruction_optimization_iterations(
             ),
             tracking_similar_frames: default_tracking_similar_frames(),
+            tracking_similar_frame_recent_threshold:
+                default_tracking_similar_frame_recent_threshold(),
+            tracking_similar_frame_search_num: default_tracking_similar_frame_search_num(),
             tracking_recent_frames: default_tracking_recent_frames(),
         }
     }
@@ -314,6 +333,14 @@ fn default_reconstruction_optimization_iterations() -> usize {
 
 fn default_tracking_similar_frames() -> usize {
     8
+}
+
+fn default_tracking_similar_frame_recent_threshold() -> usize {
+    60
+}
+
+fn default_tracking_similar_frame_search_num() -> usize {
+    128
 }
 
 fn default_tracking_recent_frames() -> usize {

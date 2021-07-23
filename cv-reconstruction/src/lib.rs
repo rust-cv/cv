@@ -29,7 +29,8 @@ use rand::{seq::SliceRandom, Rng};
 use slotmap::{new_key_type, DenseSlotMap};
 use space::{Knn, KnnInsert, KnnMap};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::ops::Sub;
 use std::path::Path;
 
 #[cfg(feature = "serde-serialize")]
@@ -80,6 +81,8 @@ impl Pair {
 pub struct Frame {
     /// A VSlam::feeds index
     pub feed: FeedKey,
+    /// This frame's index in the feed.
+    pub feed_frame: usize,
     /// A KnnMap from feature descriptors to keypoint and color data.
     pub descriptor_features: Hgg<Hamming, BitArray<64>, Feature>,
     /// The views this frame produced.
@@ -549,32 +552,46 @@ impl VSlamData {
         frame: FrameKey,
         num_similar_frames: usize,
         num_recent_frames: usize,
+        similar_recent_threshold: usize,
+        similar_frames_search_num: usize,
     ) -> (HashMap<ReconstructionKey, Vec<ViewKey>>, Vec<FrameKey>) {
         info!(
             "trying to find {} visually similar frames and combine with {} recent frames",
             num_similar_frames, num_recent_frames
         );
+        let feed = self.frame(frame).feed;
+        let recent_frames: HashSet<FrameKey> = self
+            .feed(feed)
+            .frames
+            .iter()
+            .copied()
+            .rev()
+            .take(num_recent_frames)
+            .collect();
+        let similar_frames = self
+            .lsh_to_frame
+            .knn_values(&self.frames[frame].lsh, similar_frames_search_num)
+            .into_iter()
+            .filter_map(|(_, &found_frame)| {
+                let found_frame_feed = self.frame(found_frame).feed;
+                let is_too_close = found_frame_feed == feed
+                    && abs_difference(
+                        self.frame(frame).feed_frame,
+                        self.frame(found_frame).feed_frame,
+                    ) < similar_recent_threshold;
+                if recent_frames.contains(&found_frame) || is_too_close {
+                    None
+                } else {
+                    Some(found_frame)
+                }
+            })
+            .take(num_similar_frames);
         // This will map reconstructions to frame matches.
         let mut reconstruction_frames: HashMap<ReconstructionKey, Vec<ViewKey>> = HashMap::new();
         // This contains frames with no reconstruction that are similar and their distance.
         let mut free_frames: Vec<FrameKey> = vec![];
         // Sort the matches into their respective reconstruction or into the free_frames otherwise.
-        for found_frame in self
-            .lsh_to_frame
-            .knn_values(&self.frames[frame].lsh, num_similar_frames)
-            .into_iter()
-            .map(|(_, &found_frame)| found_frame)
-            .chain(
-                self.feed(self.frame(frame).feed)
-                    .frames
-                    .iter()
-                    .copied()
-                    .rev()
-                    .take(num_recent_frames),
-            )
-            .filter(|&found_frame| found_frame != frame)
-            .unique()
-        {
+        for found_frame in recent_frames.iter().copied().chain(similar_frames) {
             if let Some((reconstruction, found_view)) = self.frames[found_frame].view {
                 reconstruction_frames
                     .entry(reconstruction)
@@ -606,6 +623,7 @@ impl VSlamData {
         }
         let frame = self.frames.insert(Frame {
             feed,
+            feed_frame: self.feeds[feed].frames.len(),
             descriptor_features,
             view: None,
             lsh,
@@ -688,6 +706,8 @@ where
                 frame,
                 self.settings.tracking_similar_frames,
                 self.settings.tracking_recent_frames,
+                self.settings.tracking_similar_frame_recent_threshold,
+                self.settings.tracking_similar_frame_search_num,
             );
 
         // Try to localize this new frame with all of the similar frames.
@@ -1909,4 +1929,12 @@ fn symmetric_matching(a: &Frame, b: &Frame, better_by: u32) -> Vec<FeatureMatch<
                 .filter(|&FeatureMatch(aix, bix)| reverse_matches[bix] == Some(aix))
         })
         .collect()
+}
+
+fn abs_difference<T: Sub<Output = T> + Ord>(x: T, y: T) -> T {
+    if x < y {
+        y - x
+    } else {
+        x - y
+    }
 }
