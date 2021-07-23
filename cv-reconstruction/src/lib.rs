@@ -564,8 +564,9 @@ impl VSlamData {
             .feed(feed)
             .frames
             .iter()
-            .copied()
             .rev()
+            .copied()
+            .filter(|&recent_frame| recent_frame != frame)
             .take(num_recent_frames)
             .collect();
         let similar_frames = self
@@ -579,7 +580,7 @@ impl VSlamData {
                         self.frame(frame).feed_frame,
                         self.frame(found_frame).feed_frame,
                     ) < similar_recent_threshold;
-                if recent_frames.contains(&found_frame) || is_too_close {
+                if found_frame == frame || recent_frames.contains(&found_frame) || is_too_close {
                     None
                 } else {
                     Some(found_frame)
@@ -974,8 +975,10 @@ where
                         })
                 })
                 .collect_vec();
-            // Find the top 2 matches overall.
+
+            // Find the top 2 landmark matches overall.
             // Create an array where the best items will go.
+            // Note that these two matches come from the same frame and therefore are two different landmarks.
             let mut best = [lm_matches[0], lm_matches[1]];
             // Swap the items if they are in the incorrect order.
             if best[0].1 > best[1].1 {
@@ -986,12 +989,22 @@ where
             for &(lm, distance) in &lm_matches[2..] {
                 // If its better than the worst.
                 if distance < best[1].1 {
-                    // Set the worst to be this item.
-                    best[1] = (lm, distance);
-                    // If its better than the best.
-                    if distance < best[0].1 {
-                        // Swap the newly added item and the best in memory.
-                        best.rotate_right(1);
+                    // Check if it is the same landmark as the best.
+                    if best[0].0 == lm {
+                        // In this case, it should not replace the second best, but it should replace
+                        // the first best if it is better.
+                        if distance < best[0].1 {
+                            best[0].1 = distance;
+                        }
+                    } else {
+                        // In this case, it isn't the same landmark at the best, so this match should
+                        // replace the second best at least.
+                        best[1] = (lm, distance);
+                        // If it is also better than the best landmark match.
+                        if distance < best[0].1 {
+                            // Swap the newly added landmark and the best.
+                            best.rotate_right(1);
+                        }
                     }
                 }
             }
