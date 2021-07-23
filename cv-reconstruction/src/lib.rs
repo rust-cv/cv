@@ -757,33 +757,36 @@ where
     }
 
     /// Triangulates the point of each match, filtering out matches which fail triangulation or chirality test.
-    fn camera_to_camera_match_points<'a>(
-        &'a self,
-        a: &'a Frame,
-        b: &'a Frame,
+    fn camera_to_camera_match_points(
+        &self,
+        a: &Frame,
+        b: &Frame,
         pose: CameraToCamera,
-        matches: impl Iterator<Item = FeatureMatch<usize>> + 'a,
-    ) -> impl Iterator<Item = FeatureMatch<usize>> + 'a {
-        matches.filter_map(move |m| {
-            let FeatureMatch(a, b) = FeatureMatch(a.keypoint(m.0), b.keypoint(m.1));
-            let point_a = self.triangulator.triangulate_relative(pose, a, b)?;
-            let point_b = pose.transform(point_a);
-            let camera_b_bearing_a = pose.isometry() * a.bearing();
-            let camera_b_bearing_b = b.bearing();
-            let residual = 1.0 - point_a.bearing().dot(&a.bearing()) + 1.0
-                - point_b.bearing().dot(&b.bearing());
-            let incidence_cosine_distance = 1.0 - camera_b_bearing_a.dot(&camera_b_bearing_b);
-            if residual.is_finite()
-                && (residual < self.settings.two_view_cosine_distance_threshold
-                    && point_a.z.is_sign_positive()
-                    && point_b.z.is_sign_positive()
-                    && incidence_cosine_distance > self.settings.incidence_minimum_cosine_distance)
-            {
-                Some(m)
-            } else {
-                None
-            }
-        })
+        matches: impl Iterator<Item = FeatureMatch<usize>>,
+    ) -> Vec<FeatureMatch<usize>> {
+        matches
+            .filter_map(move |m| {
+                let FeatureMatch(a, b) = FeatureMatch(a.keypoint(m.0), b.keypoint(m.1));
+                let point_a = self.triangulator.triangulate_relative(pose, a, b)?;
+                let point_b = pose.transform(point_a);
+                let camera_b_bearing_a = pose.isometry() * a.bearing();
+                let camera_b_bearing_b = b.bearing();
+                let residual = 1.0 - point_a.bearing().dot(&a.bearing()) + 1.0
+                    - point_b.bearing().dot(&b.bearing());
+                let incidence_cosine_distance = 1.0 - camera_b_bearing_a.dot(&camera_b_bearing_b);
+                if residual.is_finite()
+                    && (residual < self.settings.two_view_cosine_distance_threshold
+                        && point_a.z.is_sign_positive()
+                        && point_b.z.is_sign_positive()
+                        && incidence_cosine_distance
+                            > self.settings.incidence_minimum_cosine_distance)
+                {
+                    Some(m)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     /// This creates a covisibility between frames `a` and `b` using the essential matrix estimator.
@@ -841,9 +844,8 @@ where
             .solve_unscaled(matches.iter().copied().map(match_ix_kps))?;
 
         // Perform a chirality test to retain only the points in front of both cameras.
-        let mut matches: Vec<FeatureMatch<usize>> = self
-            .camera_to_camera_match_points(a, b, pose, original_matches.iter().copied())
-            .collect();
+        let mut matches: Vec<FeatureMatch<usize>> =
+            self.camera_to_camera_match_points(a, b, pose, original_matches.iter().copied());
 
         for _ in 0..self.settings.two_view_filter_loop_iterations {
             let opti_matches: Vec<FeatureMatch<NormalizedKeyPoint>> = matches
@@ -883,9 +885,8 @@ where
             pose = Pose::from_se3(Vector6::from_row_slice(&opti_state.best_param));
 
             // Filter outlier matches based on cosine distance.
-            matches = self
-                .camera_to_camera_match_points(a, b, pose, original_matches.iter().copied())
-                .collect();
+            matches =
+                self.camera_to_camera_match_points(a, b, pose, original_matches.iter().copied());
 
             info!("filtering left us with {} matches", matches.len());
         }
@@ -896,6 +897,15 @@ where
             matches.len(),
             inlier_ratio
         );
+
+        if matches.len() < self.settings.two_view_minimum_robust_matches {
+            info!(
+                "only found {} robust matches, but needed {}; rejecting two-view match",
+                matches.len(),
+                self.settings.two_view_minimum_robust_matches
+            );
+            return None;
+        }
 
         if inlier_ratio < self.settings.two_view_inlier_minimum_threshold {
             info!(

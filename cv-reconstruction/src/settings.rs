@@ -116,6 +116,12 @@ pub struct VSlamSettings {
         serde(default = "default_two_view_inlier_minimum_threshold")
     )]
     pub two_view_inlier_minimum_threshold: f64,
+    /// The minimum median observation incidence cosine distance needed to consider a two-view match successful.
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_two_view_minimum_robust_matches")
+    )]
+    pub two_view_minimum_robust_matches: usize,
     /// The difference between the first and second best match above which a match is allowed for initialization
     #[cfg_attr(
         feature = "serde-serialize",
@@ -188,6 +194,7 @@ impl Default for VSlamSettings {
             two_view_std_dev_threshold: default_two_view_std_dev_threshold(),
             two_view_filter_loop_iterations: default_two_view_filter_loop_iterations(),
             two_view_inlier_minimum_threshold: default_two_view_inlier_minimum_threshold(),
+            two_view_minimum_robust_matches: default_two_view_minimum_robust_matches(),
             two_view_match_better_by: default_two_view_match_better_by(),
             track_landmarks: default_track_landmarks(),
             many_view_patience: default_many_view_patience(),
@@ -258,7 +265,7 @@ fn default_single_view_match_better_by() -> u32 {
 }
 
 fn default_two_view_cosine_distance_threshold() -> f64 {
-    0.001
+    0.002
 }
 
 fn default_two_view_patience() -> usize {
@@ -275,6 +282,10 @@ fn default_two_view_filter_loop_iterations() -> usize {
 
 fn default_two_view_inlier_minimum_threshold() -> f64 {
     0.1
+}
+
+fn default_two_view_minimum_robust_matches() -> usize {
+    100
 }
 
 fn default_two_view_match_better_by() -> u32 {
