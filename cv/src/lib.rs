@@ -97,6 +97,12 @@ pub mod optimize {
     }
 }
 
+/// Structure from Motion
+pub mod sfm {
+    #[cfg(feature = "cv-reconstruction")]
+    pub use cv_reconstruction::*;
+}
+
 /// Visualization utilities
 pub mod vis {
     #[cfg(feature = "imgshow")]
