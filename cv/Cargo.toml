@@ -16,6 +16,7 @@ default = [
     "alloc",
     "cv-pinhole",
     "cv-geom",
+    "cv-sfm",
     "eight-point",
     "lambda-twist",
     "akaze",
@@ -36,7 +37,7 @@ alloc = [
 serde-serialize = [
     "cv-core/serde-serialize",
     "cv-pinhole/serde-serialize",
-    "cv-reconstruction/serde-serialize"
+    "cv-sfm/serde-serialize"
 ]
 jpeg = [
     "image",
@@ -51,7 +52,7 @@ png = [
 cv-core = { version = "0.15.0", path = "../cv-core" }
 cv-pinhole = { optional = true, version = "0.6.0", path = "../cv-pinhole" }
 cv-geom = { optional = true, version = "0.7.0", path = "../cv-geom" }
-cv-reconstruction = { optional = true, version = "0.1.0", path = "../cv-reconstruction" }
+cv-sfm = { optional = true, version = "0.1.0", path = "../cv-sfm" }
 eight-point = { optional = true, version = "0.8.0", path = "../eight-point" }
 lambda-twist = { optional = true, version = "0.7.0", path = "../lambda-twist" }
 akaze = { optional = true, version = "0.7.0", path = "../akaze" }

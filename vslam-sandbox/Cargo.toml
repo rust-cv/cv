@@ -8,8 +8,7 @@ edition = "2018"
 unstable-512-bit-simd = ["bitarray/unstable-512-bit-simd"]
 
 [dependencies]
-cv = { version = "0.6.0", path = "../cv" }
-cv-reconstruction = { version = "0.1.0", path = "../cv-reconstruction", features = ["serde-serialize"] }
+cv = { version = "0.6.0", path = "../cv", features = ["serde-serialize"] }
 structopt = "0.3.22"
 serde = { version = "1.0.126", features = ["derive"] }
 image = "0.23.14"

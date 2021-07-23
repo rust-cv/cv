@@ -4,8 +4,8 @@ use cv::{
     consensus::Arrsac,
     estimate::{EightPoint, LambdaTwist},
     geom::MinSquaresTriangulator,
+    sfm::{VSlam, VSlamSettings},
 };
-use cv_reconstruction::{VSlam, VSlamSettings};
 use log::*;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256PlusPlus;

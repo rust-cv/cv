@@ -102,7 +102,7 @@ Here are some of the domains of computer vision that Rust CV intends to persue a
       * [x] [HGG](https://docs.rs/hgg/0.2.0/hgg/) (for loop closure)
       * [x] [HNSW](https://docs.rs/hnsw/0.9.1/hnsw/struct.Hnsw.html) (for loop closure)
     * [ ] Filtering strategies
-      * [ ] Symmetric matching/uniquely best match (exists [within cv-reconstruction](https://github.com/rust-cv/cv/blob/58444de1cb174622ac34cc705ab9142e081f412c/cv-reconstruction/src/lib.rs#L1337), but not reusable)
+      * [ ] Symmetric matching/uniquely best match (exists [within cv-sfm](https://github.com/rust-cv/cv/blob/58444de1cb174622ac34cc705ab9142e081f412c/cv-reconstruction/src/lib.rs#L1337), but not reusable)
       * [ ] Lowe's ratio test matching
   * [ ] Geometric verification (utilized abstractions in [sample-consensus](https://docs.rs/sample-consensus/0.2.0/sample_consensus/))
     * [ ] [Consensus algorithms](https://docs.rs/sample-consensus/0.2.0/sample_consensus/trait.Consensus.html)
