@@ -252,11 +252,11 @@ fn default_robust_minimum_observations() -> usize {
 }
 
 fn default_loss_cutoff() -> f64 {
-    0.00002
+    default_cosine_distance_threshold()
 }
 
 fn default_cosine_distance_threshold() -> f64 {
-    0.001
+    0.0025
 }
 
 fn default_merge_cosine_distance_threshold() -> f64 {
@@ -284,7 +284,7 @@ fn default_single_view_match_better_by() -> u32 {
 }
 
 fn default_two_view_cosine_distance_threshold() -> f64 {
-    0.002
+    0.005
 }
 
 fn default_two_view_patience() -> usize {
