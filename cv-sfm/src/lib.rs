@@ -29,7 +29,7 @@ use rand::{seq::SliceRandom, Rng};
 use slotmap::{new_key_type, DenseSlotMap};
 use space::{Knn, KnnInsert, KnnMap};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ops::Sub;
 use std::path::Path;
 
@@ -561,7 +561,7 @@ impl VSlamData {
         );
         let feed = self.frame(frame).feed;
         let frame_feed_ix = self.frame(frame).feed_frame;
-        let recent_frames: HashSet<FrameKey> = self
+        let recent_frames: Vec<FrameKey> = self
             .feed(feed)
             .frames
             .iter()
@@ -838,6 +838,29 @@ where
             .collect()
     }
 
+    /// Triangulates the point of each match, filtering out matches which fail triangulation or chirality test.
+    fn camera_to_camera_chirality_pass_count(
+        &self,
+        a: &Frame,
+        b: &Frame,
+        pose: CameraToCamera,
+        matches: impl Iterator<Item = FeatureMatch<usize>>,
+    ) -> usize {
+        matches
+            .filter(move |&m| {
+                let FeatureMatch(a, b) = FeatureMatch(a.keypoint(m.0), b.keypoint(m.1));
+                let point_a =
+                    if let Some(point_a) = self.triangulator.triangulate_relative(pose, a, b) {
+                        point_a
+                    } else {
+                        return false;
+                    };
+                let point_b = pose.transform(point_a);
+                point_a.z.is_sign_positive() && point_b.z.is_sign_positive()
+            })
+            .count()
+    }
+
     /// This creates a covisibility between frames `a` and `b` using the essential matrix estimator.
     ///
     /// This method resolves to an undefined scale, and thus is only appropriate for initialization.
@@ -891,6 +914,29 @@ where
         let mut pose = essential
             .pose_solver()
             .solve_unscaled(matches.iter().copied().map(match_ix_kps))?;
+
+        // Perform the pure chirality test.
+        let pre_chirality_matches = matches.len();
+        let post_chirality_matches =
+            self.camera_to_camera_chirality_pass_count(a, b, pose, matches.iter().copied());
+        let chirality_pass_ratio = post_chirality_matches as f64 / pre_chirality_matches as f64;
+        if pre_chirality_matches == 0
+            || chirality_pass_ratio < self.settings.two_view_chirality_minimum_threshold
+        {
+            info!(
+                "initial chirality test pass ratio was {} ({}/{}), but needed {}; rejecting two-view match",
+                chirality_pass_ratio,
+                post_chirality_matches,
+                pre_chirality_matches,
+                self.settings.two_view_chirality_minimum_threshold
+            );
+            return None;
+        } else {
+            info!(
+                "initial chirality test pass ratio was {} ({}/{}), which was successful",
+                chirality_pass_ratio, post_chirality_matches, pre_chirality_matches,
+            );
+        }
 
         // Perform a chirality test to retain only the points in front of both cameras.
         let mut matches: Vec<FeatureMatch<usize>> =
@@ -953,9 +999,14 @@ where
             return None;
         }
 
-        if inlier_ratio < self.settings.two_view_inlier_minimum_threshold {
+        if inlier_ratio < self.settings.two_view_inlier_minimum_threshold
+            || inlier_ratio > self.settings.two_view_inlier_maximum_threshold
+        {
             info!(
-                "inlier ratio was less than the threshold for acceptance ({}), rejecting two-view match", self.settings.two_view_inlier_minimum_threshold
+                "inlier ratio was {}, but it must be between {} and {}; rejecting two-view match",
+                inlier_ratio,
+                self.settings.two_view_inlier_minimum_threshold,
+                self.settings.two_view_inlier_maximum_threshold
             );
             return None;
         }

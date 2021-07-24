@@ -104,12 +104,24 @@ pub struct VSlamSettings {
         serde(default = "default_two_view_filter_loop_iterations")
     )]
     pub two_view_filter_loop_iterations: usize,
-    /// The ratio of good matches to total matches to consider a two-view match successful.
+    /// The minimum ratio of matches that pass the initial chirality test to consider a two-view match successful.
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_two_view_chirality_minimum_threshold")
+    )]
+    pub two_view_chirality_minimum_threshold: f64,
+    /// The minimum ratio of good matches to total matches to consider a two-view match successful.
     #[cfg_attr(
         feature = "serde-serialize",
         serde(default = "default_two_view_inlier_minimum_threshold")
     )]
     pub two_view_inlier_minimum_threshold: f64,
+    /// The maximum ratio of good matches to total matches to consider a two-view match successful.
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_two_view_inlier_maximum_threshold")
+    )]
+    pub two_view_inlier_maximum_threshold: f64,
     /// The minimum median observation incidence cosine distance needed to consider a two-view match successful.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -202,7 +214,9 @@ impl Default for VSlamSettings {
             two_view_patience: default_two_view_patience(),
             two_view_std_dev_threshold: default_two_view_std_dev_threshold(),
             two_view_filter_loop_iterations: default_two_view_filter_loop_iterations(),
+            two_view_chirality_minimum_threshold: default_two_view_chirality_minimum_threshold(),
             two_view_inlier_minimum_threshold: default_two_view_inlier_minimum_threshold(),
+            two_view_inlier_maximum_threshold: default_two_view_inlier_maximum_threshold(),
             two_view_minimum_robust_matches: default_two_view_minimum_robust_matches(),
             two_view_match_better_by: default_two_view_match_better_by(),
             track_landmarks: default_track_landmarks(),
@@ -229,11 +243,11 @@ fn default_consensus_threshold() -> f64 {
 }
 
 fn default_incidence_minimum_cosine_distance() -> f64 {
-    0.0025
+    0.005
 }
 
 fn default_robust_maximum_cosine_distance() -> f64 {
-    0.0000001
+    0.0001
 }
 
 fn default_robust_minimum_observations() -> usize {
@@ -288,8 +302,16 @@ fn default_two_view_filter_loop_iterations() -> usize {
     3
 }
 
+fn default_two_view_chirality_minimum_threshold() -> f64 {
+    0.9
+}
+
 fn default_two_view_inlier_minimum_threshold() -> f64 {
-    0.1
+    0.15
+}
+
+fn default_two_view_inlier_maximum_threshold() -> f64 {
+    0.8
 }
 
 fn default_two_view_minimum_robust_matches() -> usize {
