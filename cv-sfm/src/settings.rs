@@ -17,12 +17,6 @@ pub struct VSlamSettings {
         serde(default = "default_consensus_threshold")
     )]
     pub consensus_threshold: f64,
-    /// The number of points to use in optimization of matches
-    #[cfg_attr(
-        feature = "serde-serialize",
-        serde(default = "default_optimization_points")
-    )]
-    pub optimization_points: usize,
     /// The minimum cosine distance of a landmark for it to be considered robust enough for optimization
     #[cfg_attr(
         feature = "serde-serialize",
@@ -86,6 +80,12 @@ pub struct VSlamSettings {
         serde(default = "default_single_view_match_better_by")
     )]
     pub single_view_match_better_by: u32,
+    /// The number of points to use in optimization of matches
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_two_view_optimization_points")
+    )]
+    pub two_view_optimization_points: usize,
     /// The cosine distance threshold during initialization.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -193,7 +193,6 @@ impl Default for VSlamSettings {
         Self {
             akaze_threshold: default_akaze_threshold(),
             consensus_threshold: default_consensus_threshold(),
-            optimization_points: default_optimization_points(),
             incidence_minimum_cosine_distance: default_incidence_minimum_cosine_distance(),
             robust_maximum_cosine_distance: default_robust_maximum_cosine_distance(),
             robust_minimum_observations: default_robust_minimum_observations(),
@@ -205,6 +204,7 @@ impl Default for VSlamSettings {
             single_view_minimum_landmarks: default_single_view_minimum_landmarks(),
             single_view_inlier_minimum_threshold: default_single_view_inlier_minimum_threshold(),
             single_view_match_better_by: default_single_view_match_better_by(),
+            two_view_optimization_points: default_two_view_optimization_points(),
             two_view_cosine_distance_threshold: default_two_view_cosine_distance_threshold(),
             two_view_patience: default_two_view_patience(),
             two_view_std_dev_threshold: default_two_view_std_dev_threshold(),
@@ -235,12 +235,8 @@ fn default_consensus_threshold() -> f64 {
     0.001
 }
 
-fn default_optimization_points() -> usize {
-    8192
-}
-
 fn default_incidence_minimum_cosine_distance() -> f64 {
-    0.0005
+    0.0025
 }
 
 fn default_robust_maximum_cosine_distance() -> f64 {
@@ -252,11 +248,11 @@ fn default_robust_minimum_observations() -> usize {
 }
 
 fn default_loss_cutoff() -> f64 {
-    default_cosine_distance_threshold()
+    default_incidence_minimum_cosine_distance()
 }
 
 fn default_cosine_distance_threshold() -> f64 {
-    0.0025
+    0.001
 }
 
 fn default_merge_cosine_distance_threshold() -> f64 {
@@ -283,8 +279,12 @@ fn default_single_view_match_better_by() -> u32 {
     1
 }
 
+fn default_two_view_optimization_points() -> usize {
+    8192
+}
+
 fn default_two_view_cosine_distance_threshold() -> f64 {
-    0.005
+    0.01
 }
 
 fn default_two_view_patience() -> usize {

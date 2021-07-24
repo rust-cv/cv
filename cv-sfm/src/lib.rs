@@ -560,14 +560,18 @@ impl VSlamData {
             num_similar_frames, num_recent_frames
         );
         let feed = self.frame(frame).feed;
+        let frame_feed_ix = self.frame(frame).feed_frame;
         let recent_frames: HashSet<FrameKey> = self
             .feed(feed)
             .frames
             .iter()
-            .rev()
             .copied()
-            .filter(|&recent_frame| recent_frame != frame)
-            .take(num_recent_frames)
+            .enumerate()
+            .filter(|&(ix, recent_frame)| {
+                recent_frame != frame
+                    && abs_difference(frame_feed_ix, ix) < similar_recent_threshold
+            })
+            .map(|(_, recent_frame)| recent_frame)
             .collect();
         let similar_frames = self
             .lsh_to_frame
@@ -576,10 +580,8 @@ impl VSlamData {
             .filter_map(|(_, &found_frame)| {
                 let found_frame_feed = self.frame(found_frame).feed;
                 let is_too_close = found_frame_feed == feed
-                    && abs_difference(
-                        self.frame(frame).feed_frame,
-                        self.frame(found_frame).feed_frame,
-                    ) < similar_recent_threshold;
+                    && abs_difference(frame_feed_ix, self.frame(found_frame).feed_frame)
+                        < similar_recent_threshold;
                 if found_frame == frame || recent_frames.contains(&found_frame) || is_too_close {
                     None
                 } else {
@@ -767,9 +769,35 @@ where
 
         // Until we create a reconstruction, keep trying with free frames with no reconstruction.
         if self.data.frames[frame].view.is_none() {
-            for found_frame in free_frames {
+            for &found_frame in &free_frames {
                 if self.try_init(frame, found_frame).is_some() {
                     break;
+                }
+            }
+        }
+
+        for found_frame in free_frames {
+            // Skip the frame if we initialized with it.
+            if self.data.frames[found_frame].view.is_some() {
+                continue;
+            }
+            // If we already have a reconstruction, use that reconstruction to try and incorporate the found frames.
+            if let Some((reconstruction, _)) = self.data.frames[frame].view {
+                // Try to find view matches that correspond to this reconstruction specifically.
+                if let Some(view_matches) = self
+                    .data
+                    .find_visually_similar_and_recent_frames(
+                        found_frame,
+                        self.settings.tracking_similar_frames,
+                        self.settings.tracking_recent_frames,
+                        self.settings.tracking_similar_frame_recent_threshold,
+                        self.settings.tracking_similar_frame_search_num,
+                    )
+                    .0
+                    .remove(&reconstruction)
+                {
+                    // Try to incorporate the frame into the reconstruction.
+                    self.incorporate_frame(reconstruction, found_frame, view_matches);
                 }
             }
         }
@@ -870,12 +898,10 @@ where
 
         for _ in 0..self.settings.two_view_filter_loop_iterations {
             let opti_matches: Vec<FeatureMatch<NormalizedKeyPoint>> = matches
-                .choose_multiple(
-                    &mut *self.rng.borrow_mut(),
-                    self.settings.optimization_points,
-                )
+                .iter()
                 .copied()
                 .map(match_ix_kps)
+                .take(self.settings.two_view_optimization_points)
                 .collect::<Vec<_>>();
 
             info!(
