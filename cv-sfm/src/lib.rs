@@ -824,7 +824,7 @@ where
                     - point_b.bearing().dot(&b.bearing());
                 let incidence_cosine_distance = 1.0 - camera_b_bearing_a.dot(&camera_b_bearing_b);
                 if residual.is_finite()
-                    && (residual < self.settings.two_view_cosine_distance_threshold
+                    && (residual < 2.0 * self.settings.two_view_cosine_distance_threshold
                         && point_a.z.is_sign_positive()
                         && point_b.z.is_sign_positive()
                         && incidence_cosine_distance
@@ -901,7 +901,6 @@ where
                 .iter()
                 .copied()
                 .map(match_ix_kps)
-                .take(self.settings.two_view_optimization_points)
                 .collect::<Vec<_>>();
 
             info!(
