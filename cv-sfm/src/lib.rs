@@ -6,7 +6,9 @@ mod settings;
 pub use export::*;
 pub use settings::*;
 
-use argmin::core::{ArgminKV, ArgminOp, Error, Executor, IterState, Observe, ObserverMode};
+use argmin::core::{
+    ArgminKV, ArgminOp, Error, Executor, IterState, Observe, ObserverMode, TerminationReason,
+};
 use bitarray::{BitArray, Hamming};
 use cv_core::nalgebra::{Unit, Vector3, Vector6};
 use cv_core::{
@@ -29,6 +31,7 @@ use rand::{seq::SliceRandom, Rng};
 use slotmap::{new_key_type, DenseSlotMap};
 use space::{Knn, KnnInsert, KnnMap};
 use std::cell::RefCell;
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ops::Sub;
 use std::path::Path;
@@ -605,13 +608,17 @@ impl VSlamData {
             }
         }
 
+        let mut reconstruction_view_counts = reconstruction_frames
+            .iter()
+            .map(|(_, views)| views.len())
+            .collect_vec();
+
+        reconstruction_view_counts.sort_unstable_by_key(|&count| Reverse(count));
+
         info!(
             "found {} reconstructionless frame matches and reconstruction frame matches: {:?}",
             free_frames.len(),
-            reconstruction_frames
-                .iter()
-                .map(|(_, frames)| frames.len())
-                .collect_vec(),
+            reconstruction_view_counts,
         );
 
         (reconstruction_frames, free_frames)
@@ -747,6 +754,10 @@ where
         reconstruction_frames: HashMap<ReconstructionKey, Vec<ViewKey>>,
         free_frames: Vec<FrameKey>,
     ) -> Option<(ReconstructionKey, ViewKey)> {
+        // Sort the reconstruction frames by the number of views matched in them.
+        let mut reconstruction_frames = reconstruction_frames.into_iter().collect_vec();
+        reconstruction_frames.sort_unstable_by_key(|(_, views)| Reverse(views.len()));
+
         // Handle all the bag matches with existing reconstructions.
         for (dest_reconstruction, view_matches) in reconstruction_frames {
             if let Some((src_reconstruction, view)) = self.data.frames[frame].view {
@@ -797,7 +808,14 @@ where
                     .remove(&reconstruction)
                 {
                     // Try to incorporate the frame into the reconstruction.
-                    self.incorporate_frame(reconstruction, found_frame, view_matches);
+                    if self
+                        .incorporate_frame(reconstruction, found_frame, view_matches)
+                        .is_some()
+                        && self.data.reconstruction(reconstruction).views.len() == 3
+                    {
+                        // If we went from 2 to 3 frames, we need to exit to perform bundle adjustment.
+                        return self.data.frames[frame].view;
+                    }
                 }
             }
         }
@@ -806,29 +824,34 @@ where
     }
 
     /// Triangulates the point of each match, filtering out matches which fail triangulation or chirality test.
+    ///
+    /// If `final` is true, it will perform a final filtering using the `cosine_distance_threshold`,
+    /// otherwise it will perform a more forgiving filtering using `consensus_threshold`.
     fn camera_to_camera_match_points(
         &self,
         a: &Frame,
         b: &Frame,
         pose: CameraToCamera,
         matches: impl Iterator<Item = FeatureMatch<usize>>,
+        last: bool,
     ) -> Vec<FeatureMatch<usize>> {
         matches
             .filter_map(move |m| {
                 let FeatureMatch(a, b) = FeatureMatch(a.keypoint(m.0), b.keypoint(m.1));
                 let point_a = self.triangulator.triangulate_relative(pose, a, b)?;
                 let point_b = pose.transform(point_a);
-                let camera_b_bearing_a = pose.isometry() * a.bearing();
-                let camera_b_bearing_b = b.bearing();
                 let residual = 1.0 - point_a.bearing().dot(&a.bearing()) + 1.0
                     - point_b.bearing().dot(&b.bearing());
-                let incidence_cosine_distance = 1.0 - camera_b_bearing_a.dot(&camera_b_bearing_b);
                 if residual.is_finite()
-                    && (residual < 2.0 * self.settings.two_view_cosine_distance_threshold
+                    && (residual
+                        < 2.0
+                            * if last {
+                                self.settings.cosine_distance_threshold
+                            } else {
+                                self.settings.consensus_threshold
+                            }
                         && point_a.z.is_sign_positive()
-                        && point_b.z.is_sign_positive()
-                        && incidence_cosine_distance
-                            > self.settings.incidence_minimum_cosine_distance)
+                        && point_b.z.is_sign_positive())
                 {
                     Some(m)
                 } else {
@@ -939,14 +962,32 @@ where
         }
 
         // Perform a chirality test to retain only the points in front of both cameras.
-        let mut matches: Vec<FeatureMatch<usize>> =
-            self.camera_to_camera_match_points(a, b, pose, original_matches.iter().copied());
+        let mut matches: Vec<FeatureMatch<usize>> = self.camera_to_camera_match_points(
+            a,
+            b,
+            pose,
+            original_matches.iter().copied(),
+            self.settings.two_view_filter_loop_iterations == 0,
+        );
 
-        for _ in 0..self.settings.two_view_filter_loop_iterations {
+        // We need to compute the rate that we must restrict the output at to reach the target
+        // robust_maximum_cosine_distance by the end of our filter loop.
+        let restriction_rate = (self.settings.robust_maximum_cosine_distance
+            / self.settings.consensus_threshold)
+            .powf((self.settings.two_view_filter_loop_iterations as f64).recip());
+
+        for ix in 0..self.settings.two_view_filter_loop_iterations {
+            // This gradually restricts the threshold for outliers on each iteration.
+            let restriction = restriction_rate.powi(ix as i32 + 1);
+            let loss_cutoff = self.settings.consensus_threshold * restriction;
+            info!("optimizing pose with loss cutoff {}", loss_cutoff);
+
+            // Get the matches to use for optimization.
             let opti_matches: Vec<FeatureMatch<NormalizedKeyPoint>> = matches
                 .iter()
                 .copied()
                 .map(match_ix_kps)
+                .take(self.settings.two_view_optimization_num_matches)
                 .collect::<Vec<_>>();
 
             info!(
@@ -959,26 +1000,35 @@ where
                 two_view_nelder_mead(pose).sd_tolerance(self.settings.two_view_std_dev_threshold);
             let constraint =
                 TwoViewConstraint::new(opti_matches.iter().copied(), self.triangulator.clone())
-                    .loss_cutoff(self.settings.loss_cutoff);
+                    .loss_cutoff(loss_cutoff);
 
             // The initial parameter is empty becasue nelder mead is passed its own initial parameter directly.
-            let opti_state = Executor::new(constraint, solver, vec![])
+            let opti_result = Executor::new(constraint, solver, vec![])
                 .add_observer(OptimizationObserver, ObserverMode::Always)
                 .max_iters(self.settings.two_view_patience as u64)
                 .run()
-                .expect("two-view optimization failed")
-                .state;
+                .expect("two-view optimization failed");
 
             info!(
-                "extracted pose with mean capped cosine distance of {}",
-                opti_state.best_cost
+                "extracted two-view pose with mean capped cosine distance of {} with reason: {}",
+                opti_result.state.best_cost, opti_result.state.termination_reason,
             );
 
-            pose = Pose::from_se3(Vector6::from_row_slice(&opti_state.best_param));
+            if opti_result.state.termination_reason != TerminationReason::TargetToleranceReached {
+                info!("didn't terminate due to reaching our desired tollerance; rejecting two-view match");
+                return None;
+            }
+
+            pose = Pose::from_se3(Vector6::from_row_slice(&opti_result.state.best_param));
 
             // Filter outlier matches based on cosine distance.
-            matches =
-                self.camera_to_camera_match_points(a, b, pose, original_matches.iter().copied());
+            matches = self.camera_to_camera_match_points(
+                a,
+                b,
+                pose,
+                original_matches.iter().copied(),
+                ix == self.settings.two_view_filter_loop_iterations - 1,
+            );
 
             info!("filtering left us with {} matches", matches.len());
         }
@@ -999,14 +1049,10 @@ where
             return None;
         }
 
-        if inlier_ratio < self.settings.two_view_inlier_minimum_threshold
-            || inlier_ratio > self.settings.two_view_inlier_maximum_threshold
-        {
+        if inlier_ratio < self.settings.two_view_inlier_minimum_threshold {
             info!(
-                "inlier ratio was {}, but it must be between {} and {}; rejecting two-view match",
-                inlier_ratio,
-                self.settings.two_view_inlier_minimum_threshold,
-                self.settings.two_view_inlier_maximum_threshold
+                "inlier ratio was {}, but it must be above {}; rejecting two-view match",
+                inlier_ratio, self.settings.two_view_inlier_minimum_threshold
             );
             return None;
         }
@@ -1091,16 +1137,20 @@ where
             }
         }
 
-        info!("original matches before retain {}", original_matches.len());
+        info!(
+            "original matches before filtering duplicates {}",
+            original_matches.len()
+        );
 
         let landmark_counts = original_matches.iter().counts_by(|&(landmark, _)| landmark);
         original_matches.retain(|(landmark, _)| landmark_counts[landmark] == 1);
+        original_matches.shuffle(&mut *self.rng.borrow_mut());
 
         info!("found {} initial feature matches", original_matches.len());
 
         let create_3d_matches = |robust| {
             original_matches
-                .choose_multiple(&mut *self.rng.borrow_mut(), original_matches.len())
+                .iter()
                 .filter_map(|&(landmark, feature)| {
                     Some(FeatureWorldMatch(
                         new_frame.keypoint(feature),
@@ -1111,7 +1161,7 @@ where
                         },
                     ))
                 })
-                .take(self.settings.track_landmarks)
+                .take(self.settings.single_view_optimization_num_matches)
                 .collect()
         };
 
@@ -1146,36 +1196,52 @@ where
         );
 
         // Estimate the pose and retrieve the inliers.
-        let pose = self
+        let mut pose = self
             .consensus
             .borrow_mut()
             .model(&self.pose_estimator, matches_3d.iter().copied())?;
 
-        // Create solver and constraint for single-view optimizer.
-        let solver =
-            single_view_nelder_mead(pose).sd_tolerance(self.settings.single_view_std_dev_threshold);
-        let constraint =
-            SingleViewConstraint::new(matches_3d).loss_cutoff(self.settings.loss_cutoff);
+        // We need to compute the rate that we must restrict the output at to reach the target
+        // robust_maximum_cosine_distance by the end of our filter loop.
+        let restriction_rate = (self.settings.robust_maximum_cosine_distance
+            / self.settings.consensus_threshold)
+            .powf((self.settings.single_view_filter_loop_iterations as f64).recip());
 
-        // The initial parameter is empty becasue nelder mead is passed its own initial parameter directly.
-        let opti_state = Executor::new(constraint, solver, vec![])
-            .add_observer(OptimizationObserver, ObserverMode::Always)
-            .max_iters(self.settings.single_view_patience as u64)
-            .run()
-            .expect("single-view optimization failed")
-            .state;
+        for ix in 0..self.settings.single_view_filter_loop_iterations {
+            // This gradually restricts the threshold for outliers on each iteration.
+            let restriction = restriction_rate.powi(ix as i32 + 1);
+            let loss_cutoff = self.settings.consensus_threshold * restriction;
+            info!("optimizing pose with loss cutoff {}", loss_cutoff);
 
-        info!(
-            "extracted single-view pose with mean capped cosine distance of {}",
-            opti_state.best_cost
-        );
+            // Create solver and constraint for single-view optimizer.
+            let solver = single_view_nelder_mead(pose)
+                .sd_tolerance(self.settings.single_view_std_dev_threshold);
+            let constraint = SingleViewConstraint::new(matches_3d.clone()).loss_cutoff(loss_cutoff);
 
-        let pose = Pose::from_se3(Vector6::from_row_slice(&opti_state.best_param));
+            // The initial parameter is empty becasue nelder mead is passed its own initial parameter directly.
+            let opti_result = Executor::new(constraint, solver, vec![])
+                .add_observer(OptimizationObserver, ObserverMode::Always)
+                .max_iters(self.settings.single_view_patience as u64)
+                .run()
+                .expect("single-view optimization failed");
 
-        // Filter outlier matches and return all others for inclusion.
-        let matches: HashMap<usize, LandmarkKey> = original_matches
-            .iter()
-            .filter(|&&(landmark, feature)| {
+            info!(
+                "extracted single-view pose with mean capped cosine distance of {} with reason: {}",
+                opti_result.state.best_cost, opti_result.state.termination_reason,
+            );
+
+            if opti_result.state.termination_reason != TerminationReason::TargetToleranceReached {
+                info!("didn't terminate due to reaching our desired tollerance; rejecting single-view match");
+                return None;
+            }
+
+            pose = Pose::from_se3(Vector6::from_row_slice(&opti_result.state.best_param));
+        }
+
+        let original_matches_len = original_matches.len();
+        let final_matches: HashMap<usize, LandmarkKey> = original_matches
+            .into_iter()
+            .filter(|&(landmark, feature)| {
                 let keypoint = new_frame.keypoint(feature);
                 self.triangulate_landmark_with_appended_observations_and_verify(
                     reconstruction_key,
@@ -1184,13 +1250,13 @@ where
                 )
                 .is_some()
             })
-            .map(|&(landmark, feature)| (feature, landmark))
+            .map(|(landmark, feature)| (feature, landmark))
             .collect();
 
-        let inlier_ratio = matches.len() as f64 / original_matches.len() as f64;
+        let inlier_ratio = final_matches.len() as f64 / original_matches_len as f64;
         info!(
             "matches remaining after all filtering stages: {}; inlier ratio {}",
-            matches.len(),
+            final_matches.len(),
             inlier_ratio
         );
 
@@ -1201,7 +1267,7 @@ where
             return None;
         }
 
-        Some((pose, matches))
+        Some((pose, final_matches))
     }
 
     /// Attempts to track the frame in the reconstruction.
@@ -1522,7 +1588,7 @@ where
                 observances.iter().map(|v| v.iter().copied()),
                 self.triangulator.clone(),
             )
-            .loss_cutoff(self.settings.loss_cutoff);
+            .loss_cutoff(self.settings.cosine_distance_threshold);
 
             // The initial parameter is empty becasue nelder mead is passed its own initial parameter directly.
             let opti_state = Executor::new(constraint, solver, vec![])
@@ -1533,8 +1599,8 @@ where
                 .state;
 
             info!(
-                "extracted poses with mean capped cosine distance of {}",
-                opti_state.best_cost
+                "extracted poses with mean capped cosine distance of {}, finished with reason: {}",
+                opti_state.best_cost, opti_state.termination_reason
             );
 
             let poses: Vec<WorldToCamera> = opti_state
@@ -1823,7 +1889,9 @@ where
                 .tuple_combinations()
                 .any(|(bearing_a, bearing_b)| {
                     1.0 - bearing_a.dot(&bearing_b)
-                        > self.settings.incidence_minimum_cosine_distance
+                        > self
+                            .settings
+                            .robust_observation_incidence_minimum_cosine_distance
                 })
     }
 

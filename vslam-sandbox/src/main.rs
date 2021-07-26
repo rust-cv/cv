@@ -26,7 +26,7 @@ struct Opt {
     #[structopt(short, long, default_value = "vslam-settings.json")]
     settings: PathBuf,
     /// The maximum cosine distance an observation can have to be exported.
-    #[structopt(long, default_value = "0.0001")]
+    #[structopt(long, default_value = "0.000001")]
     export_cosine_distance_threshold: f64,
     /// Export required observations
     #[structopt(long, default_value = "3")]
