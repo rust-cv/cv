@@ -31,23 +31,23 @@ struct Opt {
     /// Export required observations
     #[structopt(long, default_value = "3")]
     export_robust_minimum_observations: usize,
-    /// The x focal length
-    #[structopt(long, default_value = "984.2439")]
+    /// The x focal length for "The Zurich Urban Micro Aerial Vehicle Dataset"
+    #[structopt(long, default_value = "893.39010814")]
     x_focal: f64,
-    /// The y focal length
-    #[structopt(long, default_value = "980.8141")]
+    /// The y focal length for "The Zurich Urban Micro Aerial Vehicle Dataset"
+    #[structopt(long, default_value = "898.32648616")]
     y_focal: f64,
-    /// The x optical center coordinate
-    #[structopt(long, default_value = "690.0")]
+    /// The x optical center coordinate for "The Zurich Urban Micro Aerial Vehicle Dataset"
+    #[structopt(long, default_value = "951.1310043")]
     x_center: f64,
-    /// The y optical center coordinate
-    #[structopt(long, default_value = "233.1966")]
+    /// The y optical center coordinate for "The Zurich Urban Micro Aerial Vehicle Dataset"
+    #[structopt(long, default_value = "555.13350077")]
     y_center: f64,
-    /// The skew
+    /// The skew for "The Zurich Urban Micro Aerial Vehicle Dataset"
     #[structopt(long, default_value = "0.0")]
     skew: f64,
-    /// The K1 radial distortion
-    #[structopt(long, default_value = "-0.3728755")]
+    /// The K1 radial distortion for "The Zurich Urban Micro Aerial Vehicle Dataset"
+    #[structopt(long, default_value = "-0.28052513")]
     radial_distortion: f64,
     /// Output directory for reconstruction PLY files
     #[structopt(short, long)]
@@ -115,40 +115,31 @@ fn main() {
     for frame_path in &opt.images {
         info!("loading image {}", frame_path.display());
         let image = image::open(frame_path).expect("failed to load image");
-        let frame = vslam.add_frame(feed, &image);
-        if let Some((reconstruction, _)) = vslam.data.frame(frame).view {
-            if vslam.data.reconstruction(reconstruction).views.len() >= 3 {
-                vslam.optimize_reconstruction(reconstruction);
-            }
-            info!("exporting all reconstructions");
-            if let Some(path) = &opt.output {
-                if !path.is_dir() {
-                    warn!(
-                        "output path is not a directory; it must be a directory; skipping export"
-                    );
-                } else {
-                    // Keep track of the old settings
-                    let old_settings = vslam.settings;
-                    // Set the settings based on the command line arguments for export purposes.
-                    vslam.settings.cosine_distance_threshold = opt.export_cosine_distance_threshold;
-                    vslam.settings.robust_maximum_cosine_distance =
-                        opt.export_cosine_distance_threshold;
-                    vslam.settings.robust_minimum_observations =
-                        opt.export_robust_minimum_observations;
-                    let reconstructions: Vec<_> =
-                        vslam.data.reconstructions().enumerate().collect();
-                    for (ix, reconstruction) in reconstructions {
-                        let path = path.join(format!(
-                            "{}_{}.ply",
-                            frame_path.file_name().unwrap().to_str().unwrap(),
-                            ix
-                        ));
-                        vslam.export_reconstruction(reconstruction, &path);
-                        info!("exported {}", path.display());
-                    }
-                    // Restore the pre-export settings.
-                    vslam.settings = old_settings;
+        vslam.add_frame(feed, &image);
+        info!("exporting all reconstructions");
+        if let Some(path) = &opt.output {
+            if !path.is_dir() {
+                warn!("output path is not a directory; it must be a directory; skipping export");
+            } else {
+                // Keep track of the old settings
+                let old_settings = vslam.settings;
+                // Set the settings based on the command line arguments for export purposes.
+                vslam.settings.cosine_distance_threshold = opt.export_cosine_distance_threshold;
+                vslam.settings.robust_maximum_cosine_distance =
+                    opt.export_cosine_distance_threshold;
+                vslam.settings.robust_minimum_observations = opt.export_robust_minimum_observations;
+                let reconstructions: Vec<_> = vslam.data.reconstructions().enumerate().collect();
+                for (ix, reconstruction) in reconstructions {
+                    let path = path.join(format!(
+                        "{}_{}.ply",
+                        frame_path.file_name().unwrap().to_str().unwrap(),
+                        ix
+                    ));
+                    vslam.export_reconstruction(reconstruction, &path);
+                    info!("exported {}", path.display());
                 }
+                // Restore the pre-export settings.
+                vslam.settings = old_settings;
             }
         }
     }

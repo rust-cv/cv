@@ -642,6 +642,13 @@ impl VSlamData {
         self.feeds[feed].frames.push(frame);
         frame
     }
+
+    fn remove_reconstruction(&mut self, reconstruction: ReconstructionKey) {
+        for view in self.reconstructions[reconstruction].views.values() {
+            self.frames[view.frame].view = None;
+        }
+        self.reconstructions.remove(reconstruction);
+    }
 }
 
 pub struct VSlam<C, EE, PE, T, R> {
@@ -762,27 +769,60 @@ where
         for (dest_reconstruction, view_matches) in reconstruction_frames {
             if let Some((src_reconstruction, view)) = self.data.frames[frame].view {
                 // The current frame is already in a reconstruction.
-                if src_reconstruction != dest_reconstruction {
-                    // The frame is present in two separate reconstructions. Try to register them together.
-                    self.try_merge_reconstructions(
-                        src_reconstruction,
-                        view,
-                        dest_reconstruction,
-                        view_matches,
-                    );
+                if src_reconstruction != dest_reconstruction
+                    && self.data.reconstruction(src_reconstruction).views.len() >= 3
+                    && self.data.reconstruction(dest_reconstruction).views.len() >= 3
+                {
+                    // The frame is present in two separate reconstructions with at least 3 views.
+                    // Try to register them together.
+                    if self
+                        .try_merge_reconstructions(
+                            src_reconstruction,
+                            view,
+                            dest_reconstruction,
+                            view_matches,
+                        )
+                        .is_some()
+                    {
+                        self.optimize_reconstruction(dest_reconstruction);
+                    }
                 }
                 // Otherwise the frame was already in this reconstruction, so we can skip that.
             } else {
                 // The current frame is not already in a reconstruction, so it must be incorporated.
-                self.incorporate_frame(dest_reconstruction, frame, view_matches);
+                if self
+                    .incorporate_frame(dest_reconstruction, frame, view_matches)
+                    .is_some()
+                {
+                    // We need to optimize the reconstruction right away so that if it fails to bundle adjust
+                    // that we remove the view (and reconstruction) immediately to try again.
+                    self.optimize_reconstruction(dest_reconstruction);
+                }
             }
         }
 
-        // Until we create a reconstruction, keep trying with free frames with no reconstruction.
+        // Until we create a reconstruction, keep trying with three free frames with no reconstruction.
         if self.data.frames[frame].view.is_none() {
-            for &found_frame in &free_frames {
-                if self.try_init(frame, found_frame).is_some() {
-                    break;
+            'outer: for (ix, &found_frame) in free_frames.iter().enumerate() {
+                if let Some((reconstruction, _)) = self.try_init(frame, found_frame) {
+                    for (_, &other_found_frame) in
+                        free_frames.iter().enumerate().filter(|&(oix, _)| oix != ix)
+                    {
+                        self.try_localize_and_incorporate(reconstruction, other_found_frame);
+                        // If the original frame is no longer part of a reconstruction, then bundle adjust failed.
+                        if self.data.frames[frame].view.is_none() {
+                            // So try initializing with a new pair.
+                            continue 'outer;
+                        }
+                        // If the new frame was incorporated, then we succeeded and can exit.
+                        if self.data.frames[other_found_frame].view.is_some() {
+                            break 'outer;
+                        }
+                        // The only other alternative is that the found frame wasn't incorporated.
+                        // In this case we just need to try with a new one until one works.
+                    }
+                    // If we tried them all and we still have a reconstruction, just exit with that reconstruction.
+                    return self.data.frames[frame].view;
                 }
             }
         }
@@ -794,33 +834,36 @@ where
             }
             // If we already have a reconstruction, use that reconstruction to try and incorporate the found frames.
             if let Some((reconstruction, _)) = self.data.frames[frame].view {
-                // Try to find view matches that correspond to this reconstruction specifically.
-                if let Some(view_matches) = self
-                    .data
-                    .find_visually_similar_and_recent_frames(
-                        found_frame,
-                        self.settings.tracking_similar_frames,
-                        self.settings.tracking_recent_frames,
-                        self.settings.tracking_similar_frame_recent_threshold,
-                        self.settings.tracking_similar_frame_search_num,
-                    )
-                    .0
-                    .remove(&reconstruction)
-                {
-                    // Try to incorporate the frame into the reconstruction.
-                    if self
-                        .incorporate_frame(reconstruction, found_frame, view_matches)
-                        .is_some()
-                        && self.data.reconstruction(reconstruction).views.len() == 3
-                    {
-                        // If we went from 2 to 3 frames, we need to exit to perform bundle adjustment.
-                        return self.data.frames[frame].view;
-                    }
-                }
+                // Try to incorporate the found frame into the reconstruction.
+                self.try_localize_and_incorporate(reconstruction, found_frame)?;
             }
         }
 
         self.data.frames[frame].view
+    }
+
+    /// Attempts to match a view to a specific reconstruction.
+    fn try_localize_and_incorporate(
+        &mut self,
+        reconstruction: ReconstructionKey,
+        frame: FrameKey,
+    ) -> Option<ViewKey> {
+        // Try to find view matches that correspond to this reconstruction specifically.
+        let view_matches = self
+            .data
+            .find_visually_similar_and_recent_frames(
+                frame,
+                self.settings.tracking_similar_frames,
+                self.settings.tracking_recent_frames,
+                self.settings.tracking_similar_frame_recent_threshold,
+                self.settings.tracking_similar_frame_search_num,
+            )
+            .0
+            .remove(&reconstruction)?;
+        // Try to incorporate the frame into the reconstruction.
+        let view = self.incorporate_frame(reconstruction, frame, view_matches)?;
+        self.optimize_reconstruction(reconstruction)?;
+        Some(view)
     }
 
     /// Triangulates the point of each match, filtering out matches which fail triangulation or chirality test.
@@ -1394,21 +1437,33 @@ where
     }
 
     /// Runs bundle adjustment (camera pose optimization), landmark filtering, and landmark merging.
-    pub fn optimize_reconstruction(&mut self, reconstruction: ReconstructionKey) {
+    pub fn optimize_reconstruction(
+        &mut self,
+        reconstruction: ReconstructionKey,
+    ) -> Option<ReconstructionKey> {
         for _ in 0..self.settings.reconstruction_optimization_iterations {
             // If there are three or more views, run global bundle-adjust.
-            self.bundle_adjust_reconstruction(reconstruction);
+            self.bundle_adjust_reconstruction(reconstruction)?;
             // Filter observations after running bundle-adjust.
             self.filter_observations(reconstruction);
             // Merge landmarks.
             self.merge_nearby_landmarks(reconstruction);
         }
+        Some(reconstruction)
     }
 
     /// Optimizes reconstruction camera poses.
-    pub fn bundle_adjust_reconstruction(&mut self, reconstruction: ReconstructionKey) {
-        self.data
-            .apply_bundle_adjust(self.compute_bundle_adjust(reconstruction));
+    pub fn bundle_adjust_reconstruction(
+        &mut self,
+        reconstruction: ReconstructionKey,
+    ) -> Option<ReconstructionKey> {
+        if let Some(bundle_adjust) = self.compute_bundle_adjust(reconstruction) {
+            self.data.apply_bundle_adjust(bundle_adjust);
+            Some(reconstruction)
+        } else {
+            self.data.remove_reconstruction(reconstruction);
+            None
+        }
     }
 
     fn retrieve_top_landmarks(
@@ -1474,7 +1529,7 @@ where
     /// Use `num_landmarks` to control the number of landmarks used in optimization.
     ///
     /// Returns a series of camera
-    fn compute_bundle_adjust(&self, reconstruction: ReconstructionKey) -> BundleAdjustment {
+    fn compute_bundle_adjust(&self, reconstruction: ReconstructionKey) -> Option<BundleAdjustment> {
         // At least one landmark exists or the unwraps below will fail.
         if !self
             .data
@@ -1518,10 +1573,7 @@ where
                         "insufficient landmarks ({}), need 32; bundle adjust failed",
                         opti_landmarks.len()
                     );
-                    return BundleAdjustment {
-                        reconstruction,
-                        poses: vec![],
-                    };
+                    return None;
                 } else {
                     info!("succeeded with {} landmarks", opti_landmarks.len());
                     opti_landmarks
@@ -1590,10 +1642,16 @@ where
             )
             .loss_cutoff(self.settings.cosine_distance_threshold);
 
+            let patience = if views.len() == 3 {
+                self.settings.three_view_patience as u64
+            } else {
+                self.settings.many_view_patience as u64
+            };
+
             // The initial parameter is empty becasue nelder mead is passed its own initial parameter directly.
             let opti_state = Executor::new(constraint, solver, vec![])
                 .add_observer(OptimizationObserver, ObserverMode::Always)
-                .max_iters(self.settings.many_view_patience as u64)
+                .max_iters(patience)
                 .run()
                 .expect("many-view optimization failed")
                 .state;
@@ -1603,24 +1661,26 @@ where
                 opti_state.best_cost, opti_state.termination_reason
             );
 
+            if opti_state.termination_reason != TerminationReason::TargetToleranceReached {
+                info!("did not reach the desired tolerance; rejecting bundle-adjust");
+                return None;
+            }
+
             let poses: Vec<WorldToCamera> = opti_state
                 .best_param
                 .iter()
                 .map(|arr| Pose::from_se3(Vector6::from_row_slice(arr)))
                 .collect();
 
-            BundleAdjustment {
+            Some(BundleAdjustment {
                 reconstruction,
                 poses: views.iter().copied().zip(poses).collect(),
-            }
+            })
         } else {
             warn!(
                 "tried to bundle adjust reconstruction with no landmarks, which should not exist"
             );
-            BundleAdjustment {
-                reconstruction,
-                poses: vec![],
-            }
+            None
         }
     }
 

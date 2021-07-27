@@ -143,6 +143,12 @@ pub struct VSlamSettings {
         serde(default = "default_track_landmarks")
     )]
     pub track_landmarks: usize,
+    /// The maximum iterations to optimize three views.
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_three_view_patience")
+    )]
+    pub three_view_patience: usize,
     /// The maximum iterations to optimize many views.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -224,6 +230,7 @@ impl Default for VSlamSettings {
             two_view_minimum_robust_matches: default_two_view_minimum_robust_matches(),
             two_view_match_better_by: default_two_view_match_better_by(),
             track_landmarks: default_track_landmarks(),
+            three_view_patience: default_three_view_patience(),
             many_view_patience: default_many_view_patience(),
             many_view_std_dev_threshold: default_many_view_std_dev_threshold(),
             many_view_landmarks: default_many_view_landmarks(),
@@ -275,7 +282,7 @@ fn default_single_view_filter_loop_iterations() -> usize {
 }
 
 fn default_single_view_patience() -> usize {
-    10000
+    1000
 }
 
 fn default_single_view_std_dev_threshold() -> f64 {
@@ -299,7 +306,7 @@ fn default_two_view_optimization_num_matches() -> usize {
 }
 
 fn default_two_view_patience() -> usize {
-    10000
+    1000
 }
 
 fn default_two_view_std_dev_threshold() -> f64 {
@@ -328,6 +335,10 @@ fn default_two_view_match_better_by() -> u32 {
 
 fn default_track_landmarks() -> usize {
     4096
+}
+
+fn default_three_view_patience() -> usize {
+    2000
 }
 
 fn default_many_view_patience() -> usize {
