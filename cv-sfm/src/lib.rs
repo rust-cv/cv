@@ -571,8 +571,7 @@ impl VSlamData {
             .copied()
             .enumerate()
             .filter(|&(ix, recent_frame)| {
-                recent_frame != frame
-                    && abs_difference(frame_feed_ix, ix) < similar_recent_threshold
+                recent_frame != frame && abs_difference(frame_feed_ix, ix) < num_recent_frames
             })
             .map(|(_, recent_frame)| recent_frame)
             .collect();
