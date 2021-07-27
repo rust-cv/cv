@@ -54,7 +54,7 @@ struct Opt {
     output: Option<PathBuf>,
     /// List of image files
     ///
-    /// Default vales are for Kitti 2011_09_26 camera 0
+    /// Default vales are for "The Zurich Urban Micro Aerial Vehicle Dataset"
     #[structopt(parse(from_os_str))]
     images: Vec<PathBuf>,
 }
