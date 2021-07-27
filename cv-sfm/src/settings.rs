@@ -254,7 +254,7 @@ fn default_consensus_threshold() -> f64 {
 }
 
 fn default_robust_maximum_cosine_distance() -> f64 {
-    0.000001
+    0.000002
 }
 
 fn default_robust_minimum_observations() -> usize {
