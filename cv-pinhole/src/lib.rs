@@ -12,8 +12,8 @@ mod essential;
 
 pub use essential::*;
 
-use cv_core::nalgebra::{Matrix3, Point2, Point3, Vector2, Vector3};
 use cv_core::{
+    nalgebra::{Matrix3, Point2, Point3, Vector2, Vector3},
     Bearing, CameraModel, CameraPoint, CameraToCamera, FeatureMatch, ImagePoint, KeyPoint, Pose,
     Projective, TriangulatorRelative,
 };

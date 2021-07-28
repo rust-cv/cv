@@ -1,9 +1,11 @@
 use akaze::Akaze;
 use arrsac::Arrsac;
 use bitarray::{BitArray, Hamming};
-use cv_core::nalgebra::{Point2, Vector2};
-use cv_core::sample_consensus::Consensus;
-use cv_core::{CameraModel, FeatureMatch};
+use cv_core::{
+    nalgebra::{Point2, Vector2},
+    sample_consensus::Consensus,
+    CameraModel, FeatureMatch,
+};
 use log::*;
 use rand::SeedableRng;
 use rand_pcg::Pcg64;

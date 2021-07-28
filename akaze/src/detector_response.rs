@@ -1,6 +1,4 @@
-use crate::evolution::EvolutionStep;
-use crate::image::GrayFloatImage;
-use crate::{derivatives, Akaze};
+use crate::{derivatives, evolution::EvolutionStep, image::GrayFloatImage, Akaze};
 use ndarray::azip;
 
 impl Akaze {

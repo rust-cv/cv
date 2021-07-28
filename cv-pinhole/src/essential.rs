@@ -1,7 +1,9 @@
 use crate::NormalizedKeyPoint;
-use cv_core::nalgebra::{Matrix3, Rotation3, Vector3, SVD};
-use cv_core::sample_consensus::Model;
-use cv_core::{Bearing, CameraToCamera, FeatureMatch, Pose};
+use cv_core::{
+    nalgebra::{Matrix3, Rotation3, Vector3, SVD},
+    sample_consensus::Model,
+    Bearing, CameraToCamera, FeatureMatch, Pose,
+};
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use num_traits::Float;
 

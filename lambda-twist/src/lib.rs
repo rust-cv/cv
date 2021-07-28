@@ -32,9 +32,11 @@ use num_traits::Float;
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use cv_core::nalgebra::{Matrix3, Rotation3, Vector3};
-use cv_core::sample_consensus::Estimator;
-use cv_core::{Bearing, FeatureWorldMatch, Pose, Projective, WorldToCamera};
+use cv_core::{
+    nalgebra::{Matrix3, Rotation3, Vector3},
+    sample_consensus::Estimator,
+    Bearing, FeatureWorldMatch, Pose, Projective, WorldToCamera,
+};
 
 type Mat3 = Matrix3<f64>;
 type Vec3 = Vector3<f64>;

@@ -13,7 +13,7 @@ use cv_core::{
 };
 use levenberg_marquardt::LeastSquaresProblem;
 
-pub fn two_view_nelder_mead(pose: CameraToCamera) -> NelderMead<Vec<f64>, f64> {
+pub fn three_view_nelder_mead(pose: CameraToCamera) -> NelderMead<Vec<f64>, f64> {
     let original = pose.se3().iter().copied().collect::<Vec<f64>>();
     let translation_scale = original[..3].iter().map(|n| n.powi(2)).sum::<f64>().sqrt() * 0.001;
     let mut variants = vec![original; 7];
@@ -31,13 +31,13 @@ pub fn two_view_nelder_mead(pose: CameraToCamera) -> NelderMead<Vec<f64>, f64> {
 }
 
 #[derive(Clone)]
-pub struct TwoViewConstraint<I, T> {
+pub struct ThreeViewConstraint<I, T> {
     loss_cutoff: f64,
     matches: I,
     triangulator: T,
 }
 
-impl<I, P, T> TwoViewConstraint<I, T>
+impl<I, P, T> ThreeViewConstraint<I, T>
 where
     I: Iterator<Item = FeatureMatch<P>> + Clone,
     P: Bearing,
@@ -85,7 +85,7 @@ where
     }
 }
 
-impl<I, P, T> ArgminOp for TwoViewConstraint<I, T>
+impl<I, P, T> ArgminOp for ThreeViewConstraint<I, T>
 where
     I: Iterator<Item = FeatureMatch<P>> + Clone,
     P: Bearing + Clone,
@@ -105,7 +105,7 @@ where
 }
 
 #[derive(Clone)]
-pub struct TwoViewOptimizer<I, T> {
+pub struct ThreeViewOptimizer<I, T> {
     pub pose: CameraToCamera,
     pub loss_cutoff: f64,
     matches: I,
@@ -113,7 +113,7 @@ pub struct TwoViewOptimizer<I, T> {
     triangulator: T,
 }
 
-impl<I, P, T> TwoViewOptimizer<I, T>
+impl<I, P, T> ThreeViewOptimizer<I, T>
 where
     I: Iterator<Item = FeatureMatch<P>> + Clone,
     P: Bearing,
@@ -141,7 +141,7 @@ where
     }
 }
 
-impl<I, P, T> LeastSquaresProblem<f64, Dynamic, Dynamic> for TwoViewOptimizer<I, T>
+impl<I, P, T> LeastSquaresProblem<f64, Dynamic, Dynamic> for ThreeViewOptimizer<I, T>
 where
     I: Iterator<Item = FeatureMatch<P>> + Clone,
     P: Bearing,

@@ -22,8 +22,7 @@
 
 #![no_std]
 
-pub use cv_core::sample_consensus::*;
-pub use cv_core::*;
+pub use cv_core::{sample_consensus::*, *};
 
 #[cfg(feature = "space")]
 pub use space::Metric;

@@ -3,8 +3,7 @@ use argmin::{
     solver::neldermead::NelderMead,
 };
 use average::Mean;
-use cv_core::nalgebra::Vector6;
-use cv_core::{Bearing, FeatureWorldMatch, Pose, Projective, WorldToCamera};
+use cv_core::{nalgebra::Vector6, Bearing, FeatureWorldMatch, Pose, Projective, WorldToCamera};
 
 pub fn single_view_nelder_mead(pose: WorldToCamera) -> NelderMead<Vec<f64>, f64> {
     let original: Vec<f64> = pose.se3().iter().copied().collect();

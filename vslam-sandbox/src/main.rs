@@ -1,9 +1,9 @@
-use cv::nalgebra::{Point2, Vector2};
 use cv::{
     camera::pinhole::{CameraIntrinsics, CameraIntrinsicsK1Distortion},
     consensus::Arrsac,
     estimate::{EightPoint, LambdaTwist},
     geom::MinSquaresTriangulator,
+    nalgebra::{Point2, Vector2},
     sfm::{VSlam, VSlamSettings},
 };
 use log::*;

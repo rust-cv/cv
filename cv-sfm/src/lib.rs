@@ -10,17 +10,19 @@ use argmin::core::{
     ArgminKV, ArgminOp, Error, Executor, IterState, Observe, ObserverMode, TerminationReason,
 };
 use bitarray::{BitArray, Hamming};
-use cv_core::nalgebra::{Unit, Vector3, Vector6};
 use cv_core::{
+    nalgebra::{Unit, Vector3, Vector6},
     sample_consensus::{Consensus, Estimator},
-    Bearing, CameraModel, CameraToCamera, FeatureMatch, FeatureWorldMatch, Pose, Projective,
-    TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera, WorldToWorld,
+    Bearing, CameraModel, CameraPoint, CameraToCamera, FeatureMatch, FeatureWorldMatch, Pose,
+    Projective, TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera,
+    WorldToWorld,
 };
 use cv_optimize::{
     many_view_nelder_mead, single_view_nelder_mead, two_view_nelder_mead, ManyViewConstraint,
     SingleViewConstraint, TwoViewConstraint,
 };
 use cv_pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix, NormalizedKeyPoint};
+use float_ord::FloatOrd;
 use hamming_lsh::HammingHasher;
 use hgg::HggLite as Hgg;
 use image::DynamicImage;
@@ -30,11 +32,13 @@ use maplit::hashmap;
 use rand::{seq::SliceRandom, Rng};
 use slotmap::{new_key_type, DenseSlotMap};
 use space::{Knn, KnnInsert, KnnMap};
-use std::cell::RefCell;
-use std::cmp::Reverse;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::ops::Sub;
-use std::path::Path;
+use std::{
+    cell::RefCell,
+    cmp::Reverse,
+    collections::{BTreeMap, BTreeSet, HashMap},
+    ops::Sub,
+    path::Path,
+};
 
 #[cfg(feature = "serde-serialize")]
 use serde::{Deserialize, Serialize};
@@ -926,16 +930,128 @@ where
             .count()
     }
 
-    /// This creates a covisibility between frames `a` and `b` using the essential matrix estimator.
+    /// Checks if two observations from two views with a [`CameraToCamera`] relative pose form a robust landmark.
     ///
-    /// This method resolves to an undefined scale, and thus is only appropriate for initialization.
+    /// If succesful, returns the point from the perspective of `A`.
+    fn pair_robust_point(
+        &self,
+        pose: CameraToCamera,
+        a: NormalizedKeyPoint,
+        b: NormalizedKeyPoint,
+    ) -> Option<CameraPoint> {
+        let p = self.triangulator.triangulate_relative(pose, a, b)?;
+        let is_cosine_distance_satisfied = 1.0 - p.bearing().dot(&a.bearing()) + 1.0
+            - pose.transform(p).bearing().dot(&b.bearing())
+            < 2.0 * self.settings.cosine_distance_threshold;
+        let is_incidence_angle_satisfied = 1.0 - (pose.isometry() * a.bearing()).dot(&b.bearing())
+            > self
+                .settings
+                .robust_observation_incidence_minimum_cosine_distance;
+        if is_cosine_distance_satisfied && is_incidence_angle_satisfied {
+            Some(p)
+        } else {
+            None
+        }
+    }
+
+    /// Tries to find a 3-view pair which can initialize a reconstruction.
+    ///
+    /// This works by trying to perform essential matrix estimation and pose optimization between the `center` frame
+    /// and the `options`. For each initial pair that it finds, it will then attempt to incorporate
+    /// a third frame also using essential matrix estimation and pose optimization among the remaining options.
+    /// Once two matches have been performed, the translation must be scaled appropriately so that the two
+    /// poses are in agreement on the scale (which is unknown). This is done by finding the top `three_view_landmarks`
+    /// common matches between the frames that satisfy the `robust_observation_incidence_minimum_cosine_distance`
+    /// setting and which satisfy the `robust_maximum_cosine_distance` setting.
+    ///
+    /// After that stage, we then start by testing at a scale of `0.5`, `1.0`, and `2.0` for the second translation.
+    /// Each scale we record the cosine distance of the `three_view_landmarks`. From this we determine the direction
+    /// to search in. If `1.0` is the best position, we start a binary search between `0.5` and `2.0`. If
+    /// `0.5` is the best, then we start halving until we find a scale that is worse and perform a binary search
+    /// in that range. We do the same for `2.0`, but in that case we double instead of halve. At the end,
+    /// this binary search produces a scale which we scale the second [`CameraToCamera`] translation by and return.
+    /// This is effectively an exponential search for the minimum cosine distance.
+    ///
+    /// The last step we perform is to optimize the resulting three-view reconstruction before returning the results.
     fn init_reconstruction(
         &self,
-        frame_a: FrameKey,
-        frame_b: FrameKey,
+        center: FrameKey,
+        options: impl Iterator<Item = FrameKey>,
+    ) -> Option<(
+        (CameraToCamera, Vec<FeatureMatch<usize>>),
+        (CameraToCamera, Vec<FeatureMatch<usize>>),
+    )> {
+        let options = options
+            .filter_map(|option| Some((option, self.init_two_view(center, option)?)))
+            .collect_vec();
+        for ((first, (first_pose, first_matches)), (second, (second_pose, second_matches))) in
+            options.iter().tuple_combinations()
+        {
+            // Create a map from the center features to the second matches.
+            let second_map: HashMap<usize, usize> = second_matches
+                .iter()
+                .map(|&FeatureMatch(c, s)| (c, s))
+                .collect();
+            // Use the map created above to create triples of (center, first, second) feature matches.
+            let common = first_matches
+                .iter()
+                .filter_map(|&FeatureMatch(c, f)| Some((c, f, *second_map.get(&c)?)));
+            // Filter the common matches based on if they satisfy the criteria.
+            let mut common_filtered_relative_scales_squared = common
+                .filter_map(|(c, f, s)| {
+                    let c = self.data.frame(center).keypoint(c);
+                    let f = self.data.frame(*first).keypoint(f);
+                    let s = self.data.frame(*second).keypoint(s);
+
+                    let fp = self.pair_robust_point(*first_pose, c, f)?;
+                    let sp = self.pair_robust_point(*second_pose, c, s)?;
+                    let ratio = sp.norm_squared() / fp.norm_squared();
+                    if !ratio.is_normal() {
+                        return None;
+                    }
+                    Some(ratio)
+                })
+                .collect_vec();
+            info!(
+                "three view match has {} robust three-way matches",
+                common_filtered_relative_scales_squared.len()
+            );
+            if common_filtered_relative_scales_squared.len() < self.settings.three_view_landmarks {
+                info!(
+                    "need {} robust three-way matches; rejecting three-view match",
+                    self.settings.three_view_landmarks
+                );
+            }
+            // Sort the filtered scales to find the median scale.
+            common_filtered_relative_scales_squared.sort_unstable_by_key(|&f| FloatOrd(f));
+
+            // Since the scale is currently squared, we need to take the square root of the middle scale.
+            let median_scale = common_filtered_relative_scales_squared
+                [common_filtered_relative_scales_squared.len() / 2]
+                .sqrt();
+
+            // Scale the second pose using the scale.
+            let first_pose = *first_pose;
+            let second_pose = second_pose.scale(median_scale);
+
+            // Perform a three-view optimization.
+            todo!();
+        }
+        None
+    }
+
+    /// This estimates and optimizes the [`CameraToCamera`] between frames `a` and `b` using the essential matrix estimator.
+    ///
+    /// It then attempts to add one of the [``]
+    ///
+    /// This method resolves to an undefined scale, and thus is only appropriate for initialization.
+    fn init_two_view(
+        &self,
+        a: FrameKey,
+        b: FrameKey,
     ) -> Option<(CameraToCamera, Vec<FeatureMatch<usize>>)> {
-        let a = self.data.frame(frame_a);
-        let b = self.data.frame(frame_b);
+        let a = self.data.frame(a);
+        let b = self.data.frame(b);
         // A helper to convert an index match to a keypoint match given frame a and b.
         let match_ix_kps = |FeatureMatch(feature_a, feature_b)| {
             FeatureMatch(a.keypoint(feature_a), b.keypoint(feature_b))
@@ -1870,8 +1986,7 @@ where
     }
 
     pub fn merge_nearby_landmarks(&mut self, reconstruction: ReconstructionKey) {
-        use rstar::primitives::PointWithData;
-        use rstar::RTree;
+        use rstar::{primitives::PointWithData, RTree};
         type LandmarkPoint = PointWithData<LandmarkKey, [f64; 3]>;
         info!("merging reconstruction landmarks");
         // Only take landmarks with at least two observations.

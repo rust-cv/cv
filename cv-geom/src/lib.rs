@@ -28,8 +28,8 @@
 
 #![no_std]
 
-use cv_core::nalgebra::{zero, Matrix3x4, Matrix4, RowVector4};
 use cv_core::{
+    nalgebra::{zero, Matrix3x4, Matrix4, RowVector4},
     Bearing, CameraPoint, CameraToCamera, Pose, TriangulatorObservations, TriangulatorRelative,
     WorldPoint, WorldToCamera,
 };

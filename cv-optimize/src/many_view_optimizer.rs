@@ -3,11 +3,13 @@ use argmin::{
     solver::neldermead::NelderMead,
 };
 use average::Mean;
-use cv_core::nalgebra::{
-    dimension::{Dynamic, U1},
-    DMatrix, DVector, Matrix3, VecStorage, Vector4, Vector6,
+use cv_core::{
+    nalgebra::{
+        dimension::{Dynamic, U1},
+        DMatrix, DVector, Matrix3, VecStorage, Vector4, Vector6,
+    },
+    Bearing, Pose, Projective, TriangulatorObservations, WorldPoint, WorldToCamera,
 };
-use cv_core::{Bearing, Pose, Projective, TriangulatorObservations, WorldPoint, WorldToCamera};
 use levenberg_marquardt::LeastSquaresProblem;
 
 pub fn many_view_nelder_mead(poses: Vec<WorldToCamera>) -> NelderMead<Vec<Vec<f64>>, f64> {

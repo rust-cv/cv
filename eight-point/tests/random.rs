@@ -1,6 +1,8 @@
-use cv_core::nalgebra::{IsometryMatrix3, Rotation3, Vector2, Vector3};
-use cv_core::sample_consensus::{Estimator, Model};
-use cv_core::{CameraPoint, CameraToCamera, FeatureMatch, Pose};
+use cv_core::{
+    nalgebra::{IsometryMatrix3, Rotation3, Vector2, Vector3},
+    sample_consensus::{Estimator, Model},
+    CameraPoint, CameraToCamera, FeatureMatch, Pose,
+};
 use cv_pinhole::NormalizedKeyPoint;
 
 const SAMPLE_POINTS: usize = 16;

@@ -1,9 +1,11 @@
 use approx::assert_relative_eq;
 use arrayvec::ArrayVec;
 use arrsac::Arrsac;
-use cv_core::nalgebra::{IsometryMatrix3, Point2, Point3, Rotation3, Translation, Vector3};
-use cv_core::sample_consensus::Consensus;
-use cv_core::FeatureWorldMatch;
+use cv_core::{
+    nalgebra::{IsometryMatrix3, Point2, Point3, Rotation3, Translation, Vector3},
+    sample_consensus::Consensus,
+    FeatureWorldMatch,
+};
 use cv_pinhole::NormalizedKeyPoint;
 use lambda_twist::LambdaTwist;
 use rand::{rngs::SmallRng, SeedableRng};

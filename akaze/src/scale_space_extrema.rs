@@ -1,5 +1,4 @@
-use crate::evolution::EvolutionStep;
-use crate::{Akaze, KeyPoint};
+use crate::{evolution::EvolutionStep, Akaze, KeyPoint};
 use log::*;
 use std::f32::consts::PI;
 

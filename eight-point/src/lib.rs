@@ -1,8 +1,10 @@
 #![no_std]
 
-use cv_core::nalgebra::{self, Matrix3, OMatrix, OVector, U8, U9};
-use cv_core::sample_consensus::Estimator;
-use cv_core::FeatureMatch;
+use cv_core::{
+    nalgebra::{self, Matrix3, OMatrix, OVector, U8, U9},
+    sample_consensus::Estimator,
+    FeatureMatch,
+};
 use cv_pinhole::{EssentialMatrix, NormalizedKeyPoint};
 
 fn encode_epipolar_equation(

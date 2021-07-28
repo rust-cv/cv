@@ -1,9 +1,11 @@
 use cv_core::nalgebra::Point3;
-use ply_rs::ply::{
-    Addable, DefaultElement, ElementDef, Encoding, Ply, Property, PropertyDef, PropertyType,
-    ScalarType,
+use ply_rs::{
+    ply::{
+        Addable, DefaultElement, ElementDef, Encoding, Ply, Property, PropertyDef, PropertyType,
+        ScalarType,
+    },
+    writer::Writer,
 };
-use ply_rs::writer::Writer;
 use std::io::Write;
 
 pub fn export(mut writer: impl Write, points_and_colors: Vec<(Point3<f64>, [u8; 3])>) {
