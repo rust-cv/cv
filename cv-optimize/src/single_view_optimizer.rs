@@ -5,9 +5,9 @@ use argmin::{
 use average::Mean;
 use cv_core::{nalgebra::Vector6, Bearing, FeatureWorldMatch, Pose, Projective, WorldToCamera};
 
-pub fn single_view_nelder_mead(pose: WorldToCamera) -> NelderMead<Vec<f64>, f64> {
-    let original: Vec<f64> = pose.se3().iter().copied().collect();
-    let translation_scale = original[..3].iter().map(|n| n.powi(2)).sum::<f64>().sqrt() * 0.01;
+pub fn single_view_nelder_mead(pose: WorldToCamera) -> NelderMead<Vector6<f64>, f64> {
+    let original = pose.se3();
+    let translation_scale = original.xyz().iter().map(|n| n.powi(2)).sum::<f64>().sqrt() * 0.01;
     let mut variants = vec![original; 7];
     #[allow(clippy::needless_range_loop)]
     for i in 0..6 {
@@ -76,14 +76,14 @@ impl<B> ArgminOp for SingleViewConstraint<B>
 where
     B: Bearing + Clone,
 {
-    type Param = Vec<f64>;
+    type Param = Vector6<f64>;
     type Output = f64;
     type Hessian = ();
     type Jacobian = ();
     type Float = f64;
 
     fn apply(&self, p: &Self::Param) -> Result<Self::Output, Error> {
-        let pose = Pose::from_se3(Vector6::from_row_slice(p));
+        let pose = Pose::from_se3(*p);
         let mean: Mean = self.residuals(pose).collect();
         Ok(mean.mean())
     }
