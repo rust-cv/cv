@@ -282,7 +282,7 @@ fn default_single_view_filter_loop_iterations() -> usize {
 }
 
 fn default_single_view_patience() -> usize {
-    1000
+    2000
 }
 
 fn default_single_view_std_dev_threshold() -> f64 {
@@ -306,7 +306,7 @@ fn default_two_view_optimization_num_matches() -> usize {
 }
 
 fn default_two_view_patience() -> usize {
-    1000
+    2000
 }
 
 fn default_two_view_std_dev_threshold() -> f64 {
@@ -362,11 +362,11 @@ fn default_tracking_similar_frames() -> usize {
 }
 
 fn default_tracking_similar_frame_recent_threshold() -> usize {
-    60
+    8
 }
 
 fn default_tracking_similar_frame_search_num() -> usize {
-    128
+    256
 }
 
 fn default_tracking_recent_frames() -> usize {

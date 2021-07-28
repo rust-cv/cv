@@ -559,7 +559,7 @@ impl VSlamData {
         similar_frames_search_num: usize,
     ) -> (HashMap<ReconstructionKey, Vec<ViewKey>>, Vec<FrameKey>) {
         info!(
-            "trying to find {} visually similar frames and combine with {} recent frames",
+            "trying to find {} visually similar frames and combine with {} recent (in past or future of feed) frames",
             num_similar_frames, num_recent_frames
         );
         let feed = self.frame(frame).feed;
