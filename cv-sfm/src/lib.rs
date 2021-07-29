@@ -11,15 +11,15 @@ use argmin::core::{
 };
 use bitarray::{BitArray, Hamming};
 use cv_core::{
-    nalgebra::{Unit, Vector3, Vector6},
+    nalgebra::{Matrix6x2, Unit, Vector3, Vector6},
     sample_consensus::{Consensus, Estimator},
     Bearing, CameraModel, CameraPoint, CameraToCamera, FeatureMatch, FeatureWorldMatch, Pose,
     Projective, TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera,
     WorldToWorld,
 };
 use cv_optimize::{
-    many_view_nelder_mead, single_view_nelder_mead, two_view_nelder_mead, ManyViewConstraint,
-    SingleViewConstraint, TwoViewConstraint,
+    many_view_nelder_mead, single_view_nelder_mead, three_view_nelder_mead, two_view_nelder_mead,
+    ManyViewConstraint, SingleViewConstraint, ThreeViewConstraint, TwoViewConstraint,
 };
 use cv_pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix, NormalizedKeyPoint};
 use float_ord::FloatOrd;
@@ -36,6 +36,7 @@ use std::{
     cell::RefCell,
     cmp::Reverse,
     collections::{BTreeMap, BTreeSet, HashMap},
+    iter::once,
     ops::Sub,
     path::Path,
 };
@@ -932,6 +933,8 @@ where
 
     /// Checks if two observations from two views with a [`CameraToCamera`] relative pose form a robust landmark.
     ///
+    /// This does not check for chirality.
+    ///
     /// If succesful, returns the point from the perspective of `A`.
     fn pair_robust_point(
         &self,
@@ -978,8 +981,11 @@ where
         center: FrameKey,
         options: impl Iterator<Item = FrameKey>,
     ) -> Option<(
-        (CameraToCamera, Vec<FeatureMatch<usize>>),
-        (CameraToCamera, Vec<FeatureMatch<usize>>),
+        CameraToCamera,
+        CameraToCamera,
+        Vec<(usize, usize, usize)>,
+        Vec<FeatureMatch<usize>>,
+        Vec<FeatureMatch<usize>>,
     )> {
         let options = options
             .filter_map(|option| Some((option, self.init_two_view(center, option)?)))
@@ -993,35 +999,46 @@ where
                 .map(|&FeatureMatch(c, s)| (c, s))
                 .collect();
             // Use the map created above to create triples of (center, first, second) feature matches.
-            let common = first_matches
+            let mut common = first_matches
                 .iter()
-                .filter_map(|&FeatureMatch(c, f)| Some((c, f, *second_map.get(&c)?)));
+                .filter_map(|&FeatureMatch(c, f)| Some((c, f, *second_map.get(&c)?)))
+                .collect_vec();
+            common.shuffle(&mut *self.rng.borrow_mut());
             // Filter the common matches based on if they satisfy the criteria.
-            let mut common_filtered_relative_scales_squared = common
-                .filter_map(|(c, f, s)| {
+            let mut common_filtered_landmarks = common
+                .iter()
+                .filter_map(|&(c, f, s)| {
                     let c = self.data.frame(center).keypoint(c);
                     let f = self.data.frame(*first).keypoint(f);
                     let s = self.data.frame(*second).keypoint(s);
 
                     let fp = self.pair_robust_point(*first_pose, c, f)?;
                     let sp = self.pair_robust_point(*second_pose, c, s)?;
-                    let ratio = sp.norm_squared() / fp.norm_squared();
+                    let ratio = fp.norm_squared() / sp.norm_squared();
                     if !ratio.is_normal() {
                         return None;
                     }
-                    Some(ratio)
+                    Some((c, f, s, ratio))
                 })
                 .collect_vec();
+
             info!(
                 "three view match has {} robust three-way matches",
-                common_filtered_relative_scales_squared.len()
+                common_filtered_landmarks.len()
             );
-            if common_filtered_relative_scales_squared.len() < self.settings.three_view_landmarks {
+            if common_filtered_landmarks.len() < 32 {
                 info!(
                     "need {} robust three-way matches; rejecting three-view match",
-                    self.settings.three_view_landmarks
+                    32
                 );
+                continue;
             }
+
+            // Extract the scale ratios specifically.
+            let mut common_filtered_relative_scales_squared = common_filtered_landmarks
+                .iter()
+                .map(|&(_, _, _, ratio)| ratio)
+                .collect_vec();
             // Sort the filtered scales to find the median scale.
             common_filtered_relative_scales_squared.sort_unstable_by_key(|&f| FloatOrd(f));
 
@@ -1031,13 +1048,284 @@ where
                 .sqrt();
 
             // Scale the second pose using the scale.
-            let first_pose = *first_pose;
-            let second_pose = second_pose.scale(median_scale);
+            let mut first_pose = *first_pose;
+            let mut second_pose = second_pose.scale(median_scale);
 
-            // Perform a three-view optimization.
-            todo!();
+            // Get the matches to use for optimization.
+            // Initially, this just includes everything to avoid
+            let mut opti_matches: Vec<(
+                NormalizedKeyPoint,
+                NormalizedKeyPoint,
+                NormalizedKeyPoint,
+            )> = common
+                .iter()
+                .map(|&(c, f, s)| {
+                    let c = self.data.frame(center).keypoint(c);
+                    let f = self.data.frame(*first).keypoint(f);
+                    let s = self.data.frame(*second).keypoint(s);
+                    (c, f, s)
+                })
+                .take(self.settings.three_view_landmarks)
+                .collect::<Vec<_>>();
+
+            info!(
+                "performing Nelder-Mead optimization on both poses using {} matches out of {}",
+                opti_matches.len(),
+                common_filtered_landmarks.len()
+            );
+
+            // We need to compute the rate that we must restrict the output at to reach the target
+            // robust_maximum_cosine_distance by the end of our filter loop.
+            let restriction_rate = (self.settings.robust_maximum_cosine_distance
+                / self.settings.consensus_threshold)
+                .powf((self.settings.three_view_filter_loop_iterations as f64).recip());
+
+            for ix in 0..self.settings.three_view_filter_loop_iterations {
+                // This gradually restricts the threshold for outliers on each iteration.
+                let restriction = restriction_rate.powi(ix as i32 + 1);
+                let loss_cutoff = self.settings.consensus_threshold * restriction;
+                info!("optimizing poses with loss cutoff {}", loss_cutoff);
+
+                let solver = three_view_nelder_mead(first_pose, second_pose)
+                    .sd_tolerance(self.settings.three_view_std_dev_threshold);
+                let constraint = ThreeViewConstraint::new(
+                    opti_matches.iter().copied(),
+                    self.triangulator.clone(),
+                )
+                .loss_cutoff(loss_cutoff);
+
+                // The initial parameter is empty becasue nelder mead is passed its own initial parameter directly.
+                let opti_result = Executor::new(constraint, solver, Matrix6x2::zeros())
+                    .add_observer(OptimizationObserver, ObserverMode::Always)
+                    .max_iters(self.settings.three_view_patience as u64)
+                    .run()
+                    .expect("three-view optimization failed");
+
+                info!(
+                "extracted three-view poses with mean capped cosine distance of {} with reason: {}",
+                opti_result.state.best_cost, opti_result.state.termination_reason,
+                );
+
+                if opti_result.state.termination_reason != TerminationReason::TargetToleranceReached
+                {
+                    info!("didn't terminate due to reaching our desired tollerance; rejecting three-view match");
+                    return None;
+                }
+
+                first_pose = Pose::from_se3(opti_result.state.best_param.column(0).into());
+                second_pose = Pose::from_se3(opti_result.state.best_param.column(1).into());
+
+                if ix != self.settings.three_view_filter_loop_iterations - 1 {
+                    // Filter the common matches based on if they satisfy the criteria.
+
+                    opti_matches = common
+                        .iter()
+                        .map(|&(c, f, s)| {
+                            let c = self.data.frame(center).keypoint(c);
+                            let f = self.data.frame(*first).keypoint(f);
+                            let s = self.data.frame(*second).keypoint(s);
+                            (c, f, s)
+                        })
+                        .filter(|&(c, f, s)| {
+                            self.is_tri_landmark_robust(
+                                first_pose,
+                                second_pose,
+                                c,
+                                f,
+                                s,
+                                self.settings.consensus_threshold,
+                                self.settings
+                                    .robust_observation_incidence_minimum_cosine_distance,
+                            )
+                        })
+                        .take(self.settings.three_view_landmarks)
+                        .collect::<Vec<_>>();
+                }
+            }
+
+            // Create a map from the center features to the first matches.
+            let first_map: HashMap<usize, usize> = first_matches
+                .iter()
+                .map(|&FeatureMatch(c, f)| (c, f))
+                .collect();
+
+            let combined_matches = common
+                .into_iter()
+                .filter(|&(c, f, s)| {
+                    let c = self.data.frame(center).keypoint(c);
+                    let f = self.data.frame(*first).keypoint(f);
+                    let s = self.data.frame(*second).keypoint(s);
+                    self.is_tri_landmark_robust(
+                        first_pose,
+                        second_pose,
+                        c,
+                        f,
+                        s,
+                        self.settings.cosine_distance_threshold,
+                        0.0,
+                    )
+                })
+                .collect_vec();
+
+            let first_matches = first_matches
+                .iter()
+                .copied()
+                .filter(|&FeatureMatch(c, f)| {
+                    if second_map.contains_key(&c) {
+                        return false;
+                    }
+                    let c = self.data.frame(center).keypoint(c);
+                    let f = self.data.frame(*first).keypoint(f);
+                    self.is_bi_landmark_robust(
+                        first_pose,
+                        c,
+                        f,
+                        self.settings.cosine_distance_threshold,
+                        0.0,
+                    )
+                })
+                .collect_vec();
+
+            let second_matches = second_matches
+                .iter()
+                .copied()
+                .filter(|&FeatureMatch(c, s)| {
+                    if first_map.contains_key(&c) {
+                        return false;
+                    }
+                    let c = self.data.frame(center).keypoint(c);
+                    let s = self.data.frame(*second).keypoint(s);
+                    self.is_bi_landmark_robust(
+                        second_pose,
+                        c,
+                        s,
+                        self.settings.cosine_distance_threshold,
+                        0.0,
+                    )
+                })
+                .collect_vec();
+
+            let inlier_ratio = combined_matches.len() as f64 / common.len() as f64;
+
+            info!(
+                "found {} tri-matches (inlier ratio {}), {} center-first matches, and {} center-second matches",
+                combined_matches.len(),
+                inlier_ratio,
+                first_matches.len(),
+                second_matches.len()
+            );
+
+            if combined_matches.len() < 32 {
+                info!(
+                    "need {} robust three-way matches; rejecting three-view match",
+                    32
+                );
+                continue;
+            }
+
+            if inlier_ratio < self.settings.three_view_inlier_ratio_threshold {
+                info!(
+                    "didn't reach inlier ratio of {}; rejecting three-view match",
+                    self.settings.three_view_inlier_ratio_threshold
+                );
+                continue;
+            }
+
+            return Some((
+                first_pose,
+                second_pose,
+                combined_matches,
+                first_matches,
+                second_matches,
+            ));
         }
         None
+    }
+
+    fn is_bi_landmark_robust<'a>(
+        &'a self,
+        pose: CameraToCamera,
+        a: NormalizedKeyPoint,
+        b: NormalizedKeyPoint,
+        residual_threshold: f64,
+        incidence_threshold: f64,
+    ) -> bool {
+        // The triangulated point in the center camera.
+        let ap = if let Some(ap) = self.triangulator.triangulate_relative(pose, a, b) {
+            ap
+        } else {
+            return false;
+        };
+        // Transform the point to the other camera.
+        let bp = pose.transform(ap);
+        // Compute the residuals for each observation.
+        let ra = 1.0 - ap.bearing().dot(&a.bearing());
+        let rb = 1.0 - bp.bearing().dot(&b.bearing());
+        // All must satisfy the consensus threshold at worst.
+        let satisfies_cosine_distance = [ra, rb]
+            .iter()
+            .all(|&r| r.is_finite() && r < residual_threshold);
+        // The a bearing in the A camera reference frame.
+        let a_bearing = a.bearing();
+        // The b bearing in the A camera reference frame.
+        let b_bearing = pose.inverse().isometry() * b.bearing();
+        // Incidence from center to first.
+        let iab = 1.0 - a_bearing.dot(&b_bearing);
+        // At least one pair must have a sufficiently large incidence angle.
+        let satisfies_incidence_angle = iab > incidence_threshold;
+        satisfies_cosine_distance && satisfies_incidence_angle
+    }
+
+    fn is_tri_landmark_robust<'a>(
+        &'a self,
+        first_pose: CameraToCamera,
+        second_pose: CameraToCamera,
+        c: NormalizedKeyPoint,
+        f: NormalizedKeyPoint,
+        s: NormalizedKeyPoint,
+        residual_threshold: f64,
+        incidence_threshold: f64,
+    ) -> bool {
+        // The triangulated point in the center camera.
+        let cp = CameraPoint(
+            if let Some(cp) = self.triangulator.triangulate_observations(
+                once((WorldToCamera::identity(), c.clone()))
+                    .chain(once((first_pose.isometry().into(), f.clone())))
+                    .chain(once((second_pose.isometry().into(), s.clone()))),
+            ) {
+                cp.0
+            } else {
+                return false;
+            },
+        );
+        // Transform the point to the other cameras.
+        let fp = first_pose.transform(cp);
+        let sp = second_pose.transform(cp);
+        // Compute the residuals for each observation.
+        let rc = 1.0 - cp.bearing().dot(&c.bearing());
+        let rf = 1.0 - fp.bearing().dot(&f.bearing());
+        let rs = 1.0 - sp.bearing().dot(&s.bearing());
+        // All must satisfy the consensus threshold at worst.
+        let satisfies_cosine_distance = [rc, rf, rs]
+            .iter()
+            .all(|&r| r.is_finite() && r < residual_threshold);
+        // The center bearing in the center camera reference frame.
+        let cc = c.bearing();
+        // The first bearing in the center camera reference frame.
+        let cf = first_pose.inverse().isometry() * f.bearing();
+        // The second bearing in the center camera reference frame.
+        let cs = second_pose.inverse().isometry() * s.bearing();
+        // Incidence from center to first.
+        let icf = 1.0 - cc.dot(&cf);
+        // Incidence from first to second.
+        let ifs = 1.0 - cf.dot(&cs);
+        // Incidence from second to center.
+        let isc = 1.0 - cs.dot(&cc);
+        // At least one pair must have a sufficiently large incidence angle.
+        let satisfies_incidence_angle = [icf, ifs, isc]
+            .iter()
+            .any(|&incidence| incidence > incidence_threshold);
+        satisfies_cosine_distance && satisfies_incidence_angle
     }
 
     /// This estimates and optimizes the [`CameraToCamera`] between frames `a` and `b` using the essential matrix estimator.

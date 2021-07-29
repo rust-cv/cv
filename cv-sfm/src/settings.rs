@@ -149,12 +149,30 @@ pub struct VSlamSettings {
         serde(default = "default_three_view_patience")
     )]
     pub three_view_patience: usize,
+    /// The threshold of mean cosine distance standard deviation that terminates three-view optimization.
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_three_view_std_dev_threshold")
+    )]
+    pub three_view_std_dev_threshold: f64,
+    /// The maximum iterations to run three-view optimization and filtering
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_three_view_filter_loop_iterations")
+    )]
+    pub three_view_filter_loop_iterations: usize,
     /// The minimum number of common matches that satisfy robustness criteria needed for initialization.
     #[cfg_attr(
         feature = "serde-serialize",
         serde(default = "default_three_view_landmarks")
     )]
     pub three_view_landmarks: usize,
+    /// The ratio of good matches to total matches to consider a three-view match successful.
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_three_view_inlier_ratio_threshold")
+    )]
+    pub three_view_inlier_ratio_threshold: f64,
     /// The maximum iterations to optimize many views.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -237,7 +255,10 @@ impl Default for VSlamSettings {
             two_view_match_better_by: default_two_view_match_better_by(),
             track_landmarks: default_track_landmarks(),
             three_view_patience: default_three_view_patience(),
+            three_view_std_dev_threshold: default_three_view_std_dev_threshold(),
+            three_view_filter_loop_iterations: default_three_view_filter_loop_iterations(),
             three_view_landmarks: default_three_view_landmarks(),
+            three_view_inlier_ratio_threshold: default_three_view_inlier_ratio_threshold(),
             many_view_patience: default_many_view_patience(),
             many_view_std_dev_threshold: default_many_view_std_dev_threshold(),
             many_view_landmarks: default_many_view_landmarks(),
@@ -348,8 +369,20 @@ fn default_three_view_patience() -> usize {
     2000
 }
 
+fn default_three_view_std_dev_threshold() -> f64 {
+    0.00000000001
+}
+
+fn default_three_view_filter_loop_iterations() -> usize {
+    3
+}
+
 fn default_three_view_landmarks() -> usize {
-    32
+    32768
+}
+
+fn default_three_view_inlier_ratio_threshold() -> f64 {
+    0.5
 }
 
 fn default_many_view_patience() -> usize {
