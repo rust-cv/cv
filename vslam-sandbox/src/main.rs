@@ -27,7 +27,7 @@ struct Opt {
     settings: PathBuf,
     /// The maximum cosine distance an observation can have to be exported.
     #[structopt(long, default_value = "0.000002")]
-    export_cosine_distance_threshold: f64,
+    export_maximum_cosine_distance: f64,
     /// Export required observations
     #[structopt(long, default_value = "3")]
     export_robust_minimum_observations: usize,
@@ -101,9 +101,15 @@ fn main() {
         Arrsac::new(
             settings.consensus_threshold,
             Xoshiro256PlusPlus::seed_from_u64(0),
-        ),
-        EightPoint::new(),
+        )
+        .max_candidate_hypotheses(256),
+        Arrsac::new(
+            settings.consensus_threshold,
+            Xoshiro256PlusPlus::seed_from_u64(0),
+        )
+        .max_candidate_hypotheses(8192),
         LambdaTwist::new(),
+        EightPoint::new(),
         MinSquaresTriangulator::new(),
         Xoshiro256PlusPlus::seed_from_u64(0),
     );
@@ -124,9 +130,8 @@ fn main() {
                 // Keep track of the old settings
                 let old_settings = vslam.settings;
                 // Set the settings based on the command line arguments for export purposes.
-                vslam.settings.cosine_distance_threshold = opt.export_cosine_distance_threshold;
-                vslam.settings.robust_maximum_cosine_distance =
-                    opt.export_cosine_distance_threshold;
+                vslam.settings.maximum_cosine_distance = opt.export_maximum_cosine_distance;
+                vslam.settings.robust_maximum_cosine_distance = opt.export_maximum_cosine_distance;
                 vslam.settings.robust_minimum_observations = opt.export_robust_minimum_observations;
                 let reconstructions: Vec<_> = vslam.data.reconstructions().enumerate().collect();
                 for (ix, reconstruction) in reconstructions {

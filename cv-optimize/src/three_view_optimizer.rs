@@ -21,7 +21,7 @@ pub fn three_view_nelder_mead(
         .sum::<f64>()
         .sqrt()
         * 0.001;
-    let mut variants = vec![original; 7];
+    let mut variants = vec![original; 13];
     #[allow(clippy::needless_range_loop)]
     for i in 0..12 {
         if i % 6 < 3 {

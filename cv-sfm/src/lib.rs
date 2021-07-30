@@ -18,8 +18,8 @@ use cv_core::{
     WorldToWorld,
 };
 use cv_optimize::{
-    many_view_nelder_mead, single_view_nelder_mead, three_view_nelder_mead, two_view_nelder_mead,
-    ManyViewConstraint, SingleViewConstraint, ThreeViewConstraint, TwoViewConstraint,
+    many_view_nelder_mead, single_view_nelder_mead, three_view_nelder_mead, ManyViewConstraint,
+    SingleViewConstraint, ThreeViewConstraint,
 };
 use cv_pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix, NormalizedKeyPoint};
 use float_ord::FloatOrd;
@@ -325,36 +325,52 @@ impl VSlamData {
             })
     }
 
-    /// Add a [`Reconstruction`] from two initial frames and good matches between their features.
+    /// Add a [`Reconstruction`] from three initial frames and matches between their features.
+    #[allow(clippy::too_many_arguments)]
     pub fn add_reconstruction(
         &mut self,
-        frame_a: FrameKey,
-        frame_b: FrameKey,
-        pose: CameraToCamera,
-        matches: Vec<FeatureMatch<usize>>,
-    ) -> (ReconstructionKey, (ViewKey, ViewKey)) {
+        center: FrameKey,
+        first: FrameKey,
+        second: FrameKey,
+        first_pose: CameraToCamera,
+        second_pose: CameraToCamera,
+        combined_matches: Vec<(usize, usize, usize)>,
+        first_matches: Vec<FeatureMatch<usize>>,
+        second_matches: Vec<FeatureMatch<usize>>,
+    ) -> ReconstructionKey {
         // Create a new empty reconstruction.
         let reconstruction = self.reconstructions.insert(Reconstruction::default());
         // Add frame A to new reconstruction using an empty set of landmarks so all features are added as new landmarks.
-        let view_a = self.add_view(reconstruction, frame_a, Pose::identity(), |_| None);
-        // For all feature matches, create a map from the feature ix .
-        let landmarks: HashMap<usize, LandmarkKey> = matches
-            .into_iter()
-            .map(|FeatureMatch(feature_a, feature_b)| {
-                (
-                    feature_b,
-                    self.observation_landmark(reconstruction, view_a, feature_a),
-                )
-            })
+        let center_view = self.add_view(reconstruction, center, Pose::identity(), |_| None);
+        // Create a map for first landmarks.
+        let first_landmarks: HashMap<usize, LandmarkKey> = first_matches
+            .iter()
+            .map(|&FeatureMatch(c, f)| (f, c))
+            .chain(combined_matches.iter().map(|&(c, f, _)| (f, c)))
+            .map(|(f, c)| (f, self.observation_landmark(reconstruction, center_view, c)))
             .collect();
         // Add frame B to new reconstruction using the extracted landmark, bix pairs.
-        let view_b = self.add_view(
+        self.add_view(
             reconstruction,
-            frame_b,
-            WorldToCamera::from(pose.isometry()),
-            |feature| landmarks.get(&feature).copied(),
+            first,
+            first_pose.isometry().into(),
+            |feature| first_landmarks.get(&feature).copied(),
         );
-        (reconstruction, (view_a, view_b))
+        // Create a map for second landmarks.
+        let second_landmarks: HashMap<usize, LandmarkKey> = second_matches
+            .iter()
+            .map(|&FeatureMatch(c, s)| (s, c))
+            .chain(combined_matches.iter().map(|&(c, _, s)| (s, c)))
+            .map(|(s, c)| (s, self.observation_landmark(reconstruction, center_view, c)))
+            .collect();
+        // Add frame B to new reconstruction using the extracted landmark, bix pairs.
+        self.add_view(
+            reconstruction,
+            second,
+            second_pose.isometry().into(),
+            |feature| second_landmarks.get(&feature).copied(),
+        );
+        reconstruction
     }
 
     /// Adds a new View.
@@ -655,48 +671,53 @@ impl VSlamData {
     }
 }
 
-pub struct VSlam<C, EE, PE, T, R> {
+pub struct VSlam<C1, C2, PE, EE, T, R> {
     /// Mapping data
     pub data: VSlamData,
     /// Settings variables
     pub settings: VSlamSettings,
-    /// The consensus algorithm
-    pub consensus: RefCell<C>,
-    /// The essential matrix estimator
-    pub essential_estimator: EE,
+    /// The consensus algorithm for frame registration.
+    pub single_view_consensus: RefCell<C1>,
+    /// The consensus algorithm for two-view matches.
+    pub two_view_consensus: RefCell<C2>,
     /// The PnP estimator
     pub pose_estimator: PE,
+    /// The essential matrix estimator
+    pub essential_estimator: EE,
     /// The triangulation algorithm
     pub triangulator: T,
     /// The random number generator
     pub rng: RefCell<R>,
 }
 
-impl<C, EE, PE, T, R> VSlam<C, EE, PE, T, R>
+impl<C1, C2, PE, EE, T, R> VSlam<C1, C2, PE, EE, T, R>
 where
-    C: Consensus<EE, FeatureMatch<NormalizedKeyPoint>>
-        + Consensus<PE, FeatureWorldMatch<NormalizedKeyPoint>>,
-    EE: Estimator<FeatureMatch<NormalizedKeyPoint>, Model = EssentialMatrix>,
+    C1: Consensus<PE, FeatureWorldMatch<NormalizedKeyPoint>>,
+    C2: Consensus<EE, FeatureMatch<NormalizedKeyPoint>>,
     PE: Estimator<FeatureWorldMatch<NormalizedKeyPoint>, Model = WorldToCamera>,
+    EE: Estimator<FeatureMatch<NormalizedKeyPoint>, Model = EssentialMatrix>,
     T: TriangulatorObservations + Clone,
     R: Rng,
 {
     /// Creates an empty vSLAM reconstruction.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         data: VSlamData,
         settings: VSlamSettings,
-        consensus: C,
-        essential_estimator: EE,
+        single_view_consensus: C1,
+        two_view_consensus: C2,
         pose_estimator: PE,
+        essential_estimator: EE,
         triangulator: T,
         rng: R,
     ) -> Self {
         Self {
             data,
             settings,
-            consensus: RefCell::new(consensus),
-            essential_estimator,
+            single_view_consensus: RefCell::new(single_view_consensus),
+            two_view_consensus: RefCell::new(two_view_consensus),
             pose_estimator,
+            essential_estimator,
             triangulator,
             rng: RefCell::new(rng),
         }
@@ -742,15 +763,27 @@ where
     /// Returns the VSlam::reconstructions ID if successful.
     fn try_init(
         &mut self,
-        frame_a: FrameKey,
-        frame_b: FrameKey,
-    ) -> Option<(ReconstructionKey, (ViewKey, ViewKey))> {
+        center: FrameKey,
+        options: impl Iterator<Item = FrameKey>,
+    ) -> Option<ReconstructionKey> {
         // Add the outcome.
-        let (pose, matches) = self.init_reconstruction(frame_a, frame_b)?;
-        Some(
-            self.data
-                .add_reconstruction(frame_a, frame_b, pose, matches),
-        )
+        let (
+            (first, first_pose),
+            (second, second_pose),
+            combined_matches,
+            first_matches,
+            second_matches,
+        ) = self.init_reconstruction(center, options)?;
+        Some(self.data.add_reconstruction(
+            center,
+            first,
+            second,
+            first_pose,
+            second_pose,
+            combined_matches,
+            first_matches,
+            second_matches,
+        ))
     }
 
     /// Attempts to localize a frame or initalize a reconstruction otherwise.
@@ -805,39 +838,18 @@ where
             }
         }
 
-        // Until we create a reconstruction, keep trying with three free frames with no reconstruction.
+        // If we have no reconstruction yet, try to initialize one.
         if self.data.frames[frame].view.is_none() {
-            'outer: for (ix, &found_frame) in free_frames.iter().enumerate() {
-                if let Some((reconstruction, _)) = self.try_init(frame, found_frame) {
-                    for (_, &other_found_frame) in
-                        free_frames.iter().enumerate().filter(|&(oix, _)| oix != ix)
-                    {
-                        self.try_localize_and_incorporate(reconstruction, other_found_frame);
-                        // If the original frame is no longer part of a reconstruction, then bundle adjust failed.
-                        if self.data.frames[frame].view.is_none() {
-                            // So try initializing with a new pair.
-                            continue 'outer;
-                        }
-                        // If the new frame was incorporated, then we succeeded and can exit.
-                        if self.data.frames[other_found_frame].view.is_some() {
-                            break 'outer;
-                        }
-                        // The only other alternative is that the found frame wasn't incorporated.
-                        // In this case we just need to try with a new one until one works.
-                    }
-                    // If we tried them all and we still have a reconstruction, just exit with that reconstruction.
-                    return self.data.frames[frame].view;
-                }
-            }
+            self.try_init(frame, free_frames.iter().copied());
         }
 
-        for found_frame in free_frames {
-            // Skip the frame if we initialized with it.
-            if self.data.frames[found_frame].view.is_some() {
-                continue;
-            }
-            // If we already have a reconstruction, use that reconstruction to try and incorporate the found frames.
-            if let Some((reconstruction, _)) = self.data.frames[frame].view {
+        // If we already have a reconstruction, use that reconstruction to try and incorporate the found frames.
+        if let Some((reconstruction, _)) = self.data.frames[frame].view {
+            for found_frame in free_frames {
+                // Skip the frame if we initialized with it.
+                if self.data.frames[found_frame].view.is_some() {
+                    continue;
+                }
                 // Try to incorporate the found frame into the reconstruction.
                 self.try_localize_and_incorporate(reconstruction, found_frame)?;
             }
@@ -872,7 +884,7 @@ where
 
     /// Triangulates the point of each match, filtering out matches which fail triangulation or chirality test.
     ///
-    /// If `final` is true, it will perform a final filtering using the `cosine_distance_threshold`,
+    /// If `final` is true, it will perform a final filtering using the `maximum_cosine_distance`,
     /// otherwise it will perform a more forgiving filtering using `consensus_threshold`.
     fn camera_to_camera_match_points(
         &self,
@@ -883,52 +895,21 @@ where
         last: bool,
     ) -> Vec<FeatureMatch<usize>> {
         matches
-            .filter_map(move |m| {
+            .filter(|m| {
                 let FeatureMatch(a, b) = FeatureMatch(a.keypoint(m.0), b.keypoint(m.1));
-                let point_a = self.triangulator.triangulate_relative(pose, a, b)?;
-                let point_b = pose.transform(point_a);
-                let residual = 1.0 - point_a.bearing().dot(&a.bearing()) + 1.0
-                    - point_b.bearing().dot(&b.bearing());
-                if residual.is_finite()
-                    && (residual
-                        < 2.0
-                            * if last {
-                                self.settings.cosine_distance_threshold
-                            } else {
-                                self.settings.consensus_threshold
-                            }
-                        && point_a.z.is_sign_positive()
-                        && point_b.z.is_sign_positive())
-                {
-                    Some(m)
-                } else {
-                    None
-                }
+                self.is_bi_landmark_robust(
+                    pose,
+                    a,
+                    b,
+                    if last {
+                        self.settings.maximum_cosine_distance
+                    } else {
+                        self.settings.consensus_threshold
+                    },
+                    0.0,
+                )
             })
             .collect()
-    }
-
-    /// Triangulates the point of each match, filtering out matches which fail triangulation or chirality test.
-    fn camera_to_camera_chirality_pass_count(
-        &self,
-        a: &Frame,
-        b: &Frame,
-        pose: CameraToCamera,
-        matches: impl Iterator<Item = FeatureMatch<usize>>,
-    ) -> usize {
-        matches
-            .filter(move |&m| {
-                let FeatureMatch(a, b) = FeatureMatch(a.keypoint(m.0), b.keypoint(m.1));
-                let point_a =
-                    if let Some(point_a) = self.triangulator.triangulate_relative(pose, a, b) {
-                        point_a
-                    } else {
-                        return false;
-                    };
-                let point_b = pose.transform(point_a);
-                point_a.z.is_sign_positive() && point_b.z.is_sign_positive()
-            })
-            .count()
     }
 
     /// Checks if two observations from two views with a [`CameraToCamera`] relative pose form a robust landmark.
@@ -945,7 +926,7 @@ where
         let p = self.triangulator.triangulate_relative(pose, a, b)?;
         let is_cosine_distance_satisfied = 1.0 - p.bearing().dot(&a.bearing()) + 1.0
             - pose.transform(p).bearing().dot(&b.bearing())
-            < 2.0 * self.settings.cosine_distance_threshold;
+            < 2.0 * self.settings.maximum_cosine_distance;
         let is_incidence_angle_satisfied = 1.0 - (pose.isometry() * a.bearing()).dot(&b.bearing())
             > self
                 .settings
@@ -963,26 +944,25 @@ where
     /// and the `options`. For each initial pair that it finds, it will then attempt to incorporate
     /// a third frame also using essential matrix estimation and pose optimization among the remaining options.
     /// Once two matches have been performed, the translation must be scaled appropriately so that the two
-    /// poses are in agreement on the scale (which is unknown). This is done by finding the top `three_view_landmarks`
+    /// poses are in agreement on the scale (which is unknown). This is done by finding the top `three_view_optimization_landmarks`
     /// common matches between the frames that satisfy the `robust_observation_incidence_minimum_cosine_distance`
     /// setting and which satisfy the `robust_maximum_cosine_distance` setting.
     ///
-    /// After that stage, we then start by testing at a scale of `0.5`, `1.0`, and `2.0` for the second translation.
-    /// Each scale we record the cosine distance of the `three_view_landmarks`. From this we determine the direction
-    /// to search in. If `1.0` is the best position, we start a binary search between `0.5` and `2.0`. If
-    /// `0.5` is the best, then we start halving until we find a scale that is worse and perform a binary search
-    /// in that range. We do the same for `2.0`, but in that case we double instead of halve. At the end,
-    /// this binary search produces a scale which we scale the second [`CameraToCamera`] translation by and return.
-    /// This is effectively an exponential search for the minimum cosine distance.
+    /// After that stage, we then triangulate each common match for each two-view pair in the center frame's
+    /// reference point. The ratio between each pair's norm is computed. The ratios are then sorted to
+    /// compute the median ratio. The median ratio (to filter outliers as best as possible) is used to scale
+    /// the second pair's translation so that it is roughly consistent with the first pair.
     ///
-    /// The last step we perform is to optimize the resulting three-view reconstruction before returning the results.
+    /// The last step we perform is to optimize and filter the resulting three-view reconstruction repeatedly.
+    /// The optimized poses are used to compute all of the valid matches, which are then returned along with the frames and poses.
+    #[allow(clippy::type_complexity)]
     fn init_reconstruction(
         &self,
         center: FrameKey,
         options: impl Iterator<Item = FrameKey>,
     ) -> Option<(
-        CameraToCamera,
-        CameraToCamera,
+        (FrameKey, CameraToCamera),
+        (FrameKey, CameraToCamera),
         Vec<(usize, usize, usize)>,
         Vec<FeatureMatch<usize>>,
         Vec<FeatureMatch<usize>>,
@@ -990,8 +970,10 @@ where
         let options = options
             .filter_map(|option| Some((option, self.init_two_view(center, option)?)))
             .collect_vec();
-        for ((first, (first_pose, first_matches)), (second, (second_pose, second_matches))) in
-            options.iter().tuple_combinations()
+        'three_view: for (
+            (first, (first_pose, first_matches)),
+            (second, (second_pose, second_matches)),
+        ) in options.iter().tuple_combinations()
         {
             // Create a map from the center features to the second matches.
             let second_map: HashMap<usize, usize> = second_matches
@@ -1005,7 +987,8 @@ where
                 .collect_vec();
             common.shuffle(&mut *self.rng.borrow_mut());
             // Filter the common matches based on if they satisfy the criteria.
-            let mut common_filtered_landmarks = common
+            // Extract the scale ratio for all triangulatable points in each pair.
+            let mut common_filtered_relative_scales_squared = common
                 .iter()
                 .filter_map(|&(c, f, s)| {
                     let c = self.data.frame(center).keypoint(c);
@@ -1018,26 +1001,8 @@ where
                     if !ratio.is_normal() {
                         return None;
                     }
-                    Some((c, f, s, ratio))
+                    Some(ratio)
                 })
-                .collect_vec();
-
-            info!(
-                "three view match has {} robust three-way matches",
-                common_filtered_landmarks.len()
-            );
-            if common_filtered_landmarks.len() < 32 {
-                info!(
-                    "need {} robust three-way matches; rejecting three-view match",
-                    32
-                );
-                continue;
-            }
-
-            // Extract the scale ratios specifically.
-            let mut common_filtered_relative_scales_squared = common_filtered_landmarks
-                .iter()
-                .map(|&(_, _, _, ratio)| ratio)
                 .collect_vec();
             // Sort the filtered scales to find the median scale.
             common_filtered_relative_scales_squared.sort_unstable_by_key(|&f| FloatOrd(f));
@@ -1065,13 +1030,13 @@ where
                     let s = self.data.frame(*second).keypoint(s);
                     (c, f, s)
                 })
-                .take(self.settings.three_view_landmarks)
+                .take(self.settings.three_view_optimization_landmarks)
                 .collect::<Vec<_>>();
 
             info!(
                 "performing Nelder-Mead optimization on both poses using {} matches out of {}",
                 opti_matches.len(),
-                common_filtered_landmarks.len()
+                common.len()
             );
 
             // We need to compute the rate that we must restrict the output at to reach the target
@@ -1085,6 +1050,19 @@ where
                 let restriction = restriction_rate.powi(ix as i32 + 1);
                 let loss_cutoff = self.settings.consensus_threshold * restriction;
                 info!("optimizing poses with loss cutoff {}", loss_cutoff);
+
+                info!(
+                    "performing Nelder-Mead optimization on poses using {} robust three-way matches out of {}",
+                    opti_matches.len(),
+                    common.len()
+                );
+                if opti_matches.len() < 32 {
+                    info!(
+                        "need {} robust three-way matches; rejecting three-view match",
+                        32
+                    );
+                    continue 'three_view;
+                }
 
                 let solver = three_view_nelder_mead(first_pose, second_pose)
                     .sd_tolerance(self.settings.three_view_std_dev_threshold);
@@ -1102,14 +1080,14 @@ where
                     .expect("three-view optimization failed");
 
                 info!(
-                "extracted three-view poses with mean capped cosine distance of {} with reason: {}",
-                opti_result.state.best_cost, opti_result.state.termination_reason,
+                    "extracted three-view poses with mean capped cosine distance of {} in {} iterations with reason: {}",
+                    opti_result.state.best_cost, opti_result.state.iter + 1, opti_result.state.termination_reason,
                 );
 
                 if opti_result.state.termination_reason != TerminationReason::TargetToleranceReached
                 {
                     info!("didn't terminate due to reaching our desired tollerance; rejecting three-view match");
-                    return None;
+                    continue 'three_view;
                 }
 
                 first_pose = Pose::from_se3(opti_result.state.best_param.column(0).into());
@@ -1138,7 +1116,7 @@ where
                                     .robust_observation_incidence_minimum_cosine_distance,
                             )
                         })
-                        .take(self.settings.three_view_landmarks)
+                        .take(self.settings.three_view_optimization_landmarks)
                         .collect::<Vec<_>>();
                 }
             }
@@ -1150,7 +1128,8 @@ where
                 .collect();
 
             let combined_matches = common
-                .into_iter()
+                .iter()
+                .copied()
                 .filter(|&(c, f, s)| {
                     let c = self.data.frame(center).keypoint(c);
                     let f = self.data.frame(*first).keypoint(f);
@@ -1161,7 +1140,7 @@ where
                         c,
                         f,
                         s,
-                        self.settings.cosine_distance_threshold,
+                        self.settings.maximum_cosine_distance,
                         0.0,
                     )
                 })
@@ -1180,7 +1159,7 @@ where
                         first_pose,
                         c,
                         f,
-                        self.settings.cosine_distance_threshold,
+                        self.settings.maximum_cosine_distance,
                         0.0,
                     )
                 })
@@ -1199,26 +1178,49 @@ where
                         second_pose,
                         c,
                         s,
-                        self.settings.cosine_distance_threshold,
+                        self.settings.maximum_cosine_distance,
                         0.0,
                     )
                 })
                 .collect_vec();
 
+            let num_robust_matches = common
+                .iter()
+                .map(|&(c, f, s)| {
+                    let c = self.data.frame(center).keypoint(c);
+                    let f = self.data.frame(*first).keypoint(f);
+                    let s = self.data.frame(*second).keypoint(s);
+                    (c, f, s)
+                })
+                .filter(|&(c, f, s)| {
+                    self.is_tri_landmark_robust(
+                        first_pose,
+                        second_pose,
+                        c,
+                        f,
+                        s,
+                        self.settings.robust_maximum_cosine_distance,
+                        self.settings
+                            .robust_observation_incidence_minimum_cosine_distance,
+                    )
+                })
+                .count();
+
             let inlier_ratio = combined_matches.len() as f64 / common.len() as f64;
 
             info!(
-                "found {} tri-matches (inlier ratio {}), {} center-first matches, and {} center-second matches",
+                "found {} tri-matches, {} tri-match inlier ratio, {} robust tri-matches, {} center-first matches, and {} center-second matches",
                 combined_matches.len(),
                 inlier_ratio,
+                num_robust_matches,
                 first_matches.len(),
                 second_matches.len()
             );
 
-            if combined_matches.len() < 32 {
+            if num_robust_matches < self.settings.three_view_minimum_robust_matches {
                 info!(
                     "need {} robust three-way matches; rejecting three-view match",
-                    32
+                    self.settings.three_view_minimum_robust_matches
                 );
                 continue;
             }
@@ -1232,18 +1234,19 @@ where
             }
 
             return Some((
-                first_pose,
-                second_pose,
+                (*first, first_pose),
+                (*second, second_pose),
                 combined_matches,
                 first_matches,
                 second_matches,
             ));
         }
+        info!("no three-view match was found among the two-view match options");
         None
     }
 
-    fn is_bi_landmark_robust<'a>(
-        &'a self,
+    fn is_bi_landmark_robust(
+        &self,
         pose: CameraToCamera,
         a: NormalizedKeyPoint,
         b: NormalizedKeyPoint,
@@ -1276,8 +1279,9 @@ where
         satisfies_cosine_distance && satisfies_incidence_angle
     }
 
-    fn is_tri_landmark_robust<'a>(
-        &'a self,
+    #[allow(clippy::too_many_arguments)]
+    fn is_tri_landmark_robust(
+        &self,
         first_pose: CameraToCamera,
         second_pose: CameraToCamera,
         c: NormalizedKeyPoint,
@@ -1289,9 +1293,9 @@ where
         // The triangulated point in the center camera.
         let cp = CameraPoint(
             if let Some(cp) = self.triangulator.triangulate_observations(
-                once((WorldToCamera::identity(), c.clone()))
-                    .chain(once((first_pose.isometry().into(), f.clone())))
-                    .chain(once((second_pose.isometry().into(), s.clone()))),
+                once((WorldToCamera::identity(), c))
+                    .chain(once((first_pose.isometry().into(), f)))
+                    .chain(once((second_pose.isometry().into(), s))),
             ) {
                 cp.0
             } else {
@@ -1360,10 +1364,13 @@ where
 
         original_matches.shuffle(&mut *self.rng.borrow_mut());
 
-        info!("estimate essential on {} matches", original_matches.len());
+        info!(
+            "perform sample consensus to estimate essential matrix and filter outliers on {} matches",
+            original_matches.len()
+        );
 
         // Estimate the essential matrix and retrieve the inliers
-        let (essential, inliers) = self.consensus.borrow_mut().model_inliers(
+        let (essential, inliers) = self.two_view_consensus.borrow_mut().model_inliers(
             &self.essential_estimator,
             original_matches
                 .iter()
@@ -1373,111 +1380,24 @@ where
                 .iter()
                 .copied(),
         )?;
+
         // Reconstitute only the inlier matches into a matches vector.
         let matches: Vec<FeatureMatch<usize>> =
             inliers.into_iter().map(|ix| original_matches[ix]).collect();
 
-        info!("perform chirality test on {} matches", matches.len());
+        info!(
+            "perform chirality test and solve pose from essential matrix using {} inlier matches",
+            matches.len()
+        );
 
         // Perform chirality test to determine the pose from the four possible poses using the given data.
-        let mut pose = essential
+        let pose = essential
             .pose_solver()
             .solve_unscaled(matches.iter().copied().map(match_ix_kps))?;
 
-        // Perform the pure chirality test.
-        let pre_chirality_matches = matches.len();
-        let post_chirality_matches =
-            self.camera_to_camera_chirality_pass_count(a, b, pose, matches.iter().copied());
-        let chirality_pass_ratio = post_chirality_matches as f64 / pre_chirality_matches as f64;
-        if pre_chirality_matches == 0
-            || chirality_pass_ratio < self.settings.two_view_chirality_minimum_threshold
-        {
-            info!(
-                "initial chirality test pass ratio was {} ({}/{}), but needed {}; rejecting two-view match",
-                chirality_pass_ratio,
-                post_chirality_matches,
-                pre_chirality_matches,
-                self.settings.two_view_chirality_minimum_threshold
-            );
-            return None;
-        } else {
-            info!(
-                "initial chirality test pass ratio was {} ({}/{}), which was successful",
-                chirality_pass_ratio, post_chirality_matches, pre_chirality_matches,
-            );
-        }
-
         // Perform a chirality test to retain only the points in front of both cameras.
-        let mut matches: Vec<FeatureMatch<usize>> = self.camera_to_camera_match_points(
-            a,
-            b,
-            pose,
-            original_matches.iter().copied(),
-            self.settings.two_view_filter_loop_iterations == 0,
-        );
-
-        // We need to compute the rate that we must restrict the output at to reach the target
-        // robust_maximum_cosine_distance by the end of our filter loop.
-        let restriction_rate = (self.settings.robust_maximum_cosine_distance
-            / self.settings.consensus_threshold)
-            .powf((self.settings.two_view_filter_loop_iterations as f64).recip());
-
-        for ix in 0..self.settings.two_view_filter_loop_iterations {
-            // This gradually restricts the threshold for outliers on each iteration.
-            let restriction = restriction_rate.powi(ix as i32 + 1);
-            let loss_cutoff = self.settings.consensus_threshold * restriction;
-            info!("optimizing pose with loss cutoff {}", loss_cutoff);
-
-            // Get the matches to use for optimization.
-            let opti_matches: Vec<FeatureMatch<NormalizedKeyPoint>> = matches
-                .iter()
-                .copied()
-                .map(match_ix_kps)
-                .take(self.settings.two_view_optimization_num_matches)
-                .collect::<Vec<_>>();
-
-            info!(
-                "performing Nelder-Mead optimization on pose using {} matches out of {}",
-                opti_matches.len(),
-                matches.len()
-            );
-
-            let solver =
-                two_view_nelder_mead(pose).sd_tolerance(self.settings.two_view_std_dev_threshold);
-            let constraint =
-                TwoViewConstraint::new(opti_matches.iter().copied(), self.triangulator.clone())
-                    .loss_cutoff(loss_cutoff);
-
-            // The initial parameter is empty becasue nelder mead is passed its own initial parameter directly.
-            let opti_result = Executor::new(constraint, solver, vec![])
-                .add_observer(OptimizationObserver, ObserverMode::Always)
-                .max_iters(self.settings.two_view_patience as u64)
-                .run()
-                .expect("two-view optimization failed");
-
-            info!(
-                "extracted two-view pose with mean capped cosine distance of {} with reason: {}",
-                opti_result.state.best_cost, opti_result.state.termination_reason,
-            );
-
-            if opti_result.state.termination_reason != TerminationReason::TargetToleranceReached {
-                info!("didn't terminate due to reaching our desired tollerance; rejecting two-view match");
-                return None;
-            }
-
-            pose = Pose::from_se3(Vector6::from_row_slice(&opti_result.state.best_param));
-
-            // Filter outlier matches based on cosine distance.
-            matches = self.camera_to_camera_match_points(
-                a,
-                b,
-                pose,
-                original_matches.iter().copied(),
-                ix == self.settings.two_view_filter_loop_iterations - 1,
-            );
-
-            info!("filtering left us with {} matches", matches.len());
-        }
+        let matches: Vec<FeatureMatch<usize>> =
+            self.camera_to_camera_match_points(a, b, pose, original_matches.iter().copied(), true);
 
         let inlier_ratio = matches.len() as f64 / original_matches.len() as f64;
         info!(
@@ -1486,11 +1406,11 @@ where
             inlier_ratio
         );
 
-        if matches.len() < self.settings.two_view_minimum_robust_matches {
+        if matches.len() < self.settings.two_view_minimum_matches {
             info!(
-                "only found {} robust matches, but needed {}; rejecting two-view match",
+                "only found {} matches, but needed {}; rejecting two-view match",
                 matches.len(),
-                self.settings.two_view_minimum_robust_matches
+                self.settings.two_view_minimum_matches
             );
             return None;
         }
@@ -1643,7 +1563,7 @@ where
 
         // Estimate the pose and retrieve the inliers.
         let mut pose = self
-            .consensus
+            .single_view_consensus
             .borrow_mut()
             .model(&self.pose_estimator, matches_3d.iter().copied())?;
 
@@ -1665,15 +1585,15 @@ where
             let constraint = SingleViewConstraint::new(matches_3d.clone()).loss_cutoff(loss_cutoff);
 
             // The initial parameter is empty becasue nelder mead is passed its own initial parameter directly.
-            let opti_result = Executor::new(constraint, solver, vec![])
+            let opti_result = Executor::new(constraint, solver, Vector6::zeros())
                 .add_observer(OptimizationObserver, ObserverMode::Always)
                 .max_iters(self.settings.single_view_patience as u64)
                 .run()
                 .expect("single-view optimization failed");
 
             info!(
-                "extracted single-view pose with mean capped cosine distance of {} with reason: {}",
-                opti_result.state.best_cost, opti_result.state.termination_reason,
+                "extracted single-view pose with mean capped cosine distance of {} in {} iterations with reason: {}",
+                opti_result.state.best_cost, opti_result.state.iter + 1, opti_result.state.termination_reason,
             );
 
             if opti_result.state.termination_reason != TerminationReason::TargetToleranceReached {
@@ -1681,7 +1601,7 @@ where
                 return None;
             }
 
-            pose = Pose::from_se3(Vector6::from_row_slice(&opti_result.state.best_param));
+            pose = Pose::from_se3(opti_result.state.best_param);
         }
 
         let original_matches_len = original_matches.len();
@@ -1708,7 +1628,7 @@ where
 
         if inlier_ratio < self.settings.single_view_inlier_minimum_threshold {
             info!(
-                "inlier ratio was less than the threshold for acceptance ({}), rejecting single-view match", self.settings.single_view_inlier_minimum_threshold
+                "inlier ratio was less than the threshold for acceptance ({}); rejecting single-view match", self.settings.single_view_inlier_minimum_threshold
             );
             return None;
         }
@@ -2043,7 +1963,7 @@ where
                 observances.iter().map(|v| v.iter().copied()),
                 self.triangulator.clone(),
             )
-            .loss_cutoff(self.settings.cosine_distance_threshold);
+            .loss_cutoff(self.settings.maximum_cosine_distance);
 
             let patience = if views.len() == 3 {
                 self.settings.three_view_patience as u64
@@ -2060,8 +1980,8 @@ where
                 .state;
 
             info!(
-                "extracted poses with mean capped cosine distance of {}, finished with reason: {}",
-                opti_state.best_cost, opti_state.termination_reason
+                "extracted poses with mean capped cosine distance of {} in {} iterations finished with reason: {}",
+                opti_state.best_cost, opti_state.iter + 1, opti_state.termination_reason
             );
 
             if opti_state.termination_reason != TerminationReason::TargetToleranceReached {
@@ -2135,7 +2055,7 @@ where
                         view,
                         feature,
                         point,
-                        self.settings.cosine_distance_threshold,
+                        self.settings.maximum_cosine_distance,
                     ) {
                         // If the observation is bad, we must remove it from the landmark and the view.
                         self.data.split_observation(reconstruction, view, feature);
@@ -2255,7 +2175,7 @@ where
                 view,
                 feature,
                 point,
-                self.settings.merge_cosine_distance_threshold,
+                self.settings.merge_maximum_cosine_distance,
             )
         });
         // Non-lexical lifetimes failed me.
@@ -2438,7 +2358,7 @@ where
             let verify = |pose: WorldToCamera, keypoint: NormalizedKeyPoint| {
                 let camera_point = pose.transform(*world_point);
                 let residual = 1.0 - keypoint.bearing().dot(&camera_point.bearing());
-                residual.is_finite() && residual < self.settings.cosine_distance_threshold
+                residual.is_finite() && residual < self.settings.maximum_cosine_distance
             };
             self.data
                 .landmark_observations(reconstruction, landmark)
