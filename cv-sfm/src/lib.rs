@@ -9,9 +9,10 @@ pub use settings::*;
 use argmin::core::{
     ArgminKV, ArgminOp, Error, Executor, IterState, Observe, ObserverMode, TerminationReason,
 };
+use average::Mean;
 use bitarray::{BitArray, Hamming};
 use cv_core::{
-    nalgebra::{Matrix6x2, Unit, Vector3, Vector6},
+    nalgebra::{Matrix6x2, Point3, Unit, Vector3, Vector6},
     sample_consensus::{Consensus, Estimator},
     Bearing, CameraModel, CameraPoint, CameraToCamera, FeatureMatch, FeatureWorldMatch, Pose,
     Projective, TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera,
@@ -882,7 +883,7 @@ where
         Some(view)
     }
 
-    /// Triangulates the point of each match, filtering out matches which fail triangulation or chirality test.
+    /// Triangulates the point of each match, filtering out matches which fail triangulation.
     ///
     /// If `final` is true, it will perform a final filtering using the `maximum_cosine_distance`,
     /// otherwise it will perform a more forgiving filtering using `consensus_threshold`.
@@ -892,7 +893,7 @@ where
         b: &Frame,
         pose: CameraToCamera,
         matches: impl Iterator<Item = FeatureMatch<usize>>,
-        last: bool,
+        incidence_threshold: f64,
     ) -> Vec<FeatureMatch<usize>> {
         matches
             .filter(|m| {
@@ -901,20 +902,14 @@ where
                     pose,
                     a,
                     b,
-                    if last {
-                        self.settings.maximum_cosine_distance
-                    } else {
-                        self.settings.consensus_threshold
-                    },
-                    0.0,
+                    self.settings.maximum_cosine_distance,
+                    incidence_threshold,
                 )
             })
             .collect()
     }
 
     /// Checks if two observations from two views with a [`CameraToCamera`] relative pose form a robust landmark.
-    ///
-    /// This does not check for chirality.
     ///
     /// If succesful, returns the point from the perspective of `A`.
     fn pair_robust_point(
@@ -995,8 +990,8 @@ where
                     let f = self.data.frame(*first).keypoint(f);
                     let s = self.data.frame(*second).keypoint(s);
 
-                    let fp = self.pair_robust_point(*first_pose, c, f)?;
-                    let sp = self.pair_robust_point(*second_pose, c, s)?;
+                    let fp = self.pair_robust_point(*first_pose, c, f)?.point()?.coords;
+                    let sp = self.pair_robust_point(*second_pose, c, s)?.point()?.coords;
                     let ratio = fp.norm_squared() / sp.norm_squared();
                     if !ratio.is_normal() {
                         return None;
@@ -1004,6 +999,13 @@ where
                     Some(ratio)
                 })
                 .collect_vec();
+            if common_filtered_relative_scales_squared.len() < 32 {
+                info!(
+                    "need at least 32 relative scales, but found {}; rejecting three-view match",
+                    common_filtered_relative_scales_squared.len()
+                );
+                continue;
+            }
             // Sort the filtered scales to find the median scale.
             common_filtered_relative_scales_squared.sort_unstable_by_key(|&f| FloatOrd(f));
 
@@ -1042,13 +1044,13 @@ where
             // We need to compute the rate that we must restrict the output at to reach the target
             // robust_maximum_cosine_distance by the end of our filter loop.
             let restriction_rate = (self.settings.robust_maximum_cosine_distance
-                / self.settings.consensus_threshold)
+                / self.settings.single_view_consensus_threshold)
                 .powf((self.settings.three_view_filter_loop_iterations as f64).recip());
 
             for ix in 0..self.settings.three_view_filter_loop_iterations {
                 // This gradually restricts the threshold for outliers on each iteration.
                 let restriction = restriction_rate.powi(ix as i32 + 1);
-                let loss_cutoff = self.settings.consensus_threshold * restriction;
+                let loss_cutoff = self.settings.single_view_consensus_threshold * restriction;
                 info!("optimizing poses with loss cutoff {}", loss_cutoff);
 
                 info!(
@@ -1111,7 +1113,7 @@ where
                                 c,
                                 f,
                                 s,
-                                self.settings.consensus_threshold,
+                                self.settings.single_view_consensus_threshold,
                                 self.settings
                                     .robust_observation_incidence_minimum_cosine_distance,
                             )
@@ -1386,31 +1388,41 @@ where
             inliers.into_iter().map(|ix| original_matches[ix]).collect();
 
         info!(
-            "perform chirality test and solve pose from essential matrix using {} inlier matches",
+            "solve pose from essential matrix using {} inlier matches",
             matches.len()
         );
 
-        // Perform chirality test to determine the pose from the four possible poses using the given data.
+        // Solve the pose from the four possible poses using the given data.
         let pose = essential
             .pose_solver()
             .solve_unscaled(matches.iter().copied().map(match_ix_kps))?;
 
-        // Perform a chirality test to retain only the points in front of both cameras.
-        let matches: Vec<FeatureMatch<usize>> =
-            self.camera_to_camera_match_points(a, b, pose, original_matches.iter().copied(), true);
+        // Retain sufficient matches.
+        let matches =
+            self.camera_to_camera_match_points(a, b, pose, original_matches.iter().copied(), 0.0);
+
+        // Compute the number of robust matches (to ensure the views are looking from sufficiently distant positions).
+        let robust_matches = self.camera_to_camera_match_points(
+            a,
+            b,
+            pose,
+            original_matches.iter().copied(),
+            self.settings.two_view_consensus_threshold,
+        );
 
         let inlier_ratio = matches.len() as f64 / original_matches.len() as f64;
         info!(
-            "matches remaining after all filtering stages: {}; inlier ratio {}",
+            "estimated pose matches {} and robust matches {}; inlier ratio {}",
             matches.len(),
+            robust_matches.len(),
             inlier_ratio
         );
 
-        if matches.len() < self.settings.two_view_minimum_matches {
+        if robust_matches.len() < self.settings.two_view_minimum_robust_matches {
             info!(
-                "only found {} matches, but needed {}; rejecting two-view match",
-                matches.len(),
-                self.settings.two_view_minimum_matches
+                "only found {} robust matches, but needed {}; rejecting two-view match",
+                robust_matches.len(),
+                self.settings.two_view_minimum_robust_matches
             );
             return None;
         }
@@ -1570,13 +1582,13 @@ where
         // We need to compute the rate that we must restrict the output at to reach the target
         // robust_maximum_cosine_distance by the end of our filter loop.
         let restriction_rate = (self.settings.robust_maximum_cosine_distance
-            / self.settings.consensus_threshold)
+            / self.settings.single_view_consensus_threshold)
             .powf((self.settings.single_view_filter_loop_iterations as f64).recip());
 
         for ix in 0..self.settings.single_view_filter_loop_iterations {
             // This gradually restricts the threshold for outliers on each iteration.
             let restriction = restriction_rate.powi(ix as i32 + 1);
-            let loss_cutoff = self.settings.consensus_threshold * restriction;
+            let loss_cutoff = self.settings.single_view_consensus_threshold * restriction;
             info!("optimizing pose with loss cutoff {}", loss_cutoff);
 
             // Create solver and constraint for single-view optimizer.
@@ -1756,7 +1768,36 @@ where
                     })
             })
             .collect();
-        crate::export::export(std::fs::File::create(path).unwrap(), points_and_colors);
+        // Output the cameras.
+        let cameras = self
+            .data
+            .reconstruction(reconstruction)
+            .views
+            .values()
+            .map(|v| {
+                let mean_distance = v
+                    .landmarks
+                    .iter()
+                    .filter_map(|&landmark| {
+                        self.triangulate_landmark_robust(reconstruction, landmark)
+                    })
+                    .filter_map(|wp| Some(v.pose.transform(wp).point()?.coords.norm()))
+                    .collect::<Mean>()
+                    .mean();
+                let c2w = v.pose.inverse();
+                ExportCamera {
+                    optical_center: c2w.isometry() * Point3::origin(),
+                    up_direction: c2w.isometry() * Vector3::y(),
+                    forward_direction: c2w.isometry() * Vector3::z(),
+                    focal_length: mean_distance * 0.01,
+                }
+            })
+            .collect_vec();
+        crate::export::export(
+            std::fs::File::create(path).unwrap(),
+            points_and_colors,
+            cameras,
+        );
     }
 
     /// Runs bundle adjustment (camera pose optimization), landmark filtering, and landmark merging.

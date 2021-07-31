@@ -2,8 +2,9 @@ use crate::NormalizedKeyPoint;
 use cv_core::{
     nalgebra::{Matrix3, Rotation3, Vector3, SVD},
     sample_consensus::Model,
-    Bearing, CameraToCamera, FeatureMatch, Pose,
+    Bearing, CameraToCamera, FeatureMatch, Pose, Projective, TriangulatorRelative,
 };
+use cv_geom::MinSquaresTriangulator;
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use num_traits::Float;
 
@@ -294,6 +295,7 @@ impl EssentialMatrix {
             epsilon: 1e-9,
             max_iterations: 100,
             consensus_ratio: 0.5,
+            maximum_cosine_distance: 0.1,
         }
     }
 }
@@ -333,6 +335,7 @@ pub struct PoseSolver<'a> {
     epsilon: f64,
     max_iterations: usize,
     consensus_ratio: f64,
+    maximum_cosine_distance: f64,
 }
 
 impl<'a> PoseSolver<'a> {
@@ -353,6 +356,14 @@ impl<'a> PoseSolver<'a> {
     pub fn consensus_ratio(self, consensus_ratio: f64) -> Self {
         Self {
             consensus_ratio,
+            ..self
+        }
+    }
+
+    /// Set the maximum cosine distance allowed for reprojection error.
+    pub fn maximum_cosine_distance(self, maximum_cosine_distance: f64) -> Self {
+        Self {
+            maximum_cosine_distance,
             ..self
         }
     }
@@ -403,6 +414,9 @@ impl<'a> PoseSolver<'a> {
         &self,
         correspondences: impl Iterator<Item = FeatureMatch<NormalizedKeyPoint>>,
     ) -> Option<CameraToCamera> {
+        let triangulator = MinSquaresTriangulator::new()
+            .epsilon(self.epsilon)
+            .max_iterations(self.max_iterations);
         // Get the possible rotations and the translation
         self.essential
             .possible_unscaled_poses(self.epsilon, self.max_iterations)
@@ -413,20 +427,16 @@ impl<'a> PoseSolver<'a> {
                     ([0usize; 4], 0usize),
                     |(mut ts, total), FeatureMatch(a, b)| {
                         let trans_and_agree = |pose: CameraToCamera| {
-                            // Put the second camera position back into the first camera's frame of reference.
-                            let p = -(pose.0.rotation.inverse() * pose.0.translation.vector);
-                            let a = a.virtual_image_point().coords;
-                            // Transform the bearing B back into camera A's space (its a vector, so only rotation is applied).
-                            let b = pose.0.rotation.inverse() * b.virtual_image_point().coords;
-                            let a_squared = a.norm_squared();
-                            let b_squared = b.norm_squared();
-                            let a_b = a.dot(&b);
-                            let a_pos = a.dot(&p);
-                            let b_pos = b.dot(&p);
-
-                            // Check chirality constraint.
-                            b_squared * a_pos - a_b * b_pos > 0.0
-                                && a_b * a_pos - a_squared * b_pos > 0.0
+                            let ap = if let Some(p) = triangulator.triangulate_relative(pose, a, b)
+                            {
+                                p
+                            } else {
+                                return false;
+                            };
+                            let bp = pose.transform(ap);
+                            1.0 - ap.bearing().dot(&a.bearing()) < self.maximum_cosine_distance
+                                && 1.0 - bp.bearing().dot(&b.bearing())
+                                    < self.maximum_cosine_distance
                         };
 
                         // Do it for all poses.
@@ -468,6 +478,9 @@ impl<'a> PoseSolver<'a> {
         &self,
         correspondences: impl Iterator<Item = FeatureMatch<NormalizedKeyPoint>>,
     ) -> Option<(CameraToCamera, alloc::vec::Vec<usize>)> {
+        let triangulator = MinSquaresTriangulator::new()
+            .epsilon(self.epsilon)
+            .max_iterations(self.max_iterations);
         // Get the possible rotations and the translation
         self.essential
             .possible_unscaled_poses(self.epsilon, self.max_iterations)
@@ -486,20 +499,16 @@ impl<'a> PoseSolver<'a> {
                     ),
                     |(mut ts, total), (ix, FeatureMatch(a, b))| {
                         let trans_and_agree = |pose: CameraToCamera| {
-                            // Put the second camera position back into the first camera's frame of reference.
-                            let p = -(pose.0.rotation.inverse() * pose.0.translation.vector);
-                            let a = a.virtual_image_point().coords;
-                            // Transform the bearing B back into camera A's space (its a vector, so only rotation is applied).
-                            let b = pose.0.rotation.inverse() * b.virtual_image_point().coords;
-                            let a_squared = a.norm_squared();
-                            let b_squared = b.norm_squared();
-                            let a_b = a.dot(&b);
-                            let a_pos = a.dot(&p);
-                            let b_pos = b.dot(&p);
-
-                            // Check chirality constraint.
-                            b_squared * a_pos - a_b * b_pos > 0.0
-                                && a_b * a_pos - a_squared * b_pos > 0.0
+                            let ap = if let Some(p) = triangulator.triangulate_relative(pose, a, b)
+                            {
+                                p
+                            } else {
+                                return false;
+                            };
+                            let bp = pose.transform(ap);
+                            1.0 - ap.bearing().dot(&a.bearing()) < self.maximum_cosine_distance
+                                && 1.0 - bp.bearing().dot(&b.bearing())
+                                    < self.maximum_cosine_distance
                         };
 
                         // Do it for all poses.

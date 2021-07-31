@@ -32,3 +32,4 @@ hgg = { version = "0.4.1", default-features = false }
 rand = { version = "0.8.4", default-features = false }
 hamming-lsh = "0.3.2"
 float-ord = { version = "0.3.1", default-features = false }
+average = "0.13.1"

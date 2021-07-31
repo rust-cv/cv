@@ -99,15 +99,16 @@ fn main() {
         data,
         settings,
         Arrsac::new(
-            settings.consensus_threshold,
+            settings.single_view_consensus_threshold,
             Xoshiro256PlusPlus::seed_from_u64(0),
         )
         .max_candidate_hypotheses(256),
         Arrsac::new(
-            settings.consensus_threshold,
+            settings.two_view_consensus_threshold,
             Xoshiro256PlusPlus::seed_from_u64(0),
         )
-        .max_candidate_hypotheses(8192),
+        .block_size(32)
+        .max_candidate_hypotheses(16384),
         LambdaTwist::new(),
         EightPoint::new(),
         MinSquaresTriangulator::new(),

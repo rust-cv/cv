@@ -11,12 +11,6 @@ pub struct VSlamSettings {
         serde(default = "default_akaze_threshold")
     )]
     pub akaze_threshold: f64,
-    /// The threshold used for sample consensus
-    #[cfg_attr(
-        feature = "serde-serialize",
-        serde(default = "default_consensus_threshold")
-    )]
-    pub consensus_threshold: f64,
     /// The maximum cosine distance of an observation for it to be considered robust enough for optimization
     #[cfg_attr(
         feature = "serde-serialize",
@@ -47,6 +41,12 @@ pub struct VSlamSettings {
         serde(default = "default_robust_observation_incidence_minimum_cosine_distance")
     )]
     pub robust_observation_incidence_minimum_cosine_distance: f64,
+    /// The threshold used for single-view sample consensus
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_single_view_consensus_threshold")
+    )]
+    pub single_view_consensus_threshold: f64,
     /// The maximum number of matches to use in optimization.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -89,6 +89,12 @@ pub struct VSlamSettings {
         serde(default = "default_single_view_match_better_by")
     )]
     pub single_view_match_better_by: u32,
+    /// The threshold used for two-view sample consensus
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_two_view_consensus_threshold")
+    )]
+    pub two_view_consensus_threshold: f64,
     /// The minimum ratio of good matches to total matches to consider a two-view match successful.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -98,9 +104,9 @@ pub struct VSlamSettings {
     /// The minimum number of matches to consider a two-view match successful.
     #[cfg_attr(
         feature = "serde-serialize",
-        serde(default = "default_two_view_minimum_matches")
+        serde(default = "default_two_view_minimum_robust_matches")
     )]
-    pub two_view_minimum_matches: usize,
+    pub two_view_minimum_robust_matches: usize,
     /// The difference between the first and second best match above which a match is allowed for initialization
     #[cfg_attr(
         feature = "serde-serialize",
@@ -201,13 +207,13 @@ impl Default for VSlamSettings {
     fn default() -> Self {
         Self {
             akaze_threshold: default_akaze_threshold(),
-            consensus_threshold: default_consensus_threshold(),
             robust_maximum_cosine_distance: default_robust_maximum_cosine_distance(),
             robust_minimum_observations: default_robust_minimum_observations(),
             maximum_cosine_distance: default_maximum_cosine_distance(),
             merge_maximum_cosine_distance: default_merge_maximum_cosine_distance(),
             robust_observation_incidence_minimum_cosine_distance:
                 default_robust_observation_incidence_minimum_cosine_distance(),
+            single_view_consensus_threshold: default_single_view_consensus_threshold(),
             single_view_optimization_num_matches: default_single_view_optimization_num_matches(),
             single_view_filter_loop_iterations: default_single_view_filter_loop_iterations(),
             single_view_patience: default_single_view_patience(),
@@ -215,8 +221,9 @@ impl Default for VSlamSettings {
             single_view_minimum_landmarks: default_single_view_minimum_landmarks(),
             single_view_inlier_minimum_threshold: default_single_view_inlier_minimum_threshold(),
             single_view_match_better_by: default_single_view_match_better_by(),
+            two_view_consensus_threshold: default_two_view_consensus_threshold(),
             two_view_inlier_minimum_threshold: default_two_view_inlier_minimum_threshold(),
-            two_view_minimum_matches: default_two_view_minimum_matches(),
+            two_view_minimum_robust_matches: default_two_view_minimum_robust_matches(),
             two_view_match_better_by: default_two_view_match_better_by(),
             three_view_patience: default_three_view_patience(),
             three_view_std_dev_threshold: default_three_view_std_dev_threshold(),
@@ -242,10 +249,6 @@ fn default_akaze_threshold() -> f64 {
     0.00001
 }
 
-fn default_consensus_threshold() -> f64 {
-    0.1
-}
-
 fn default_robust_maximum_cosine_distance() -> f64 {
     0.000002
 }
@@ -266,8 +269,12 @@ fn default_robust_observation_incidence_minimum_cosine_distance() -> f64 {
     0.001
 }
 
+fn default_single_view_consensus_threshold() -> f64 {
+    0.1
+}
+
 fn default_single_view_optimization_num_matches() -> usize {
-    1024
+    2048
 }
 
 fn default_single_view_filter_loop_iterations() -> usize {
@@ -294,11 +301,15 @@ fn default_single_view_match_better_by() -> u32 {
     1
 }
 
-fn default_two_view_inlier_minimum_threshold() -> f64 {
-    0.05
+fn default_two_view_consensus_threshold() -> f64 {
+    0.1
 }
 
-fn default_two_view_minimum_matches() -> usize {
+fn default_two_view_inlier_minimum_threshold() -> f64 {
+    0.0
+}
+
+fn default_two_view_minimum_robust_matches() -> usize {
     100
 }
 
