@@ -358,17 +358,17 @@ fn default_reconstruction_optimization_iterations() -> usize {
 }
 
 fn default_tracking_similar_frames() -> usize {
-    8
+    32
 }
 
 fn default_tracking_similar_frame_recent_threshold() -> usize {
-    8
+    0
 }
 
 fn default_tracking_similar_frame_search_num() -> usize {
-    256
+    512
 }
 
 fn default_tracking_recent_frames() -> usize {
-    8
+    0
 }

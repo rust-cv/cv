@@ -774,7 +774,9 @@ where
             combined_matches,
             first_matches,
             second_matches,
-        ) = self.init_reconstruction(center, options)?;
+        ) = self
+            .init_reconstruction(center, options)
+            .or_else(opeek(|| info!("failed to initialize reconstruction")))?;
         Some(self.data.add_reconstruction(
             center,
             first,
@@ -852,7 +854,8 @@ where
                     continue;
                 }
                 // Try to incorporate the found frame into the reconstruction.
-                self.try_localize_and_incorporate(reconstruction, found_frame)?;
+                self.try_localize_and_incorporate(reconstruction, found_frame)
+                    .or_else(opeek(|| info!("failed to incorporate frame")))?;
             }
         }
 
@@ -876,7 +879,10 @@ where
                 self.settings.tracking_similar_frame_search_num,
             )
             .0
-            .remove(&reconstruction)?;
+            .remove(&reconstruction)
+            .or_else(opeek(|| {
+                info!("failed to find any similar frames in the reconstruction")
+            }))?;
         // Try to incorporate the frame into the reconstruction.
         let view = self.incorporate_frame(reconstruction, frame, view_matches)?;
         self.optimize_reconstruction(reconstruction)?;
@@ -963,7 +969,13 @@ where
         Vec<FeatureMatch<usize>>,
     )> {
         let options = options
-            .filter_map(|option| Some((option, self.init_two_view(center, option)?)))
+            .filter_map(|option| {
+                Some((
+                    option,
+                    self.init_two_view(center, option)
+                        .or_else(opeek(|| info!("failed to initialize two-view")))?,
+                ))
+            })
             .collect_vec();
         'three_view: for (
             (first, (first_pose, first_matches)),
@@ -1372,16 +1384,22 @@ where
         );
 
         // Estimate the essential matrix and retrieve the inliers
-        let (essential, inliers) = self.two_view_consensus.borrow_mut().model_inliers(
-            &self.essential_estimator,
-            original_matches
-                .iter()
-                .copied()
-                .map(match_ix_kps)
-                .collect::<Vec<_>>()
-                .iter()
-                .copied(),
-        )?;
+        let (essential, inliers) = self
+            .two_view_consensus
+            .borrow_mut()
+            .model_inliers(
+                &self.essential_estimator,
+                original_matches
+                    .iter()
+                    .copied()
+                    .map(match_ix_kps)
+                    .collect::<Vec<_>>()
+                    .iter()
+                    .copied(),
+            )
+            .or_else(opeek(|| {
+                info!("failed to find essential matrix via consensus")
+            }))?;
 
         // Reconstitute only the inlier matches into a matches vector.
         let matches: Vec<FeatureMatch<usize>> =
@@ -1395,7 +1413,10 @@ where
         // Solve the pose from the four possible poses using the given data.
         let pose = essential
             .pose_solver()
-            .solve_unscaled(matches.iter().copied().map(match_ix_kps))?;
+            .solve_unscaled(matches.iter().copied().map(match_ix_kps))
+            .or_else(opeek(|| {
+                info!("failed to solve camera pose from essential matrix")
+            }))?;
 
         // Retain sufficient matches.
         let matches =
@@ -1577,7 +1598,8 @@ where
         let mut pose = self
             .single_view_consensus
             .borrow_mut()
-            .model(&self.pose_estimator, matches_3d.iter().copied())?;
+            .model(&self.pose_estimator, matches_3d.iter().copied())
+            .or_else(opeek(|| info!("failed to find view pose via consensus")))?;
 
         // We need to compute the rate that we must restrict the output at to reach the target
         // robust_maximum_cosine_distance by the end of our filter loop.
@@ -1657,7 +1679,9 @@ where
         new_frame: FrameKey,
         view_matches: Vec<ViewKey>,
     ) -> Option<ViewKey> {
-        let (pose, matches) = self.register_frame(reconstruction, new_frame, view_matches)?;
+        let (pose, matches) = self
+            .register_frame(reconstruction, new_frame, view_matches)
+            .or_else(opeek(|| info!("failed to register frame")))?;
 
         let new_view_key = self
             .data
@@ -1687,8 +1711,9 @@ where
         );
         let src_frame = self.data.view_frame(src_reconstruction, src_view);
         // Register the frame in the source reconstruction to the destination reconstruction.
-        let (pose, matches) =
-            self.register_frame(dest_reconstruction, src_frame, dest_view_matches)?;
+        let (pose, matches) = self
+            .register_frame(dest_reconstruction, src_frame, dest_view_matches)
+            .or_else(opeek(|| info!("failed to register frame")))?;
 
         // Create the transformation from the source to the destination reconstruction.
         let world_transform = WorldToWorld::from_camera_poses(
@@ -1749,6 +1774,44 @@ where
         .collect()
     }
 
+    /// This will take the first view of the reconstruction and scale everything so that the
+    /// mean robust point distance from the first view is of unit length and the first view
+    /// is the origin of the reconstruction.
+    pub fn normalize_reconstruction(&mut self, reconstruction: ReconstructionKey) {
+        // Get the first view.
+        let first_view = self
+            .data
+            .reconstruction(reconstruction)
+            .views
+            .values()
+            .next()
+            .unwrap();
+        // Compute the mean distance from the camera.
+        let mean_distance = first_view
+            .landmarks
+            .iter()
+            .filter_map(|&landmark| self.triangulate_landmark_robust(reconstruction, landmark))
+            .filter_map(|wp| Some(first_view.pose.transform(wp).point()?.coords.norm()))
+            .collect::<Mean>()
+            .mean();
+
+        if !mean_distance.is_normal() {
+            return;
+        }
+
+        // Get the world transformation.
+        let transform = first_view
+            .pose
+            .scale(mean_distance.recip())
+            .inverse()
+            .isometry();
+
+        // Transform the world.
+        for view in self.data.reconstructions[reconstruction].views.values_mut() {
+            view.pose = (view.pose.isometry() * transform).into();
+        }
+    }
+
     pub fn export_reconstruction(&self, reconstruction: ReconstructionKey, path: impl AsRef<Path>) {
         // Output point cloud.
         let points_and_colors = self
@@ -1807,7 +1870,8 @@ where
     ) -> Option<ReconstructionKey> {
         for _ in 0..self.settings.reconstruction_optimization_iterations {
             // If there are three or more views, run global bundle-adjust.
-            self.bundle_adjust_reconstruction(reconstruction)?;
+            self.bundle_adjust_reconstruction(reconstruction)
+                .or_else(opeek(|| info!("failed to bundle adjust reconstruction")))?;
             // Filter observations after running bundle-adjust.
             self.filter_observations(reconstruction);
             // Merge landmarks.
@@ -2516,5 +2580,13 @@ fn abs_difference<T: Sub<Output = T> + Ord>(x: T, y: T) -> T {
         y - x
     } else {
         x - y
+    }
+}
+
+/// Used with [`Option::or_else`] to "peek" when there is `None` in an option.
+fn opeek<T>(mut f: impl FnMut()) -> impl FnOnce() -> Option<T> {
+    move || {
+        f();
+        None
     }
 }

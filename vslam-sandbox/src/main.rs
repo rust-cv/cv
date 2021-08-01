@@ -141,6 +141,7 @@ fn main() {
                         frame_path.file_name().unwrap().to_str().unwrap(),
                         ix
                     ));
+                    vslam.normalize_reconstruction(reconstruction);
                     vslam.export_reconstruction(reconstruction, &path);
                     info!("exported {}", path.display());
                 }
