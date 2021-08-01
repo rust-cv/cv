@@ -424,6 +424,7 @@ impl VSlamData {
         world_transform: WorldToWorld,
         mut landmark_map: HashMap<LandmarkKey, LandmarkKey>,
     ) {
+        let dest_to_src_transform = world_transform.isometry().inverse();
         let src_views: Vec<ViewKey> = self.reconstructions[src_reconstruction]
             .views
             .keys()
@@ -431,10 +432,11 @@ impl VSlamData {
         for src_view in src_views {
             let frame = self.view_frame(src_reconstruction, src_view);
 
-            // Transform the pose from the src reconstruction to the dest reconstruction.
-            let pose = (world_transform.isometry()
-                * self.view(src_reconstruction, src_view).pose.isometry())
-            .into();
+            // Transform the pose to go from (world b -> world a) -> camera.
+            // Now the transformation goes from world b -> camera, which is correct.
+            let pose = (self.view(src_reconstruction, src_view).pose.isometry()
+                * dest_to_src_transform)
+                .into();
 
             // Create the view.
             let dest_view = self.reconstructions[dest_reconstruction]

@@ -282,7 +282,7 @@ fn default_single_view_filter_loop_iterations() -> usize {
 }
 
 fn default_single_view_patience() -> usize {
-    2000
+    5000
 }
 
 fn default_single_view_std_dev_threshold() -> f64 {
