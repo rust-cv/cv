@@ -12,7 +12,7 @@ use argmin::core::{
 use average::Mean;
 use bitarray::{BitArray, Hamming};
 use cv_core::{
-    nalgebra::{Matrix6x2, Point3, Unit, Vector3, Vector6},
+    nalgebra::{IsometryMatrix3, Matrix6x2, Point3, Unit, Vector3, Vector6},
     sample_consensus::{Consensus, Estimator},
     Bearing, CameraModel, CameraPoint, CameraToCamera, FeatureMatch, FeatureWorldMatch, Pose,
     Projective, TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera,
@@ -37,7 +37,9 @@ use std::{
     cell::RefCell,
     cmp::Reverse,
     collections::{BTreeMap, BTreeSet, HashMap},
+    iter,
     iter::once,
+    mem,
     ops::Sub,
     path::Path,
 };
@@ -136,6 +138,8 @@ pub struct View {
     pub pose: WorldToCamera,
     /// A vector containing the Reconstruction::landmarks indices for each feature in the frame
     pub landmarks: Vec<LandmarkKey>,
+    /// The velocity of the view (for the purposes of optimization).
+    pub velocity: IsometryMatrix3<f64>,
 }
 
 /// Frames from a video source
@@ -165,7 +169,9 @@ pub struct BundleAdjustment {
     /// The reconstruction the bundle adjust is happening on.
     reconstruction: ReconstructionKey,
     /// Maps VSlam::views IDs to poses
-    poses: Vec<(ViewKey, WorldToCamera)>,
+    updated_views: Vec<(ViewKey, WorldToCamera, IsometryMatrix3<f64>)>,
+    /// Views that need to be removed.
+    removed_views: Vec<ViewKey>,
 }
 
 /// The mapping data for VSlam.
@@ -388,6 +394,7 @@ impl VSlamData {
             frame,
             pose,
             landmarks: vec![],
+            velocity: IsometryMatrix3::identity(),
         });
         assert!(
             self.frames[frame].view.is_none(),
@@ -445,6 +452,7 @@ impl VSlamData {
                     frame,
                     pose,
                     landmarks: vec![],
+                    velocity: IsometryMatrix3::identity(),
                 });
             // Update the frame's view to point to the new view.
             self.frames[frame].view = Some((dest_reconstruction, dest_view));
@@ -495,10 +503,39 @@ impl VSlamData {
     fn apply_bundle_adjust(&mut self, bundle_adjust: BundleAdjustment) {
         let BundleAdjustment {
             reconstruction,
-            poses,
+            updated_views,
+            removed_views,
         } = bundle_adjust;
-        for (view, pose) in poses {
+        for (view, pose, velocity) in updated_views {
             self.reconstructions[reconstruction].views[view].pose = pose;
+            self.reconstructions[reconstruction].views[view].velocity = velocity;
+        }
+        for view in removed_views {
+            self.remove_view(reconstruction, view);
+        }
+    }
+
+    fn remove_view(&mut self, reconstruction: ReconstructionKey, view: ViewKey) {
+        let frame = self.view_frame(reconstruction, view);
+        self.frames[frame].view = None;
+        let landmarks = mem::take(&mut self.reconstructions[reconstruction].views[view].landmarks);
+        for landmark in landmarks {
+            match self.reconstructions[reconstruction].landmarks[landmark]
+                .observations
+                .len()
+            {
+                0 => panic!("landmark had 0 observations"),
+                1 => {
+                    self.reconstructions[reconstruction]
+                        .landmarks
+                        .remove(landmark);
+                }
+                _ => {
+                    self.reconstructions[reconstruction].landmarks[landmark]
+                        .observations
+                        .remove(&view);
+                }
+            }
         }
     }
 
@@ -1672,6 +1709,69 @@ where
         Some((pose, final_matches))
     }
 
+    /// Takes a view from the reconstruction and re-optimizes it greedily.
+    ///
+    /// Returns the new optimized pose or `None` if optimization failed to terminate.
+    fn optimize_view(
+        &self,
+        reconstruction: ReconstructionKey,
+        view: ViewKey,
+    ) -> Option<WorldToCamera> {
+        info!("retrieve robust landmarks from view");
+        let mut landmarks = self.data.reconstruction(reconstruction).views[view]
+            .landmarks
+            .iter()
+            .enumerate()
+            .filter_map(|(feature, &landmark)| {
+                Some(FeatureWorldMatch(
+                    self.data
+                        .observation_keypoint(reconstruction, view, feature),
+                    self.triangulate_landmark_robust(reconstruction, landmark)?,
+                ))
+            })
+            .collect_vec();
+
+        // Shuffle the landmarks to avoid bias.
+        landmarks.shuffle(&mut *self.rng.borrow_mut());
+
+        info!("retrieved {} robust landmarks", landmarks.len());
+
+        if landmarks.len() < self.settings.optimization_minimum_landmarks {
+            info!("insufficient robust landmarks, needed {} robust landmarks; rejecting view optimization", self.settings.optimization_minimum_landmarks);
+            return None;
+        }
+        landmarks.truncate(self.settings.optimization_maximum_landmarks);
+
+        // Restrict the threshold for outliers to the robust maximum cosine distance since this pose is already optimized.
+        let loss_cutoff = self.settings.robust_maximum_cosine_distance;
+        info!("optimizing pose with loss cutoff {}", loss_cutoff);
+
+        // Create solver and constraint for single-view optimizer.
+        let solver =
+            single_view_nelder_mead(self.data.reconstruction(reconstruction).views[view].pose)
+                .sd_tolerance(self.settings.single_view_std_dev_threshold);
+        let constraint = SingleViewConstraint::new(landmarks).loss_cutoff(loss_cutoff);
+
+        // The initial parameter is empty becasue nelder mead is passed its own initial parameter directly.
+        let opti_result = Executor::new(constraint, solver, Vector6::zeros())
+            .add_observer(OptimizationObserver, ObserverMode::Always)
+            .max_iters(self.settings.single_view_patience as u64)
+            .run()
+            .expect("single-view optimization failed");
+
+        info!(
+            "extracted single-view pose with mean capped cosine distance of {} in {} iterations with reason: {}",
+            opti_result.state.best_cost, opti_result.state.iter + 1, opti_result.state.termination_reason,
+        );
+
+        if opti_result.state.termination_reason != TerminationReason::TargetToleranceReached {
+            info!("didn't terminate due to reaching our desired tollerance; rejecting single-view optimization");
+            return None;
+        }
+
+        Some(Pose::from_se3(opti_result.state.best_param))
+    }
+
     /// Attempts to track the frame in the reconstruction.
     ///
     /// Returns the pose and a vector of indices in the format (Reconstruction::landmarks, Frame::features).
@@ -1810,6 +1910,7 @@ where
 
         // Transform the world.
         for view in self.data.reconstructions[reconstruction].views.values_mut() {
+            // Transform the view pose itself.
             view.pose = (view.pose.isometry() * transform).into();
         }
     }
@@ -1887,13 +1988,24 @@ where
         &mut self,
         reconstruction: ReconstructionKey,
     ) -> Option<ReconstructionKey> {
-        if let Some(bundle_adjust) = self.compute_bundle_adjust(reconstruction) {
-            self.data.apply_bundle_adjust(bundle_adjust);
-            Some(reconstruction)
+        if self.data.reconstructions[reconstruction].views.len() < 6 {
+            if let Some(bundle_adjust) = self.compute_bundle_adjust(reconstruction) {
+                self.data.apply_bundle_adjust(bundle_adjust);
+            } else {
+                self.data.remove_reconstruction(reconstruction);
+                return None;
+            }
         } else {
-            self.data.remove_reconstruction(reconstruction);
-            None
+            for _ in 0..self.settings.optimization_iterations {
+                if let Some(bundle_adjust) = self.compute_momentum_bundle_adjust(reconstruction) {
+                    self.data.apply_bundle_adjust(bundle_adjust);
+                } else {
+                    self.data.remove_reconstruction(reconstruction);
+                    return None;
+                }
+            }
         }
+        Some(reconstruction)
     }
 
     fn retrieve_top_landmarks(
@@ -2104,7 +2216,13 @@ where
 
             Some(BundleAdjustment {
                 reconstruction,
-                poses: views.iter().copied().zip(poses).collect(),
+                updated_views: izip!(
+                    views.iter().copied(),
+                    poses,
+                    iter::repeat_with(IsometryMatrix3::identity)
+                )
+                .collect(),
+                removed_views: vec![],
             })
         } else {
             warn!(
@@ -2112,6 +2230,74 @@ where
             );
             None
         }
+    }
+
+    /// Optimizes the entire reconstruction.
+    ///
+    /// Use `num_landmarks` to control the number of landmarks used in optimization.
+    ///
+    /// Returns a series of camera
+    fn compute_momentum_bundle_adjust(
+        &self,
+        reconstruction: ReconstructionKey,
+    ) -> Option<BundleAdjustment> {
+        let mut ba = BundleAdjustment {
+            reconstruction,
+            updated_views: vec![],
+            removed_views: vec![],
+        };
+        // Extract all of the views, their current poses, and their optimized poses.
+        for (view, v) in self.data.reconstruction(reconstruction).views.iter() {
+            // Get the optimized pose.
+            let opti_pose = if let Some(opti_pose) = self.optimize_view(reconstruction, view) {
+                opti_pose
+            } else {
+                ba.removed_views.push(view);
+                continue;
+            };
+
+            // The momentum of the NAG process.
+            let momentum = self.settings.optimization_momentum;
+            // Take the current velocity of the view and apply the `momentum` term to it.
+            // This gives us the retained velocity.
+            let retained = if let Some(retained) =
+                IsometryMatrix3::identity().try_lerp_slerp(&v.velocity, momentum, 1e-12)
+            {
+                retained
+            } else {
+                ba.removed_views.push(view);
+                continue;
+            };
+
+            // Get the current pose after applying the retained velocity to it.
+            // This is an adaptation of NAG to pose transformation that allows us to test
+            // closer to where the pose will end up in the next step rather than where it is now.
+            let nag_pose = retained * v.pose.isometry();
+
+            // This is where we perform the Nesterov update, as we compute the delta based
+            // on the `nag_pose` rather than the old pose. We also apply the
+            // optimization_convergence_rate (same as learning rate in ML) as a constant
+            // multiplier by which we linearly interpolate the transformation of the camera.
+            let delta = if let Some(delta) = nag_pose.try_lerp_slerp(
+                &opti_pose.isometry(),
+                self.settings.optimization_convergence_rate,
+                1e-12,
+            ) {
+                delta
+            } else {
+                ba.removed_views.push(view);
+                continue;
+            };
+
+            // The additional velocity `delta` is in the reference frame of the `nag_pose`, since that was
+            // the start of the interpolation process. Due to that, we need to apply the `delta`
+            // transformation AFTER the `nag_pose` and AFTER the `retained` velocity.
+            let pose = delta * nag_pose;
+            let velocity = delta * retained;
+
+            ba.updated_views.push((view, pose.into(), velocity));
+        }
+        Some(ba).filter(|ba| ba.updated_views.len() >= 3)
     }
 
     /// Splits all observations in the landmark into their own separate landmarks.

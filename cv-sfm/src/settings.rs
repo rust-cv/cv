@@ -201,6 +201,36 @@ pub struct VSlamSettings {
         serde(default = "default_tracking_similar_frames")
     )]
     pub tracking_recent_frames: usize,
+    /// The number of optimization iterations.
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_optimization_iterations")
+    )]
+    pub optimization_iterations: usize,
+    /// The momentum to use in optimization
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_optimization_momentum")
+    )]
+    pub optimization_momentum: f64,
+    /// The minimum landmarks to use for optimization
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_optimization_minimum_landmarks")
+    )]
+    pub optimization_minimum_landmarks: usize,
+    /// The maximum landmarks to use for optimization
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_optimization_maximum_landmarks")
+    )]
+    pub optimization_maximum_landmarks: usize,
+    /// The multiplier that controls the convergence rate for optimization
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_optimization_convergence_rate")
+    )]
+    pub optimization_convergence_rate: f64,
 }
 
 impl Default for VSlamSettings {
@@ -241,6 +271,11 @@ impl Default for VSlamSettings {
                 default_tracking_similar_frame_recent_threshold(),
             tracking_similar_frame_search_num: default_tracking_similar_frame_search_num(),
             tracking_recent_frames: default_tracking_recent_frames(),
+            optimization_iterations: default_optimization_iterations(),
+            optimization_momentum: default_optimization_momentum(),
+            optimization_minimum_landmarks: default_optimization_minimum_landmarks(),
+            optimization_maximum_landmarks: default_optimization_maximum_landmarks(),
+            optimization_convergence_rate: default_optimization_convergence_rate(),
         }
     }
 }
@@ -371,4 +406,24 @@ fn default_tracking_similar_frame_search_num() -> usize {
 
 fn default_tracking_recent_frames() -> usize {
     0
+}
+
+fn default_optimization_iterations() -> usize {
+    10000
+}
+
+fn default_optimization_momentum() -> f64 {
+    0.9
+}
+
+fn default_optimization_minimum_landmarks() -> usize {
+    32
+}
+
+fn default_optimization_maximum_landmarks() -> usize {
+    16384
+}
+
+fn default_optimization_convergence_rate() -> f64 {
+    0.0000001
 }
