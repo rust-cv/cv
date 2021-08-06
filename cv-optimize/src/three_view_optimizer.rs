@@ -36,15 +36,15 @@ pub fn three_view_nelder_mead(
 }
 
 #[derive(Clone)]
-pub struct ThreeViewConstraint<I, T> {
+pub struct StructurelessThreeViewOptimizer<I, T> {
     loss_cutoff: f64,
     matches: I,
     triangulator: T,
 }
 
-impl<I, P, T> ThreeViewConstraint<I, T>
+impl<I, P, T> StructurelessThreeViewOptimizer<I, T>
 where
-    I: Iterator<Item = (P, P, P)> + Clone,
+    I: Iterator<Item = [P; 3]> + Clone,
     P: Bearing,
     T: TriangulatorObservations,
 {
@@ -100,7 +100,7 @@ where
     where
         P: Clone,
     {
-        self.matches.clone().flat_map(move |(c, f, s)| {
+        self.matches.clone().flat_map(move |[c, f, s]| {
             if let Some([rc, rf, rs]) = self.residual(first_pose, second_pose, c, f, s) {
                 let loss = |n: f64| {
                     if n > self.loss_cutoff {
@@ -119,9 +119,9 @@ where
     }
 }
 
-impl<I, P, T> ArgminOp for ThreeViewConstraint<I, T>
+impl<I, P, T> ArgminOp for StructurelessThreeViewOptimizer<I, T>
 where
-    I: Iterator<Item = (P, P, P)> + Clone,
+    I: Iterator<Item = [P; 3]> + Clone,
     P: Bearing + Clone,
     T: TriangulatorObservations + Clone,
 {

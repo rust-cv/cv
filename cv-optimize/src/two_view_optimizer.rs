@@ -31,13 +31,13 @@ pub fn two_view_nelder_mead(pose: CameraToCamera) -> NelderMead<Vector6<f64>, f6
 }
 
 #[derive(Clone)]
-pub struct TwoViewConstraint<I, T> {
+pub struct StructurelessTwoViewOptimizer<I, T> {
     loss_cutoff: f64,
     matches: I,
     triangulator: T,
 }
 
-impl<I, P, T> TwoViewConstraint<I, T>
+impl<I, P, T> StructurelessTwoViewOptimizer<I, T>
 where
     I: Iterator<Item = FeatureMatch<P>> + Clone,
     P: Bearing,
@@ -85,7 +85,7 @@ where
     }
 }
 
-impl<I, P, T> ArgminOp for TwoViewConstraint<I, T>
+impl<I, P, T> ArgminOp for StructurelessTwoViewOptimizer<I, T>
 where
     I: Iterator<Item = FeatureMatch<P>> + Clone,
     P: Bearing + Clone,

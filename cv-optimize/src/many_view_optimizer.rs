@@ -39,14 +39,14 @@ pub fn many_view_nelder_mead(poses: Vec<WorldToCamera>) -> NelderMead<Vec<Vec<f6
 }
 
 #[derive(Clone)]
-pub struct ManyViewConstraint<B, T> {
+pub struct StructurelessManyViewOptimizer<B, T> {
     loss_cutoff: f64,
     // Stored as a list of landmarks, each of which contains a list of observations in (view, bearing) format.
     landmarks: Vec<Vec<(usize, B)>>,
     triangulator: T,
 }
 
-impl<B, T> ManyViewConstraint<B, T>
+impl<B, T> StructurelessManyViewOptimizer<B, T>
 where
     B: Bearing + Clone,
     T: TriangulatorObservations,
@@ -137,7 +137,7 @@ where
     }
 }
 
-impl<B, T> ArgminOp for ManyViewConstraint<B, T>
+impl<B, T> ArgminOp for StructurelessManyViewOptimizer<B, T>
 where
     B: Bearing + Clone,
     T: TriangulatorObservations,

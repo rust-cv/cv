@@ -201,6 +201,12 @@ pub struct VSlamSettings {
         serde(default = "default_tracking_similar_frames")
     )]
     pub tracking_recent_frames: usize,
+    /// The maximum number of three-view constraints per view.
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_optimization_maximum_three_view_constraints")
+    )]
+    pub optimization_maximum_three_view_constraints: usize,
     /// The number of optimization iterations.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -216,9 +222,9 @@ pub struct VSlamSettings {
     /// The minimum landmarks to use for optimization
     #[cfg_attr(
         feature = "serde-serialize",
-        serde(default = "default_optimization_minimum_landmarks")
+        serde(default = "default_optimization_robust_covisibility_minimum_landmarks")
     )]
-    pub optimization_minimum_landmarks: usize,
+    pub optimization_robust_covisibility_minimum_landmarks: usize,
     /// The maximum landmarks to use for optimization
     #[cfg_attr(
         feature = "serde-serialize",
@@ -271,9 +277,12 @@ impl Default for VSlamSettings {
                 default_tracking_similar_frame_recent_threshold(),
             tracking_similar_frame_search_num: default_tracking_similar_frame_search_num(),
             tracking_recent_frames: default_tracking_recent_frames(),
+            optimization_maximum_three_view_constraints:
+                default_optimization_maximum_three_view_constraints(),
             optimization_iterations: default_optimization_iterations(),
             optimization_momentum: default_optimization_momentum(),
-            optimization_minimum_landmarks: default_optimization_minimum_landmarks(),
+            optimization_robust_covisibility_minimum_landmarks:
+                default_optimization_robust_covisibility_minimum_landmarks(),
             optimization_maximum_landmarks: default_optimization_maximum_landmarks(),
             optimization_convergence_rate: default_optimization_convergence_rate(),
         }
@@ -353,7 +362,7 @@ fn default_two_view_match_better_by() -> u32 {
 }
 
 fn default_three_view_patience() -> usize {
-    5000
+    10000
 }
 
 fn default_three_view_std_dev_threshold() -> f64 {
@@ -408,15 +417,19 @@ fn default_tracking_recent_frames() -> usize {
     0
 }
 
+fn default_optimization_maximum_three_view_constraints() -> usize {
+    12
+}
+
 fn default_optimization_iterations() -> usize {
     10000
 }
 
 fn default_optimization_momentum() -> f64 {
-    0.9
+    0.5
 }
 
-fn default_optimization_minimum_landmarks() -> usize {
+fn default_optimization_robust_covisibility_minimum_landmarks() -> usize {
     32
 }
 
@@ -425,5 +438,5 @@ fn default_optimization_maximum_landmarks() -> usize {
 }
 
 fn default_optimization_convergence_rate() -> f64 {
-    0.0000001
+    0.0001
 }

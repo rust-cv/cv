@@ -23,12 +23,12 @@ pub fn single_view_nelder_mead(pose: WorldToCamera) -> NelderMead<Vector6<f64>, 
 }
 
 #[derive(Clone)]
-pub struct SingleViewConstraint<B> {
+pub struct SingleViewOptimizer<B> {
     loss_cutoff: f64,
     landmarks: Vec<FeatureWorldMatch<B>>,
 }
 
-impl<B> SingleViewConstraint<B>
+impl<B> SingleViewOptimizer<B>
 where
     B: Bearing + Clone,
 {
@@ -72,7 +72,7 @@ where
     }
 }
 
-impl<B> ArgminOp for SingleViewConstraint<B>
+impl<B> ArgminOp for SingleViewOptimizer<B>
 where
     B: Bearing + Clone,
 {
