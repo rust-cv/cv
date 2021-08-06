@@ -539,7 +539,11 @@ impl VSlamData {
             })
     }
 
-    fn apply_bundle_adjust(&mut self, bundle_adjust: BundleAdjustment) {
+    fn apply_bundle_adjust(
+        &mut self,
+        bundle_adjust: BundleAdjustment,
+        constraints: &mut Constraints,
+    ) {
         let BundleAdjustment {
             reconstruction,
             updated_views,
@@ -552,6 +556,9 @@ impl VSlamData {
         for view in removed_views {
             info!("removing view from reconstruction");
             self.remove_view(reconstruction, view);
+            for (_, edges) in &mut constraints.edges {
+                edges.retain(|&(v, _)| v != view);
+            }
         }
     }
 
@@ -577,6 +584,7 @@ impl VSlamData {
                 }
             }
         }
+        self.reconstructions[reconstruction].views.remove(view);
     }
 
     /// Splits the observation into its own landmark.
@@ -1752,6 +1760,7 @@ where
         &self,
         reconstruction: ReconstructionKey,
         view: ViewKey,
+        world_to_view: IsometryMatrix3<f64>,
         constraints: &Constraints,
     ) -> Option<WorldToCamera> {
         // Get the number of strikes (bad optimizations) for this pose.
@@ -1769,11 +1778,6 @@ where
             info!("failed to get any constraints for this view")
         }))?;
         assert!(!view_constraints.is_empty());
-
-        // Get the transformation from the world space to this camera space.
-        let world_to_view = self.data.reconstructions[reconstruction].views[view]
-            .pose
-            .isometry();
 
         // Get the transformation from this camera space to the world.
         let view_to_world = world_to_view.inverse();
@@ -2099,26 +2103,27 @@ where
         &mut self,
         reconstruction: ReconstructionKey,
     ) -> Option<ReconstructionKey> {
-        if self.data.reconstructions[reconstruction].views.len() < 6 {
-            if let Some(bundle_adjust) = self.compute_bundle_adjust(reconstruction) {
-                self.data.apply_bundle_adjust(bundle_adjust);
+        // if self.data.reconstructions[reconstruction].views.len() < 6 {
+        //     if let Some(bundle_adjust) = self.compute_bundle_adjust(reconstruction) {
+        //         self.data.apply_bundle_adjust(bundle_adjust);
+        //     } else {
+        //         self.data.remove_reconstruction(reconstruction);
+        //         return None;
+        //     }
+        // } else {
+        let mut constraints = self.create_constraints(reconstruction);
+        for _ in 0..self.settings.optimization_iterations {
+            if let Some(bundle_adjust) =
+                self.compute_momentum_bundle_adjust(reconstruction, &constraints)
+            {
+                self.data
+                    .apply_bundle_adjust(bundle_adjust, &mut constraints);
             } else {
                 self.data.remove_reconstruction(reconstruction);
                 return None;
             }
-        } else {
-            let constraints = self.create_constraints(reconstruction);
-            for _ in 0..self.settings.optimization_iterations {
-                if let Some(bundle_adjust) =
-                    self.compute_momentum_bundle_adjust(reconstruction, &constraints)
-                {
-                    self.data.apply_bundle_adjust(bundle_adjust);
-                } else {
-                    self.data.remove_reconstruction(reconstruction);
-                    return None;
-                }
-            }
         }
+        // }
         Some(reconstruction)
     }
 
@@ -2364,15 +2369,6 @@ where
         };
         // Extract all of the views, their current poses, and their optimized poses.
         for (view, v) in self.data.reconstruction(reconstruction).views.iter() {
-            // Get the optimized pose.
-            let opti_pose =
-                if let Some(opti_pose) = self.constrain_view(reconstruction, view, &constraints) {
-                    opti_pose
-                } else {
-                    ba.removed_views.push(view);
-                    continue;
-                };
-
             // The momentum of the NAG process.
             let momentum = self.settings.optimization_momentum;
             // Take the current velocity of the view and apply the `momentum` term to it.
@@ -2390,6 +2386,16 @@ where
             // This is an adaptation of NAG to pose transformation that allows us to test
             // closer to where the pose will end up in the next step rather than where it is now.
             let nag_pose = retained * v.pose.isometry();
+
+            // Get the optimized pose.
+            let opti_pose = if let Some(opti_pose) =
+                self.constrain_view(reconstruction, view, nag_pose, constraints)
+            {
+                opti_pose
+            } else {
+                ba.removed_views.push(view);
+                continue;
+            };
 
             // This is where we perform the Nesterov update, as we compute the delta based
             // on the `nag_pose` rather than the old pose. We also apply the

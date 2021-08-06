@@ -426,7 +426,7 @@ fn default_optimization_iterations() -> usize {
 }
 
 fn default_optimization_momentum() -> f64 {
-    0.5
+    0.0
 }
 
 fn default_optimization_robust_covisibility_minimum_landmarks() -> usize {
