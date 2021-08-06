@@ -12,15 +12,15 @@ use argmin::core::{
 use average::Mean;
 use bitarray::{BitArray, Hamming};
 use cv_core::{
-    nalgebra::{IsometryMatrix3, Matrix6x2, Point3, Unit, Vector3, Vector6},
+    nalgebra::{IsometryMatrix3, Matrix6x2, Point3, Vector3, Vector6},
     sample_consensus::{Consensus, Estimator},
     Bearing, CameraModel, CameraPoint, CameraToCamera, FeatureMatch, FeatureWorldMatch, Pose,
     Projective, TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera,
     WorldToWorld,
 };
 use cv_optimize::{
-    many_view_nelder_mead, single_view_nelder_mead, three_view_nelder_mead, SingleViewOptimizer,
-    StructurelessManyViewOptimizer, StructurelessThreeViewOptimizer,
+    single_view_nelder_mead, three_view_nelder_mead, SingleViewOptimizer,
+    StructurelessThreeViewOptimizer,
 };
 use cv_pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix, NormalizedKeyPoint};
 use float_ord::FloatOrd;
@@ -33,16 +33,7 @@ use maplit::hashmap;
 use rand::{seq::SliceRandom, Rng};
 use slotmap::{new_key_type, DenseSlotMap};
 use space::{Knn, KnnInsert, KnnMap};
-use std::{
-    cell::RefCell,
-    cmp::{self, Reverse},
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-    iter,
-    iter::once,
-    mem,
-    ops::Sub,
-    path::Path,
-};
+use std::{cell::RefCell, cmp::Reverse, collections::HashMap, mem, ops::Sub, path::Path};
 
 #[cfg(feature = "serde-serialize")]
 use serde::{Deserialize, Serialize};
@@ -172,45 +163,6 @@ pub struct BundleAdjustment {
     updated_views: Vec<(ViewKey, WorldToCamera, IsometryMatrix3<f64>)>,
     /// Views that need to be removed.
     removed_views: Vec<ViewKey>,
-}
-
-/// Contains a three-view constraint, which includes three views and transforms between them.
-#[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
-pub struct ThreeViewConstraint {
-    /// The three views.
-    views: [ViewKey; 3],
-    /// Contains the relative pose of the pose of each index to its next index wrapping.
-    constraints: [CameraToCamera; 3],
-}
-
-impl ThreeViewConstraint {
-    /// The key (left) is the view which we are transforming to while the view that comes with
-    /// the `CameraToCamera` is the view which we transform from.
-    fn edge_constraints(&self) -> impl Iterator<Item = (ViewKey, (ViewKey, CameraToCamera))> {
-        let views = self.views;
-        let constraints = self.constraints;
-        std::array::IntoIter::new([
-            (views[0], (views[2], constraints[2])),
-            (views[0], (views[1], constraints[0].inverse())),
-            (views[1], (views[0], constraints[0])),
-            (views[1], (views[2], constraints[1].inverse())),
-            (views[2], (views[1], constraints[1])),
-            (views[2], (views[0], constraints[2].inverse())),
-        ])
-    }
-}
-
-/// Contains several two-view relative-pose constraints for graph optimization
-#[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
-pub struct Constraints {
-    /// A map with the constraints for each view.
-    /// The key is the view which we are transforming to while the view that comes with
-    /// the `CameraToCamera` is the view which we transform from.
-    edges: HashMap<ViewKey, Vec<(ViewKey, CameraToCamera)>>,
-    /// The views which were part of a failed optimization and the number of times they failed.
-    strikes: HashMap<ViewKey, usize>,
 }
 
 /// The mapping data for VSlam.
@@ -539,11 +491,7 @@ impl VSlamData {
             })
     }
 
-    fn apply_bundle_adjust(
-        &mut self,
-        bundle_adjust: BundleAdjustment,
-        constraints: &mut Constraints,
-    ) {
+    fn apply_bundle_adjust(&mut self, bundle_adjust: BundleAdjustment) {
         let BundleAdjustment {
             reconstruction,
             updated_views,
@@ -556,9 +504,6 @@ impl VSlamData {
         for view in removed_views {
             info!("removing view from reconstruction");
             self.remove_view(reconstruction, view);
-            for (_, edges) in &mut constraints.edges {
-                edges.retain(|&(v, _)| v != view);
-            }
         }
     }
 
@@ -1389,11 +1334,14 @@ where
     ) -> bool {
         // The triangulated point in the center camera.
         let cp = CameraPoint(
-            if let Some(cp) = self.triangulator.triangulate_observations(
-                once((WorldToCamera::identity(), c))
-                    .chain(once((first_pose.isometry().into(), f)))
-                    .chain(once((second_pose.isometry().into(), s))),
-            ) {
+            if let Some(cp) = self
+                .triangulator
+                .triangulate_observations(std::array::IntoIter::new([
+                    (WorldToCamera::identity(), c),
+                    (first_pose.isometry().into(), f),
+                    (second_pose.isometry().into(), s),
+                ]))
+            {
                 cp.0
             } else {
                 return false;
@@ -1753,140 +1701,67 @@ where
         Some((pose, final_matches))
     }
 
-    /// Takes a view from the reconstruction and a series of constraints.
+    /// Takes a view from the reconstruction and re-optimizes it greedily.
     ///
-    /// Returns the average delta in se(3) after considering all constraints.
-    fn constrain_view(
+    /// Returns the new optimized pose or `None` if optimization failed to terminate.
+    fn optimize_view(
         &self,
         reconstruction: ReconstructionKey,
         view: ViewKey,
-        world_to_view: IsometryMatrix3<f64>,
-        constraints: &Constraints,
     ) -> Option<WorldToCamera> {
-        // Get the number of strikes (bad optimizations) for this pose.
-        // This could actually just mean that another pose it is associated with is bad.
-        let strikes = *constraints.strikes.get(&view)?;
-        if strikes >= 1 {
-            info!(
-                "pose had {} strikes; not rejecting, just notifying",
-                strikes
-            );
-        }
-
-        // Get the constraints for this view.
-        let view_constraints = constraints.edges.get(&view).or_else(opeek(|| {
-            info!("failed to get any constraints for this view")
-        }))?;
-        assert!(!view_constraints.is_empty());
-
-        // Get the transformation from this camera space to the world.
-        let view_to_world = world_to_view.inverse();
-
-        // Compute the average delta in the lie algebra se(3).
-        let average_se3_delta = view_constraints
+        info!("retrieve robust landmarks from view");
+        let mut landmarks = self.data.reconstruction(reconstruction).views[view]
+            .landmarks
             .iter()
-            .map(|(other_view, expected_other_to_view)| {
-                // Get the transformation from the world to this other camera space.
-                let world_to_other_view = self.data.reconstructions[reconstruction].views
-                    [*other_view]
-                    .pose
-                    .isometry();
-                // Compute the expected relative pose from view -> expected.
-                let delta = expected_other_to_view.isometry() * world_to_other_view * view_to_world;
-                // Convert the delta into the lie algebra se(3).
-                CameraToCamera(delta).se3()
+            .enumerate()
+            .filter_map(|(feature, &landmark)| {
+                Some(FeatureWorldMatch(
+                    self.data
+                        .observation_keypoint(reconstruction, view, feature),
+                    self.triangulate_landmark_robust(reconstruction, landmark)?,
+                ))
             })
-            .sum::<Vector6<f64>>()
-            / view_constraints.len() as f64;
+            .collect_vec();
 
-        if average_se3_delta.iter().any(|v| !v.is_finite()) {
+        // Shuffle the landmarks to avoid bias.
+        landmarks.shuffle(&mut *self.rng.borrow_mut());
+
+        info!("retrieved {} robust landmarks", landmarks.len());
+
+        if landmarks.len() < self.settings.optimization_minimum_landmarks {
+            info!("insufficient robust landmarks, needed {} robust landmarks; rejecting view optimization", self.settings.optimization_minimum_landmarks);
             return None;
         }
+        landmarks.truncate(self.settings.optimization_maximum_landmarks);
 
-        // Convert the se(3) delta back into an isometry and apply it to the existing pose to create the average expected pose.
-        Some(WorldToCamera(
-            CameraToCamera::from_se3(average_se3_delta).isometry() * world_to_view,
-        ))
-    }
-
-    /// Takes a three-view covisibility in an existing reconstruction and optimizes it.
-    fn optimize_three_view(
-        &self,
-        reconstruction: ReconstructionKey,
-        views: [ViewKey; 3],
-        landmarks: &[LandmarkKey],
-    ) -> Option<[CameraToCamera; 2]> {
-        let poses = views.map(|view| {
-            self.data.reconstructions[reconstruction].views[view]
-                .pose
-                .isometry()
-        });
-        // Compute the relative poses in respect to the first pose.
-        let mut first_pose = CameraToCamera(poses[1] * poses[0].inverse());
-        let mut second_pose = CameraToCamera(poses[2] * poses[0].inverse());
-
-        let original_scale = first_pose.isometry().translation.vector.norm()
-            + second_pose.isometry().translation.vector.norm();
-
-        // Get the matches to use for optimization.
-        let opti_matches: Vec<[NormalizedKeyPoint; 3]> = landmarks
-            .iter()
-            .map(|&landmark| {
-                views.map(|view| {
-                    self.data
-                        .frame(self.data.view_frame(reconstruction, view))
-                        .keypoint(self.data.landmark(reconstruction, landmark).observations[&view])
-                })
-            })
-            .take(self.settings.optimization_maximum_landmarks)
-            .collect::<Vec<_>>();
-
-        info!(
-            "performing Nelder-Mead optimization on three-view constraint using {} landmarks",
-            opti_matches.len()
-        );
-
+        // Restrict the threshold for outliers to the robust maximum cosine distance since this pose is already optimized.
         let loss_cutoff = self.settings.robust_maximum_cosine_distance;
-        info!("optimizing poses with loss cutoff {}", loss_cutoff);
+        info!("optimizing pose with loss cutoff {}", loss_cutoff);
 
-        let solver = three_view_nelder_mead(first_pose, second_pose)
-            .sd_tolerance(self.settings.three_view_std_dev_threshold);
-        let constraint = StructurelessThreeViewOptimizer::new(
-            opti_matches.iter().copied(),
-            self.triangulator.clone(),
-        )
-        .loss_cutoff(loss_cutoff);
+        // Create solver and constraint for single-view optimizer.
+        let solver =
+            single_view_nelder_mead(self.data.reconstruction(reconstruction).views[view].pose)
+                .sd_tolerance(self.settings.single_view_std_dev_threshold);
+        let constraint = SingleViewOptimizer::new(landmarks).loss_cutoff(loss_cutoff);
 
         // The initial parameter is empty becasue nelder mead is passed its own initial parameter directly.
-        let opti_result = Executor::new(constraint, solver, Matrix6x2::zeros())
+        let opti_result = Executor::new(constraint, solver, Vector6::zeros())
             .add_observer(OptimizationObserver, ObserverMode::Always)
-            .max_iters(self.settings.three_view_patience as u64)
+            .max_iters(self.settings.single_view_patience as u64)
             .run()
-            .expect("three-view optimization failed");
+            .expect("single-view optimization failed");
 
         info!(
-                "extracted three-view poses with mean capped cosine distance of {} in {} iterations with reason: {}",
-                opti_result.state.best_cost, opti_result.state.iter + 1, opti_result.state.termination_reason,
-            );
+            "extracted single-view pose with mean capped cosine distance of {} in {} iterations with reason: {}",
+            opti_result.state.best_cost, opti_result.state.iter + 1, opti_result.state.termination_reason,
+        );
 
         if opti_result.state.termination_reason != TerminationReason::TargetToleranceReached {
-            info!("didn't terminate due to reaching our desired tollerance; rejecting three-view constraint");
+            info!("didn't terminate due to reaching our desired tollerance; rejecting single-view optimization");
             return None;
         }
 
-        first_pose = Pose::from_se3(opti_result.state.best_param.column(0).into());
-        second_pose = Pose::from_se3(opti_result.state.best_param.column(1).into());
-
-        let final_scale = first_pose.isometry().translation.vector.norm()
-            + second_pose.isometry().translation.vector.norm();
-
-        let relative_scale = original_scale / final_scale;
-
-        // Scale the poses back to their original scale.
-        first_pose = first_pose.scale(relative_scale);
-        second_pose = second_pose.scale(relative_scale);
-
-        Some([first_pose, second_pose])
+        Some(Pose::from_se3(opti_result.state.best_param))
     }
 
     /// Attempts to track the frame in the reconstruction.
@@ -2103,252 +1978,15 @@ where
         &mut self,
         reconstruction: ReconstructionKey,
     ) -> Option<ReconstructionKey> {
-        // if self.data.reconstructions[reconstruction].views.len() < 6 {
-        //     if let Some(bundle_adjust) = self.compute_bundle_adjust(reconstruction) {
-        //         self.data.apply_bundle_adjust(bundle_adjust);
-        //     } else {
-        //         self.data.remove_reconstruction(reconstruction);
-        //         return None;
-        //     }
-        // } else {
-        let mut constraints = self.create_constraints(reconstruction);
         for _ in 0..self.settings.optimization_iterations {
-            if let Some(bundle_adjust) =
-                self.compute_momentum_bundle_adjust(reconstruction, &constraints)
-            {
-                self.data
-                    .apply_bundle_adjust(bundle_adjust, &mut constraints);
+            if let Some(bundle_adjust) = self.compute_momentum_bundle_adjust(reconstruction) {
+                self.data.apply_bundle_adjust(bundle_adjust);
             } else {
                 self.data.remove_reconstruction(reconstruction);
                 return None;
             }
         }
-        // }
         Some(reconstruction)
-    }
-
-    fn retrieve_top_landmarks(
-        &self,
-        reconstruction: ReconstructionKey,
-        num: usize,
-        filter: impl Fn(LandmarkKey) -> bool,
-        quality: impl Fn(LandmarkKey) -> usize,
-    ) -> Vec<LandmarkKey> {
-        info!(
-            "attempting to extract {} landmarks from a total of {}",
-            num,
-            self.data.reconstruction(reconstruction).landmarks.len(),
-        );
-
-        // First, we want to find the landmarks with the most observances to optimize the reconstruction.
-        // Start by putting all the landmark indices into a BTreeMap with the key as their observances and the value the index.
-        let mut landmarks_by_quality: BTreeMap<usize, Vec<LandmarkKey>> = BTreeMap::new();
-        for (observations, landmark) in self
-            .data
-            .reconstruction(reconstruction)
-            .landmarks
-            .keys()
-            .filter(|&landmark| filter(landmark))
-            .map(|landmark| (quality(landmark), landmark))
-        {
-            // Only add landmarks with at least 3 observations.
-            landmarks_by_quality
-                .entry(observations)
-                .or_default()
-                .push(landmark);
-        }
-
-        info!(
-            "found landmarks with (quality, num) of {:?}",
-            landmarks_by_quality
-                .iter()
-                .map(|(ob, v)| (ob, v.len()))
-                .collect::<Vec<_>>()
-        );
-
-        // Now the BTreeMap is sorted from smallest number of observances to largest, so take the last indices.
-        let mut top_landmarks: Vec<LandmarkKey> = vec![];
-        for bucket in landmarks_by_quality.values().rev() {
-            if top_landmarks.len() + bucket.len() >= num {
-                // Add what we need to randomly (to prevent patterns in data that throw off optimization).
-                top_landmarks.extend(
-                    bucket
-                        .choose_multiple(&mut *self.rng.borrow_mut(), num - top_landmarks.len())
-                        .copied(),
-                );
-                break;
-            } else {
-                // Add everything from the bucket.
-                top_landmarks.extend(bucket.iter().copied());
-            }
-        }
-        top_landmarks
-    }
-
-    /// Optimizes the entire reconstruction.
-    ///
-    /// Use `num_landmarks` to control the number of landmarks used in optimization.
-    ///
-    /// Returns a series of camera
-    fn compute_bundle_adjust(&self, reconstruction: ReconstructionKey) -> Option<BundleAdjustment> {
-        // At least one landmark exists or the unwraps below will fail.
-        if !self
-            .data
-            .reconstruction(reconstruction)
-            .landmarks
-            .is_empty()
-        {
-            info!("trying to extract landmarks using robust observations as a quality metric");
-
-            let opti_landmarks = self.retrieve_top_landmarks(
-                reconstruction,
-                self.settings.many_view_landmarks,
-                |landmark| self.is_landmark_robust(reconstruction, landmark),
-                |landmark| {
-                    self.landmark_robust_observations(reconstruction, landmark)
-                        .count()
-                },
-            );
-
-            let opti_landmarks = if opti_landmarks.len() < 32 {
-                info!(
-                    "insufficient landmarks ({}), need 32; using non-robust observations as quality metric",
-                    opti_landmarks.len()
-                );
-                let opti_landmarks = self.retrieve_top_landmarks(
-                    reconstruction,
-                    self.settings.many_view_landmarks,
-                    |landmark| {
-                        self.triangulate_landmark(reconstruction, landmark)
-                            .is_some()
-                    },
-                    |landmark| {
-                        self.data
-                            .landmark(reconstruction, landmark)
-                            .observations
-                            .len()
-                    },
-                );
-                if opti_landmarks.len() < 32 {
-                    info!(
-                        "insufficient landmarks ({}), need 32; bundle adjust failed",
-                        opti_landmarks.len()
-                    );
-                    return None;
-                } else {
-                    info!("succeeded with {} landmarks", opti_landmarks.len());
-                    opti_landmarks
-                }
-            } else {
-                info!("succeeded with {} landmarks", opti_landmarks.len());
-                opti_landmarks
-            };
-
-            // Find all the view IDs corresponding to the landmarks.
-            let views: Vec<ViewKey> = opti_landmarks
-                .iter()
-                .copied()
-                .flat_map(|landmark| {
-                    self.data
-                        .landmark(reconstruction, landmark)
-                        .observations
-                        .iter()
-                        .map(|(&view, _)| view)
-                })
-                .collect::<BTreeSet<ViewKey>>()
-                .into_iter()
-                .collect();
-
-            // Form a vector over each landmark that contains a vector of the observances present in each view ID in order above.
-            let observances: Vec<Vec<Option<Unit<Vector3<f64>>>>> = opti_landmarks
-                .iter()
-                .copied()
-                .map(|landmark| {
-                    views
-                        .iter()
-                        .copied()
-                        .map(|view| {
-                            self.data
-                                .landmark(reconstruction, landmark)
-                                .observations
-                                .get(&view)
-                                .map(|&feature| {
-                                    self.data
-                                        .observation_keypoint(reconstruction, view, feature)
-                                        .bearing()
-                                })
-                        })
-                        .collect()
-                })
-                .collect();
-
-            // Retrieve the view poses
-            let poses: Vec<WorldToCamera> = views
-                .iter()
-                .copied()
-                .map(|view| self.data.pose(reconstruction, view))
-                .collect();
-
-            info!(
-                "performing Nelder-Mead optimization on {} poses with {} landmarks",
-                views.len(),
-                opti_landmarks.len(),
-            );
-
-            let solver = many_view_nelder_mead(poses)
-                .sd_tolerance(self.settings.many_view_std_dev_threshold);
-            let constraint = StructurelessManyViewOptimizer::new(
-                observances.iter().map(|v| v.iter().copied()),
-                self.triangulator.clone(),
-            )
-            .loss_cutoff(self.settings.maximum_cosine_distance);
-
-            let patience = if views.len() == 3 {
-                self.settings.three_view_patience as u64
-            } else {
-                self.settings.many_view_patience as u64
-            };
-
-            // The initial parameter is empty becasue nelder mead is passed its own initial parameter directly.
-            let opti_state = Executor::new(constraint, solver, vec![])
-                .add_observer(OptimizationObserver, ObserverMode::Always)
-                .max_iters(patience)
-                .run()
-                .expect("many-view optimization failed")
-                .state;
-
-            info!(
-                "extracted poses with mean capped cosine distance of {} in {} iterations finished with reason: {}",
-                opti_state.best_cost, opti_state.iter + 1, opti_state.termination_reason
-            );
-
-            if opti_state.termination_reason != TerminationReason::TargetToleranceReached {
-                info!("did not reach the desired tolerance; rejecting bundle-adjust");
-                return None;
-            }
-
-            let poses: Vec<WorldToCamera> = opti_state
-                .best_param
-                .iter()
-                .map(|arr| Pose::from_se3(Vector6::from_row_slice(arr)))
-                .collect();
-
-            Some(BundleAdjustment {
-                reconstruction,
-                updated_views: izip!(
-                    views.iter().copied(),
-                    poses,
-                    iter::repeat_with(IsometryMatrix3::identity)
-                )
-                .collect(),
-                removed_views: vec![],
-            })
-        } else {
-            warn!(
-                "tried to bundle adjust reconstruction with no landmarks, which should not exist"
-            );
-            None
-        }
     }
 
     /// Optimizes the entire reconstruction.
@@ -2359,7 +1997,6 @@ where
     fn compute_momentum_bundle_adjust(
         &self,
         reconstruction: ReconstructionKey,
-        constraints: &Constraints,
     ) -> Option<BundleAdjustment> {
         info!("running a round of momentum bundle adjustment");
         let mut ba = BundleAdjustment {
@@ -2388,9 +2025,7 @@ where
             let nag_pose = retained * v.pose.isometry();
 
             // Get the optimized pose.
-            let opti_pose = if let Some(opti_pose) =
-                self.constrain_view(reconstruction, view, nag_pose, constraints)
-            {
+            let opti_pose = if let Some(opti_pose) = self.optimize_view(reconstruction, view) {
                 opti_pose
             } else {
                 ba.removed_views.push(view);
@@ -2419,126 +2054,6 @@ where
             ba.updated_views.push((view, pose.into(), velocity));
         }
         Some(ba).filter(|ba| ba.updated_views.len() >= 3)
-    }
-
-    /// Creates a list of three-view constraints to optimize a reconstruction with.
-    fn create_constraints(&self, reconstruction: ReconstructionKey) -> Constraints {
-        // First we need to create a series of three-view constraints that cover the entire reconstruction.
-        let mut constraints: HashMap<[ViewKey; 3], ThreeViewConstraint> = HashMap::new();
-        let mut strikes: HashMap<ViewKey, usize> = HashMap::new();
-        // This closure will be used to create the key for the above hash map to ensure cannonical ordering.
-        let sorted = |mut views: [ViewKey; 3]| {
-            views.sort_unstable();
-            views
-        };
-        // Go through every view.
-        for view in self.data.reconstructions[reconstruction].views.keys() {
-            // Set the strikes to 0 so that we know whether a view was included or not.
-            strikes.entry(view).or_default();
-            // Get all of the covisibilities of this view by robust landmarks.
-            let mut covisibilities = self.view_covisibilities(reconstruction, view);
-            // Take only the covisibilities which satisfy the minimum landmarks requirement.
-            covisibilities.retain(|_, landmarks| {
-                landmarks.len()
-                    >= self
-                        .settings
-                        .optimization_robust_covisibility_minimum_landmarks
-            });
-            // Get the remaining views into a vector.
-            let candidate_views = covisibilities.keys().copied().collect_vec();
-            // Flip this so that we can find if a view contains a landmark.
-            let mut landmark_views: HashMap<LandmarkKey, HashSet<ViewKey>> = HashMap::new();
-            for (coview, landmarks) in &covisibilities {
-                for &landmark in landmarks {
-                    landmark_views.entry(landmark).or_default().insert(*coview);
-                }
-            }
-            // Go through every combination of these candidate views and look for ones that have a sufficient quantity of
-            // covisible robust landmarks.
-            let mut robust_three_view_covisibilities = candidate_views
-                .iter()
-                .copied()
-                .tuple_combinations()
-                .map(|(a, b)| {
-                    let covisible_landmarks = covisibilities[&a]
-                        .iter()
-                        .copied()
-                        .filter(|landmark| landmark_views[landmark].contains(&b))
-                        .collect_vec();
-                    (sorted([view, a, b]), covisible_landmarks)
-                })
-                .filter(|(_, covisible_landmarks)| {
-                    covisible_landmarks.len()
-                        >= self
-                            .settings
-                            .optimization_robust_covisibility_minimum_landmarks
-                })
-                .collect_vec();
-
-            // Sort the covisibilities such that the best ones show up first.
-            robust_three_view_covisibilities.sort_unstable_by_key(|(_, covisible_landmarks)| {
-                cmp::Reverse(covisible_landmarks.len())
-            });
-
-            // Limit the number of constraints to only the best constraints.
-            robust_three_view_covisibilities
-                .truncate(self.settings.optimization_maximum_three_view_constraints);
-
-            // Any constraint which is already imposed counts and doesn't need to be re-imposed (less work).
-            robust_three_view_covisibilities.retain(|(key, _)| !constraints.contains_key(key));
-
-            // Compute the `ThreeViewConstraint` for each robust three view covisibility.
-            for (views, landmarks) in robust_three_view_covisibilities {
-                if let Some([first_pose, second_pose]) =
-                    self.optimize_three_view(reconstruction, views, &landmarks)
-                {
-                    let three_view_constraint = ThreeViewConstraint {
-                        views,
-                        constraints: [
-                            first_pose,
-                            CameraToCamera(
-                                second_pose.isometry() * first_pose.isometry().inverse(),
-                            ),
-                            second_pose.inverse(),
-                        ],
-                    };
-                    constraints.insert(views, three_view_constraint);
-                } else {
-                    for view in views {
-                        *strikes.entry(view).or_default() += 1;
-                    }
-                }
-            }
-        }
-
-        let mut edges: HashMap<ViewKey, Vec<(ViewKey, CameraToCamera)>> = HashMap::new();
-        for (view, constraint) in constraints
-            .into_iter()
-            .flat_map(|(_, constraint)| constraint.edge_constraints())
-        {
-            edges.entry(view).or_default().push(constraint);
-        }
-        Constraints { edges, strikes }
-    }
-
-    /// Get all of the covisibilities of a view (using robust landmarks).
-    fn view_covisibilities(
-        &self,
-        reconstruction: ReconstructionKey,
-        view: ViewKey,
-    ) -> HashMap<ViewKey, Vec<LandmarkKey>> {
-        let mut covisibilities: HashMap<ViewKey, Vec<LandmarkKey>> = HashMap::new();
-        for &landmark in &self.data.reconstructions[reconstruction].views[view].landmarks {
-            if self.is_landmark_robust(reconstruction, landmark) {
-                for &coview in self.data.reconstructions[reconstruction].landmarks[landmark]
-                    .observations
-                    .keys()
-                {
-                    covisibilities.entry(coview).or_default().push(landmark);
-                }
-            }
-        }
-        covisibilities
     }
 
     /// Splits all observations in the landmark into their own separate landmarks.

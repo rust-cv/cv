@@ -222,9 +222,9 @@ pub struct VSlamSettings {
     /// The minimum landmarks to use for optimization
     #[cfg_attr(
         feature = "serde-serialize",
-        serde(default = "default_optimization_robust_covisibility_minimum_landmarks")
+        serde(default = "default_optimization_minimum_landmarks")
     )]
-    pub optimization_robust_covisibility_minimum_landmarks: usize,
+    pub optimization_minimum_landmarks: usize,
     /// The maximum landmarks to use for optimization
     #[cfg_attr(
         feature = "serde-serialize",
@@ -281,8 +281,7 @@ impl Default for VSlamSettings {
                 default_optimization_maximum_three_view_constraints(),
             optimization_iterations: default_optimization_iterations(),
             optimization_momentum: default_optimization_momentum(),
-            optimization_robust_covisibility_minimum_landmarks:
-                default_optimization_robust_covisibility_minimum_landmarks(),
+            optimization_minimum_landmarks: default_optimization_minimum_landmarks(),
             optimization_maximum_landmarks: default_optimization_maximum_landmarks(),
             optimization_convergence_rate: default_optimization_convergence_rate(),
         }
@@ -422,14 +421,14 @@ fn default_optimization_maximum_three_view_constraints() -> usize {
 }
 
 fn default_optimization_iterations() -> usize {
-    10000
+    10
 }
 
 fn default_optimization_momentum() -> f64 {
-    0.0
+    0.5
 }
 
-fn default_optimization_robust_covisibility_minimum_landmarks() -> usize {
+fn default_optimization_minimum_landmarks() -> usize {
     32
 }
 
@@ -438,5 +437,5 @@ fn default_optimization_maximum_landmarks() -> usize {
 }
 
 fn default_optimization_convergence_rate() -> f64 {
-    0.0001
+    0.1
 }
