@@ -149,24 +149,6 @@ pub struct VSlamSettings {
         serde(default = "default_three_view_minimum_robust_matches")
     )]
     pub three_view_minimum_robust_matches: usize,
-    /// The maximum iterations to optimize many views.
-    #[cfg_attr(
-        feature = "serde-serialize",
-        serde(default = "default_many_view_patience")
-    )]
-    pub many_view_patience: usize,
-    /// The threshold of mean cosine distance standard deviation that terminates many-view optimization.
-    #[cfg_attr(
-        feature = "serde-serialize",
-        serde(default = "default_many_view_std_dev_threshold")
-    )]
-    pub many_view_std_dev_threshold: f64,
-    /// The number of landmarks to use in bundle adjust.
-    #[cfg_attr(
-        feature = "serde-serialize",
-        serde(default = "default_many_view_landmarks")
-    )]
-    pub many_view_landmarks: usize,
     /// The number of iterations to run bundle adjust, filtering, and merging.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -267,9 +249,6 @@ impl Default for VSlamSettings {
             three_view_optimization_landmarks: default_three_view_optimization_landmarks(),
             three_view_inlier_ratio_threshold: default_three_view_inlier_ratio_threshold(),
             three_view_minimum_robust_matches: default_three_view_minimum_robust_matches(),
-            many_view_patience: default_many_view_patience(),
-            many_view_std_dev_threshold: default_many_view_std_dev_threshold(),
-            many_view_landmarks: default_many_view_landmarks(),
             reconstruction_optimization_iterations: default_reconstruction_optimization_iterations(
             ),
             tracking_similar_frames: default_tracking_similar_frames(),
@@ -325,7 +304,7 @@ fn default_single_view_filter_loop_iterations() -> usize {
 }
 
 fn default_single_view_patience() -> usize {
-    5000
+    20000
 }
 
 fn default_single_view_std_dev_threshold() -> f64 {
@@ -357,7 +336,7 @@ fn default_two_view_minimum_robust_matches() -> usize {
 }
 
 fn default_two_view_match_better_by() -> u32 {
-    1
+    2
 }
 
 fn default_three_view_patience() -> usize {
@@ -373,7 +352,7 @@ fn default_three_view_filter_loop_iterations() -> usize {
 }
 
 fn default_three_view_optimization_landmarks() -> usize {
-    64
+    512
 }
 
 fn default_three_view_inlier_ratio_threshold() -> f64 {
@@ -382,18 +361,6 @@ fn default_three_view_inlier_ratio_threshold() -> f64 {
 
 fn default_three_view_minimum_robust_matches() -> usize {
     32
-}
-
-fn default_many_view_patience() -> usize {
-    50000
-}
-
-fn default_many_view_std_dev_threshold() -> f64 {
-    0.000000000001
-}
-
-fn default_many_view_landmarks() -> usize {
-    32768
 }
 
 fn default_reconstruction_optimization_iterations() -> usize {
@@ -421,7 +388,7 @@ fn default_optimization_maximum_three_view_constraints() -> usize {
 }
 
 fn default_optimization_iterations() -> usize {
-    10
+    50
 }
 
 fn default_optimization_momentum() -> f64 {
@@ -433,9 +400,9 @@ fn default_optimization_minimum_landmarks() -> usize {
 }
 
 fn default_optimization_maximum_landmarks() -> usize {
-    16384
+    256
 }
 
 fn default_optimization_convergence_rate() -> f64 {
-    0.1
+    0.05
 }

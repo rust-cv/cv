@@ -107,8 +107,7 @@ fn main() {
             settings.two_view_consensus_threshold,
             Xoshiro256PlusPlus::seed_from_u64(0),
         )
-        .block_size(32)
-        .max_candidate_hypotheses(16384),
+        .max_candidate_hypotheses(8192),
         LambdaTwist::new(),
         EightPoint::new(),
         MinSquaresTriangulator::new(),

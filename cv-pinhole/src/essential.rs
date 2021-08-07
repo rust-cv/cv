@@ -294,7 +294,7 @@ impl EssentialMatrix {
             essential: self,
             epsilon: 1e-9,
             max_iterations: 100,
-            consensus_ratio: 0.5,
+            consensus_ratio: 0.1,
             maximum_cosine_distance: 0.1,
         }
     }
