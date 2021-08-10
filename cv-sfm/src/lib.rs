@@ -1832,7 +1832,6 @@ where
             })
             .sum::<Vector6<f64>>()
             * scale;
-        info!("net_delta_se3: {}", net_delta_se3);
 
         if net_delta_se3.iter().any(|v| !v.is_finite()) {
             None
@@ -2189,8 +2188,6 @@ where
                 ba.removed_views.push(view);
                 continue;
             };
-
-            info!("pose: {}", CameraToCamera(pose).se3());
 
             ba.updated_views.push((view, pose.into()));
         }
