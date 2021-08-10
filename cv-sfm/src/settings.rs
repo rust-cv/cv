@@ -445,7 +445,7 @@ fn default_three_view_inlier_ratio_threshold() -> f64 {
 }
 
 fn default_three_view_minimum_robust_matches() -> usize {
-    256
+    128
 }
 
 fn default_reconstruction_optimization_iterations() -> usize {
@@ -481,7 +481,7 @@ fn default_optimization_std_dev_threshold() -> f64 {
 }
 
 fn default_optimization_iterations() -> usize {
-    1000
+    10000
 }
 
 fn default_optimization_minimum_landmarks() -> usize {

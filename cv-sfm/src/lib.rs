@@ -2140,9 +2140,6 @@ where
         &mut self,
         reconstruction: ReconstructionKey,
     ) -> Option<ReconstructionKey> {
-        if self.data.reconstructions[reconstruction].views.len() < 6 {
-            return Some(reconstruction);
-        }
         let mut constraints = self.create_constraints(reconstruction);
         for _ in 0..self.settings.optimization_iterations {
             if let Some(bundle_adjust) =
