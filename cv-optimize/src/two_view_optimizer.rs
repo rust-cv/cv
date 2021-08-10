@@ -7,24 +7,49 @@ use core::iter::once;
 use cv_core::{
     nalgebra::{
         dimension::{Dynamic, U1},
-        DMatrix, DVector, Matrix3, VecStorage, Vector4, Vector6,
+        DMatrix, DVector, Matrix3, UnitVector3, VecStorage, Vector2, Vector3, Vector4, Vector5,
+        Vector6,
     },
     Bearing, CameraPoint, CameraToCamera, FeatureMatch, Pose, Projective, TriangulatorRelative,
 };
 use levenberg_marquardt::LeastSquaresProblem;
 
-pub fn two_view_nelder_mead(pose: CameraToCamera) -> NelderMead<Vector6<f64>, f64> {
+pub fn cartesian_to_spherical(v: UnitVector3<f64>) -> Vector2<f64> {
+    Vector2::new(v.z.acos(), v.y.atan2(v.x))
+}
+
+pub fn spherical_to_cartesian(s: Vector2<f64>) -> UnitVector3<f64> {
+    let (sin_theta, cos_theta) = s.x.sin_cos();
+    let (sin_phi, cos_phi) = s.y.sin_cos();
+    UnitVector3::new_unchecked(Vector3::new(
+        cos_phi * sin_theta,
+        sin_phi * sin_theta,
+        cos_theta,
+    ))
+}
+
+pub fn two_view_nelder_mead(pose: CameraToCamera) -> NelderMead<Vector5<f64>, f64> {
     let original = pose.se3();
-    let translation_scale = original.xyz().iter().map(|n| n.powi(2)).sum::<f64>().sqrt() * 0.001;
-    let mut variants = vec![original; 7];
+    let sphere = cartesian_to_spherical(UnitVector3::new_normalize(original.xyz()));
+    // Remove the Z component (translation must be unit vector).
+    let original = Vector5::from([sphere.x, sphere.y, original[3], original[4], original[5]]);
+    let mut variants = vec![original; 6];
     #[allow(clippy::needless_range_loop)]
-    for i in 0..6 {
-        if i < 3 {
-            // Translation simplex must be relative to existing translation.
-            variants[i][i] += translation_scale;
+    for i in 0..5 {
+        if i < 1 {
+            // Translation simplex is in spherical coordinates, so theta must be treated specially.
+            variants[i][i] += if variants[i][i] > std::f64::consts::FRAC_PI_2 {
+                -std::f64::consts::PI * 0.01
+            } else {
+                std::f64::consts::PI * 0.01
+            };
         } else {
             // Rotation simplex must be kept within a small rotation (2 pi would be a complete revolution).
-            variants[i][i] += std::f64::consts::PI * 0.0001;
+            variants[i][i] += if variants[i][i] > std::f64::consts::PI {
+                -std::f64::consts::PI * 0.01
+            } else {
+                std::f64::consts::PI * 0.01
+            };
         }
     }
     NelderMead::new().with_initial_params(variants)
@@ -91,14 +116,26 @@ where
     P: Bearing + Clone,
     T: TriangulatorRelative + Clone,
 {
-    type Param = Vector6<f64>;
+    type Param = Vector5<f64>;
     type Output = f64;
     type Hessian = ();
     type Jacobian = ();
     type Float = f64;
 
     fn apply(&self, p: &Self::Param) -> Result<Self::Output, Error> {
-        let pose = Pose::from_se3(*p);
+        let translation = spherical_to_cartesian(p.xy());
+
+        let pose = Pose::from_se3(
+            [
+                translation.x,
+                translation.y,
+                translation.z,
+                p[2],
+                p[3],
+                p[4],
+            ]
+            .into(),
+        );
         let mean: Mean = self.residuals(pose).collect();
         Ok(mean.mean())
     }

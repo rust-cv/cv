@@ -29,7 +29,12 @@ pub fn three_view_nelder_mead(
             variants[i].column_mut(i / 6)[i % 6] += translation_scale;
         } else {
             // Rotation simplex must be kept within a small rotation (2 pi would be a complete revolution).
-            variants[i].column_mut(i / 6)[i % 6] += std::f64::consts::PI * 0.0001;
+            variants[i].column_mut(i / 6)[i % 6] +=
+                if variants[i].column(i / 6)[i % 6] > std::f64::consts::PI {
+                    -std::f64::consts::PI * 0.01
+                } else {
+                    std::f64::consts::PI * 0.01
+                };
         }
     }
     NelderMead::new().with_initial_params(variants)

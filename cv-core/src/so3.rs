@@ -112,6 +112,13 @@ impl From<Skew3> for Rotation3<f64> {
 /// This is the log map.
 impl From<Rotation3<f64>> for Skew3 {
     fn from(r: Rotation3<f64>) -> Self {
-        Self(r.scaled_axis())
+        let skew3 = r.scaled_axis();
+        // TODO: File issue on `nalgebra`, as this shouldn't happen and is bug.
+        let skew3 = if skew3.iter().any(|n| n.is_nan()) {
+            Vector3::zeros()
+        } else {
+            skew3
+        };
+        Self(skew3)
     }
 }
