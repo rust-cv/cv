@@ -844,6 +844,7 @@ where
                 // The current frame is not already in a reconstruction, so it must be incorporated.
                 if self
                     .incorporate_frame(dest_reconstruction, frame, view_matches)
+                    .or_else(opeek(|| info!("failed to incorporate frame")))
                     .is_some()
                 {
                     // We need to optimize the reconstruction right away so that if it fails to bundle adjust
@@ -896,7 +897,9 @@ where
                 info!("failed to find any similar frames in the reconstruction")
             }))?;
         // Try to incorporate the frame into the reconstruction.
-        let view = self.incorporate_frame(reconstruction, frame, view_matches)?;
+        let view = self
+            .incorporate_frame(reconstruction, frame, view_matches)
+            .or_else(opeek(|| info!("failed to incorporate frame")))?;
         self.optimize_reconstruction(reconstruction)?;
         Some(view)
     }
@@ -1925,34 +1928,43 @@ where
     fn incorporate_frame(
         &mut self,
         reconstruction: ReconstructionKey,
-        new_frame: FrameKey,
+        frame: FrameKey,
         view_matches: Vec<ViewKey>,
     ) -> Option<ViewKey> {
         let (pose, matches) = self
-            .register_frame(reconstruction, new_frame, view_matches)
+            .register_frame(reconstruction, frame, view_matches)
             .or_else(opeek(|| info!("failed to register frame")))?;
 
-        let view = self
-            .data
-            .add_view(reconstruction, new_frame, pose, |feature| {
-                matches.get(&feature).copied()
-            });
+        let view = self.data.add_view(reconstruction, frame, pose, |feature| {
+            matches.get(&feature).copied()
+        });
 
-        self.record_view_constraints(reconstruction, view);
-
-        Some(view)
+        if self.record_view_constraints(reconstruction, view) {
+            Some(view)
+        } else {
+            self.data.remove_view(reconstruction, view);
+            None
+        }
     }
 
     /// Generate and add view constraints to reconstruction.
-    fn record_view_constraints(&mut self, reconstruction: ReconstructionKey, view: ViewKey) {
-        for constraint in self
+    fn record_view_constraints(
+        &mut self,
+        reconstruction: ReconstructionKey,
+        view: ViewKey,
+    ) -> bool {
+        let constraints = self
             .generate_view_constraints(reconstruction, view)
-            .collect_vec()
-        {
+            .collect_vec();
+        if constraints.len() < self.settings.optimization_minimum_new_constraints {
+            return false;
+        }
+        for constraint in constraints {
             self.data.reconstructions[reconstruction]
                 .constraints
                 .insert(constraint);
         }
+        true
     }
 
     /// Attempts to register the given frame in the given source reconstruction with the landmarks in the given

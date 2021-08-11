@@ -237,6 +237,12 @@ pub struct VSlamSettings {
         serde(default = "default_optimization_maximum_three_view_constraints")
     )]
     pub optimization_maximum_three_view_constraints: usize,
+    /// The minimum number of three-view constraints that must be added to a new view.
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_optimization_minimum_new_constraints")
+    )]
+    pub optimization_minimum_new_constraints: usize,
     /// The threshold of mean cosine distance standard deviation that terminates three-view optimization
     /// during graph optimization.
     #[cfg_attr(
@@ -330,6 +336,7 @@ impl Default for VSlamSettings {
                 default_optimization_three_view_constraint_patience(),
             optimization_maximum_three_view_constraints:
                 default_optimization_maximum_three_view_constraints(),
+            optimization_minimum_new_constraints: default_optimization_minimum_new_constraints(),
             optimization_std_dev_threshold: default_optimization_std_dev_threshold(),
             optimization_loss_cutoff: default_optimization_loss_cutoff(),
             optimization_iterations: default_optimization_iterations(),
@@ -494,12 +501,16 @@ fn default_optimization_maximum_three_view_constraints() -> usize {
     12
 }
 
+fn default_optimization_minimum_new_constraints() -> usize {
+    1
+}
+
 fn default_optimization_std_dev_threshold() -> f64 {
     0.0000000000000001
 }
 
 fn default_optimization_loss_cutoff() -> f64 {
-    0.0001
+    0.00001
 }
 
 fn default_optimization_iterations() -> usize {

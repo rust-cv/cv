@@ -121,7 +121,12 @@ fn main() {
     for frame_path in &opt.images {
         info!("loading image {}", frame_path.display());
         let image = image::open(frame_path).expect("failed to load image");
-        vslam.add_frame(feed, &image);
+        let frame = vslam.add_frame(feed, &image);
+        if let Some((reconstruction, _)) = vslam.data.frame(frame).view {
+            if vslam.data.reconstruction(reconstruction).views.len() == 4 {
+                vslam.normalize_reconstruction(reconstruction);
+            }
+        }
         info!("exporting all reconstructions");
         if let Some(path) = &opt.output {
             if !path.is_dir() {
@@ -140,7 +145,6 @@ fn main() {
                         frame_path.file_name().unwrap().to_str().unwrap(),
                         ix
                     ));
-                    vslam.normalize_reconstruction(reconstruction);
                     vslam.export_reconstruction(reconstruction, &path);
                     info!("exported {}", path.display());
                 }
