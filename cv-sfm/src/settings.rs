@@ -244,6 +244,12 @@ pub struct VSlamSettings {
         serde(default = "default_optimization_std_dev_threshold")
     )]
     pub optimization_std_dev_threshold: f64,
+    /// The cosine distance at which the loss is cut off (presumably an outlier, or too innacurate for our purposes).
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_optimization_loss_cutoff")
+    )]
+    pub optimization_loss_cutoff: f64,
     /// The number of optimization iterations.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -325,6 +331,7 @@ impl Default for VSlamSettings {
             optimization_maximum_three_view_constraints:
                 default_optimization_maximum_three_view_constraints(),
             optimization_std_dev_threshold: default_optimization_std_dev_threshold(),
+            optimization_loss_cutoff: default_optimization_loss_cutoff(),
             optimization_iterations: default_optimization_iterations(),
             optimization_minimum_landmarks: default_optimization_minimum_landmarks(),
             optimization_maximum_landmarks: default_optimization_maximum_landmarks(),
@@ -376,7 +383,7 @@ fn default_single_view_patience() -> usize {
 }
 
 fn default_single_view_std_dev_threshold() -> f64 {
-    0.0000000000001
+    0.0000000000000001
 }
 
 fn default_single_view_minimum_landmarks() -> usize {
@@ -488,7 +495,11 @@ fn default_optimization_maximum_three_view_constraints() -> usize {
 }
 
 fn default_optimization_std_dev_threshold() -> f64 {
-    0.00000000000001
+    0.0000000000000001
+}
+
+fn default_optimization_loss_cutoff() -> f64 {
+    0.0001
 }
 
 fn default_optimization_iterations() -> usize {
@@ -504,9 +515,9 @@ fn default_optimization_maximum_landmarks() -> usize {
 }
 
 fn default_optimization_robust_covisibility_minimum_landmarks() -> usize {
-    32
+    8
 }
 
 fn default_optimization_convergence_rate() -> f64 {
-    0.001
+    0.0001
 }

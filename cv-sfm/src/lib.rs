@@ -1874,7 +1874,7 @@ where
         }
 
         // Restrict the threshold for outliers to the robust maximum cosine distance since this pose is already optimized.
-        let loss_cutoff = self.settings.maximum_cosine_distance;
+        let loss_cutoff = self.settings.optimization_loss_cutoff;
         info!("optimizing poses with loss cutoff {}", loss_cutoff);
 
         let solver = three_view_nelder_mead(first_pose, second_pose)
@@ -1908,6 +1908,10 @@ where
         // Scale the poses back to their original scale.
         first_pose = first_pose.scale(relative_scale);
         second_pose = second_pose.scale(relative_scale);
+
+        // TODO: Some kind of verification of the quality of the three-view constraint should be performed here.
+        // Probably count the number of triangulated points that are sufficiently robust in terms of cosine distance,
+        // then reject the constraint if it does not contain enough robust points.
 
         Some(ThreeViewConstraint {
             views,
@@ -2298,6 +2302,7 @@ where
                 for &coview in self.data.reconstructions[reconstruction].landmarks[landmark]
                     .observations
                     .keys()
+                    .filter(|&&coview| coview != view)
                 {
                     covisibilities.entry(coview).or_default().push(landmark);
                 }
