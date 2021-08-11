@@ -176,8 +176,8 @@ pub struct BundleAdjustment {
 pub struct ThreeViewConstraint {
     /// The three views.
     views: [ViewKey; 3],
-    /// Contains the relative pose of the pose of each index to its next index wrapping.
-    constraints: [IsometryMatrix3<f64>; 3],
+    /// The two poses from the first pose to the second and third poses respectively.
+    poses: [IsometryMatrix3<f64>; 2],
 }
 
 impl ThreeViewConstraint {
@@ -185,14 +185,15 @@ impl ThreeViewConstraint {
     /// the `CameraToCamera` is the view which we transform from.
     fn edge_constraints(&self) -> impl Iterator<Item = (ViewKey, (ViewKey, IsometryMatrix3<f64>))> {
         let views = self.views;
-        let constraints = self.constraints;
+        let [first, second] = self.poses;
+        let first_to_second = second * first.inverse();
         std::array::IntoIter::new([
-            (views[0], (views[2], constraints[2])),
-            (views[0], (views[1], constraints[0].inverse())),
-            (views[1], (views[0], constraints[0])),
-            (views[1], (views[2], constraints[1].inverse())),
-            (views[2], (views[1], constraints[1])),
-            (views[2], (views[0], constraints[2].inverse())),
+            (views[0], (views[2], second.inverse())),
+            (views[0], (views[1], first.inverse())),
+            (views[1], (views[0], first)),
+            (views[1], (views[2], first_to_second.inverse())),
+            (views[2], (views[1], first_to_second)),
+            (views[2], (views[0], second)),
         ])
     }
 }
@@ -1665,42 +1666,23 @@ where
 
         info!("found {} initial feature matches", original_matches.len());
 
-        let create_3d_matches = |robust| {
-            original_matches
-                .iter()
-                .filter_map(|&(landmark, feature)| {
-                    Some(FeatureWorldMatch(
-                        new_frame.keypoint(feature),
-                        if robust {
-                            self.triangulate_landmark_robust(reconstruction_key, landmark)?
-                        } else {
-                            self.triangulate_landmark(reconstruction_key, landmark)?
-                        },
-                    ))
-                })
-                .take(self.settings.single_view_optimization_num_matches)
-                .collect()
-        };
-
         info!("retrieving only robust landmarks corresponding to matches");
 
         // Extract the FeatureWorldMatch for each of the features.
-        let matches_3d: Vec<FeatureWorldMatch<NormalizedKeyPoint>> = create_3d_matches(true);
-
-        let matches_3d = if matches_3d.len() < self.settings.single_view_minimum_landmarks {
-            info!(
-                "only found {} robust triangulatable landmarks, need {}; trying non-robust landmarks",
-                matches_3d.len(),
-                self.settings.single_view_minimum_landmarks,
-            );
-            create_3d_matches(false)
-        } else {
-            matches_3d
-        };
+        let matches_3d: Vec<FeatureWorldMatch<NormalizedKeyPoint>> = original_matches
+            .iter()
+            .filter_map(|&(landmark, feature)| {
+                Some(FeatureWorldMatch(
+                    new_frame.keypoint(feature),
+                    self.triangulate_landmark_robust(reconstruction_key, landmark)?,
+                ))
+            })
+            .take(self.settings.single_view_optimization_num_matches)
+            .collect();
 
         if matches_3d.len() < self.settings.single_view_minimum_landmarks {
             info!(
-                "only found {} triangulatable landmarks, need {}; frame registration aborted",
+                "only found {} robust landmarks, need {}; frame registration aborted",
                 matches_3d.len(),
                 self.settings.single_view_minimum_landmarks,
             );
@@ -1708,7 +1690,7 @@ where
         }
 
         info!(
-            "estimate the pose of the camera using {} triangulatable landmarks",
+            "estimate the pose of the camera using {} robust landmarks",
             matches_3d.len()
         );
 
@@ -2139,6 +2121,7 @@ where
         &mut self,
         reconstruction: ReconstructionKey,
     ) -> Option<ReconstructionKey> {
+        info!("bundle adjusting reconstruction");
         let mut constraints = self.create_constraints(reconstruction);
         for _ in 0..self.settings.optimization_iterations {
             if let Some(bundle_adjust) =
@@ -2164,7 +2147,6 @@ where
         reconstruction: ReconstructionKey,
         constraints: &Constraints,
     ) -> Option<BundleAdjustment> {
-        info!("running a round of momentum bundle adjustment");
         let mut ba = BundleAdjustment {
             reconstruction,
             updated_views: vec![],
@@ -2267,11 +2249,7 @@ where
                 {
                     let three_view_constraint = ThreeViewConstraint {
                         views,
-                        constraints: [
-                            first_pose.isometry(),
-                            second_pose.isometry() * first_pose.isometry().inverse(),
-                            second_pose.isometry().inverse(),
-                        ],
+                        poses: [first_pose.isometry(), second_pose.isometry()],
                     };
                     constraints.insert(views, three_view_constraint);
                 } else {
