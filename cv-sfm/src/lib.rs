@@ -48,6 +48,7 @@ new_key_type! {
     pub struct FrameKey;
     pub struct ViewKey;
     pub struct LandmarkKey;
+    pub struct ConstraintKey;
     pub struct ReconstructionKey;
 }
 
@@ -66,21 +67,16 @@ where
     }
 }
 
+fn canonical_view_order(mut views: [ViewKey; 3]) -> [ViewKey; 3] {
+    views.sort_unstable();
+    views
+}
+
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct Feature {
     pub keypoint: NormalizedKeyPoint,
     pub color: [u8; 3],
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Pair(usize, usize);
-
-impl Pair {
-    /// Creates a new pair, cannonicalizing the order of the pair.
-    pub fn new(a: usize, b: usize) -> Self {
-        Self(std::cmp::min(a, b), std::cmp::max(a, b))
-    }
 }
 
 #[derive(Debug)]
@@ -134,8 +130,6 @@ pub struct View {
     pub pose: WorldToCamera,
     /// A vector containing the Reconstruction::landmarks indices for each feature in the frame
     pub landmarks: Vec<LandmarkKey>,
-    /// The velocity of the view (for the purposes of optimization).
-    pub velocity: IsometryMatrix3<f64>,
 }
 
 /// Frames from a video source
@@ -152,10 +146,12 @@ pub struct Feed {
 #[derive(Default)]
 #[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct Reconstruction {
-    /// The VSlam::views IDs contained in this reconstruction
+    /// Views contained in this reconstruction
     pub views: DenseSlotMap<ViewKey, View>,
-    /// The landmarks contained in this reconstruction
+    /// Landmarks contained in this reconstruction
     pub landmarks: DenseSlotMap<LandmarkKey, Landmark>,
+    /// Constraints imposed during pose optimization
+    pub constraints: DenseSlotMap<ConstraintKey, ThreeViewConstraint>,
 }
 
 /// Contains the results of a bundle adjust
@@ -317,15 +313,12 @@ impl VSlamData {
         point: WorldPoint,
         threshold: f64,
     ) -> bool {
-        let bearing = self
-            .observation_keypoint(reconstruction, view, feature)
-            .bearing();
-        let view_point = self.reconstructions[reconstruction].views[view]
-            .pose
-            .transform(point);
-        let residual = 1.0 - bearing.dot(&view_point.bearing());
-        // If the observation is finite and has a low enough residual, it is good.
-        residual.is_finite() && residual < threshold
+        is_observation_good_raw(
+            self.reconstructions[reconstruction].views[view].pose,
+            self.observation_keypoint(reconstruction, view, feature),
+            point,
+            threshold,
+        )
     }
 
     pub fn landmark(&self, reconstruction: ReconstructionKey, landmark: LandmarkKey) -> &Landmark {
@@ -393,7 +386,7 @@ impl VSlamData {
             .map(|(f, c)| (f, self.observation_landmark(reconstruction, center_view, c)))
             .collect();
         // Add frame B to new reconstruction using the extracted landmark, bix pairs.
-        self.add_view(
+        let first_view = self.add_view(
             reconstruction,
             first,
             first_pose.isometry().into(),
@@ -407,12 +400,18 @@ impl VSlamData {
             .map(|(s, c)| (s, self.observation_landmark(reconstruction, center_view, c)))
             .collect();
         // Add frame B to new reconstruction using the extracted landmark, bix pairs.
-        self.add_view(
+        let second_view = self.add_view(
             reconstruction,
             second,
             second_pose.isometry().into(),
             |feature| second_landmarks.get(&feature).copied(),
         );
+        self.reconstructions[reconstruction]
+            .constraints
+            .insert(ThreeViewConstraint {
+                views: canonical_view_order([center_view, first_view, second_view]),
+                poses: [first_pose.isometry(), second_pose.isometry()],
+            });
         reconstruction
     }
 
@@ -430,7 +429,6 @@ impl VSlamData {
             frame,
             pose,
             landmarks: vec![],
-            velocity: IsometryMatrix3::identity(),
         });
         assert!(
             self.frames[frame].view.is_none(),
@@ -457,68 +455,6 @@ impl VSlamData {
         view
     }
 
-    /// Moves all views from one reconstruction to another and then removes the old reconstruction.
-    ///
-    /// `landmark_map` must map landmarks in `src_reconstruction` to landmarks in `dest_reconstruction`.
-    pub fn incorporate_reconstruction(
-        &mut self,
-        src_reconstruction: ReconstructionKey,
-        dest_reconstruction: ReconstructionKey,
-        world_transform: WorldToWorld,
-        mut landmark_map: HashMap<LandmarkKey, LandmarkKey>,
-    ) {
-        let dest_to_src_transform = world_transform.isometry().inverse();
-        let src_views: Vec<ViewKey> = self.reconstructions[src_reconstruction]
-            .views
-            .keys()
-            .collect();
-        for src_view in src_views {
-            let frame = self.view_frame(src_reconstruction, src_view);
-
-            // Transform the pose to go from (world b -> world a) -> camera.
-            // Now the transformation goes from world b -> camera, which is correct.
-            let pose = (self.view(src_reconstruction, src_view).pose.isometry()
-                * dest_to_src_transform)
-                .into();
-
-            // Create the view.
-            let dest_view = self.reconstructions[dest_reconstruction]
-                .views
-                .insert(View {
-                    frame,
-                    pose,
-                    landmarks: vec![],
-                    velocity: IsometryMatrix3::identity(),
-                });
-            // Update the frame's view to point to the new view.
-            self.frames[frame].view = Some((dest_reconstruction, dest_view));
-
-            // Add all of the view's features to the reconstruction.
-            for feature in 0..self.frame(frame).descriptor_features.len() {
-                let src_landmark = self.observation_landmark(src_reconstruction, src_view, feature);
-                // Check if the source landmark is already mapped to a destination landmark.
-                let dest_landmark = if let Some(&dest_landmark) = landmark_map.get(&src_landmark) {
-                    // Add this observation to the observations of this landmark.
-                    self.landmark_mut(dest_reconstruction, dest_landmark)
-                        .observations
-                        .insert(dest_view, feature);
-                    dest_landmark
-                } else {
-                    // Create the landmark otherwise.
-                    let dest_landmark = self.add_landmark(dest_reconstruction, dest_view, feature);
-                    landmark_map.insert(src_landmark, dest_landmark);
-                    dest_landmark
-                };
-                // Add the Reconstruction::landmark index to the feature landmarks vector for this view.
-                self.view_mut(dest_reconstruction, dest_view)
-                    .landmarks
-                    .push(dest_landmark);
-            }
-        }
-
-        self.reconstructions.remove(src_reconstruction);
-    }
-
     /// Creates a new landmark. You must give the landmark at least one observation, as landmarks
     /// without at least one observation are not permitted.
     fn add_landmark(
@@ -536,11 +472,7 @@ impl VSlamData {
             })
     }
 
-    fn apply_bundle_adjust(
-        &mut self,
-        bundle_adjust: BundleAdjustment,
-        constraints: &mut Constraints,
-    ) {
+    fn apply_bundle_adjust(&mut self, bundle_adjust: BundleAdjustment) {
         let BundleAdjustment {
             reconstruction,
             updated_views,
@@ -552,9 +484,6 @@ impl VSlamData {
         for view in removed_views {
             info!("removing view from reconstruction");
             self.remove_view(reconstruction, view);
-            for edges in constraints.edges.values_mut() {
-                edges.retain(|&(v, _)| v != view);
-            }
         }
     }
 
@@ -1748,11 +1677,17 @@ where
             .map(|(landmark, feature)| (feature, landmark))
             .collect();
 
+        let num_robust_final_matches = final_matches
+            .values()
+            .filter(|&&landmark| self.is_landmark_robust(reconstruction_key, landmark))
+            .count();
+
         let inlier_ratio = final_matches.len() as f64 / original_matches_len as f64;
         info!(
-            "matches remaining after all filtering stages: {}; inlier ratio {}",
+            "matches remaining after all filtering stages: {}; inlier ratio {}, robust matches {}",
             final_matches.len(),
-            inlier_ratio
+            inlier_ratio,
+            num_robust_final_matches
         );
 
         if inlier_ratio < self.settings.single_view_inlier_minimum_threshold {
@@ -1762,7 +1697,87 @@ where
             return None;
         }
 
+        if num_robust_final_matches < self.settings.single_view_minimum_robust_landmarks {
+            info!(
+                "number of robust matches was less than the threshold for acceptance ({}); rejecting single-view match", self.settings.single_view_minimum_robust_landmarks
+            );
+            return None;
+        }
+
         Some((pose, final_matches))
+    }
+
+    /// Moves all views from one reconstruction to another and then removes the old reconstruction.
+    ///
+    /// `landmark_map` must map landmarks in `src_reconstruction` to landmarks in `dest_reconstruction`.
+    pub fn incorporate_reconstruction(
+        &mut self,
+        src_reconstruction: ReconstructionKey,
+        dest_reconstruction: ReconstructionKey,
+        world_transform: WorldToWorld,
+        mut landmark_map: HashMap<LandmarkKey, LandmarkKey>,
+    ) {
+        let dest_to_src_transform = world_transform.isometry().inverse();
+        let src_views: Vec<ViewKey> = self.data.reconstructions[src_reconstruction]
+            .views
+            .keys()
+            .collect();
+        let mut dest_views = vec![];
+        for src_view in src_views {
+            let frame = self.data.view_frame(src_reconstruction, src_view);
+
+            // Transform the pose to go from (world b -> world a) -> camera.
+            // Now the transformation goes from world b -> camera, which is correct.
+            let pose = (self.data.view(src_reconstruction, src_view).pose.isometry()
+                * dest_to_src_transform)
+                .into();
+
+            // Create the view.
+            let dest_view = self.data.reconstructions[dest_reconstruction]
+                .views
+                .insert(View {
+                    frame,
+                    pose,
+                    landmarks: vec![],
+                });
+            dest_views.push(dest_view);
+            // Update the frame's view to point to the new view.
+            self.data.frames[frame].view = Some((dest_reconstruction, dest_view));
+
+            // Add all of the view's features to the reconstruction.
+            for feature in 0..self.data.frame(frame).descriptor_features.len() {
+                let src_landmark =
+                    self.data
+                        .observation_landmark(src_reconstruction, src_view, feature);
+                // Check if the source landmark is already mapped to a destination landmark.
+                let dest_landmark = if let Some(&dest_landmark) = landmark_map.get(&src_landmark) {
+                    // Add this observation to the observations of this landmark.
+                    self.data
+                        .landmark_mut(dest_reconstruction, dest_landmark)
+                        .observations
+                        .insert(dest_view, feature);
+                    dest_landmark
+                } else {
+                    // Create the landmark otherwise.
+                    let dest_landmark =
+                        self.data
+                            .add_landmark(dest_reconstruction, dest_view, feature);
+                    landmark_map.insert(src_landmark, dest_landmark);
+                    dest_landmark
+                };
+                // Add the Reconstruction::landmark index to the feature landmarks vector for this view.
+                self.data
+                    .view_mut(dest_reconstruction, dest_view)
+                    .landmarks
+                    .push(dest_landmark);
+            }
+        }
+
+        for view in dest_views {
+            self.record_view_constraints(dest_reconstruction, view);
+        }
+
+        self.data.reconstructions.remove(src_reconstruction);
     }
 
     /// Takes a view from the reconstruction and a series of constraints.
@@ -1772,21 +1787,11 @@ where
         &self,
         reconstruction: ReconstructionKey,
         view: ViewKey,
-        constraints: &Constraints,
+        constraints: &HashMap<ViewKey, Vec<(ViewKey, IsometryMatrix3<f64>)>>,
         scale: f64,
     ) -> Option<WorldToCamera> {
-        // Get the number of strikes (bad optimizations) for this pose.
-        // This could actually just mean that another pose it is associated with is bad.
-        let strikes = *constraints.strikes.get(&view)?;
-        if strikes >= 1 {
-            info!(
-                "pose had {} strikes; not rejecting, just notifying",
-                strikes
-            );
-        }
-
         // Get the constraints for this view.
-        let view_constraints = constraints.edges.get(&view).or_else(opeek(|| {
+        let view_constraints = constraints.get(&view).or_else(opeek(|| {
             info!("failed to get any constraints for this view")
         }))?;
         assert!(!view_constraints.is_empty());
@@ -1830,7 +1835,7 @@ where
         reconstruction: ReconstructionKey,
         views: [ViewKey; 3],
         mut landmarks: Vec<LandmarkKey>,
-    ) -> Option<[CameraToCamera; 2]> {
+    ) -> Option<ThreeViewConstraint> {
         let poses = views.map(|view| {
             self.data.reconstructions[reconstruction].views[view]
                 .pose
@@ -1869,7 +1874,7 @@ where
         }
 
         // Restrict the threshold for outliers to the robust maximum cosine distance since this pose is already optimized.
-        let loss_cutoff = self.settings.robust_maximum_cosine_distance;
+        let loss_cutoff = self.settings.maximum_cosine_distance;
         info!("optimizing poses with loss cutoff {}", loss_cutoff);
 
         let solver = three_view_nelder_mead(first_pose, second_pose)
@@ -1904,7 +1909,10 @@ where
         first_pose = first_pose.scale(relative_scale);
         second_pose = second_pose.scale(relative_scale);
 
-        Some([first_pose, second_pose])
+        Some(ThreeViewConstraint {
+            views,
+            poses: [first_pose.isometry(), second_pose.isometry()],
+        })
     }
 
     /// Attempts to track the frame in the reconstruction.
@@ -1920,13 +1928,27 @@ where
             .register_frame(reconstruction, new_frame, view_matches)
             .or_else(opeek(|| info!("failed to register frame")))?;
 
-        let new_view_key = self
+        let view = self
             .data
             .add_view(reconstruction, new_frame, pose, |feature| {
                 matches.get(&feature).copied()
             });
 
-        Some(new_view_key)
+        self.record_view_constraints(reconstruction, view);
+
+        Some(view)
+    }
+
+    /// Generate and add view constraints to reconstruction.
+    fn record_view_constraints(&mut self, reconstruction: ReconstructionKey, view: ViewKey) {
+        for constraint in self
+            .generate_view_constraints(reconstruction, view)
+            .collect_vec()
+        {
+            self.data.reconstructions[reconstruction]
+                .constraints
+                .insert(constraint);
+        }
     }
 
     /// Attempts to register the given frame in the given source reconstruction with the landmarks in the given
@@ -1969,7 +1991,7 @@ where
             })
             .collect();
 
-        self.data.incorporate_reconstruction(
+        self.incorporate_reconstruction(
             src_reconstruction,
             dest_reconstruction,
             world_transform,
@@ -2038,13 +2060,23 @@ where
 
         // Get the world transformation.
         let rescale_factor = mean_distance.recip();
-        let transform = first_view.pose.scale(rescale_factor).inverse().isometry();
+        let transform = first_view.pose.isometry().inverse();
 
         // Transform the world.
         for view in self.data.reconstructions[reconstruction].views.values_mut() {
             // Transform the view pose itself.
             view.pose = (view.pose.isometry() * transform).into();
-            view.velocity.translation.vector *= rescale_factor;
+            // Rescale the pose's translation.
+            view.pose.0.translation.vector *= rescale_factor;
+        }
+        for constraint in self.data.reconstructions[reconstruction]
+            .constraints
+            .values_mut()
+        {
+            // Scale the pose translations.
+            for pose in &mut constraint.poses {
+                pose.translation.vector *= rescale_factor;
+            }
         }
     }
 
@@ -2122,13 +2154,12 @@ where
         reconstruction: ReconstructionKey,
     ) -> Option<ReconstructionKey> {
         info!("bundle adjusting reconstruction");
-        let mut constraints = self.create_constraints(reconstruction);
+        let constraints = self.flatten_constraints(reconstruction);
         for _ in 0..self.settings.optimization_iterations {
             if let Some(bundle_adjust) =
                 self.compute_momentum_bundle_adjust(reconstruction, &constraints)
             {
-                self.data
-                    .apply_bundle_adjust(bundle_adjust, &mut constraints);
+                self.data.apply_bundle_adjust(bundle_adjust);
             } else {
                 self.data.remove_reconstruction(reconstruction);
                 return None;
@@ -2145,7 +2176,7 @@ where
     fn compute_momentum_bundle_adjust(
         &self,
         reconstruction: ReconstructionKey,
-        constraints: &Constraints,
+        constraints: &HashMap<ViewKey, Vec<(ViewKey, IsometryMatrix3<f64>)>>,
     ) -> Option<BundleAdjustment> {
         let mut ba = BundleAdjustment {
             reconstruction,
@@ -2176,98 +2207,83 @@ where
         Some(ba).filter(|ba| ba.updated_views.len() >= 3)
     }
 
-    /// Creates a list of three-view constraints to optimize a reconstruction with.
-    fn create_constraints(&self, reconstruction: ReconstructionKey) -> Constraints {
-        // First we need to create a series of three-view constraints that cover the entire reconstruction.
-        let mut constraints: HashMap<[ViewKey; 3], ThreeViewConstraint> = HashMap::new();
-        let mut strikes: HashMap<ViewKey, usize> = HashMap::new();
-        // This closure will be used to create the key for the above hash map to ensure cannonical ordering.
-        let sorted = |mut views: [ViewKey; 3]| {
-            views.sort_unstable();
-            views
-        };
-        // Go through every view.
-        for view in self.data.reconstructions[reconstruction].views.keys() {
-            // Set the strikes to 0 so that we know whether a view was included or not.
-            strikes.entry(view).or_default();
-            // Get all of the covisibilities of this view by robust landmarks.
-            let mut covisibilities = self.view_covisibilities(reconstruction, view);
-            // Take only the covisibilities which satisfy the minimum landmarks requirement.
-            covisibilities.retain(|_, landmarks| {
-                landmarks.len()
+    /// Generates the constraints for a view using covisibilites.
+    fn generate_view_constraints(
+        &self,
+        reconstruction: ReconstructionKey,
+        view: ViewKey,
+    ) -> impl Iterator<Item = ThreeViewConstraint> + '_ {
+        // Get all of the covisibilities of this view by robust landmarks.
+        let mut covisibilities = self.view_covisibilities(reconstruction, view);
+        // Take only the covisibilities which satisfy the minimum landmarks requirement.
+        covisibilities.retain(|_, landmarks| {
+            landmarks.len()
+                >= self
+                    .settings
+                    .optimization_robust_covisibility_minimum_landmarks
+        });
+        // Get the remaining views into a vector.
+        let candidate_views = covisibilities.keys().copied().collect_vec();
+        // Flip this so that we can find if a view contains a landmark.
+        let mut landmark_views: HashMap<LandmarkKey, HashSet<ViewKey>> = HashMap::new();
+        for (coview, landmarks) in &covisibilities {
+            for &landmark in landmarks {
+                landmark_views.entry(landmark).or_default().insert(*coview);
+            }
+        }
+        // Go through every combination of these candidate views and look for ones that have a sufficient quantity of
+        // covisible robust landmarks.
+        let mut robust_three_view_covisibilities = candidate_views
+            .iter()
+            .copied()
+            .tuple_combinations()
+            .map(|(a, b)| {
+                let covisible_landmarks = covisibilities[&a]
+                    .iter()
+                    .copied()
+                    .filter(|landmark| landmark_views[landmark].contains(&b))
+                    .collect_vec();
+                (canonical_view_order([view, a, b]), covisible_landmarks)
+            })
+            .filter(|(_, covisible_landmarks)| {
+                covisible_landmarks.len()
                     >= self
                         .settings
                         .optimization_robust_covisibility_minimum_landmarks
-            });
-            // Get the remaining views into a vector.
-            let candidate_views = covisibilities.keys().copied().collect_vec();
-            // Flip this so that we can find if a view contains a landmark.
-            let mut landmark_views: HashMap<LandmarkKey, HashSet<ViewKey>> = HashMap::new();
-            for (coview, landmarks) in &covisibilities {
-                for &landmark in landmarks {
-                    landmark_views.entry(landmark).or_default().insert(*coview);
-                }
-            }
-            // Go through every combination of these candidate views and look for ones that have a sufficient quantity of
-            // covisible robust landmarks.
-            let mut robust_three_view_covisibilities = candidate_views
-                .iter()
-                .copied()
-                .tuple_combinations()
-                .map(|(a, b)| {
-                    let covisible_landmarks = covisibilities[&a]
-                        .iter()
-                        .copied()
-                        .filter(|landmark| landmark_views[landmark].contains(&b))
-                        .collect_vec();
-                    (sorted([view, a, b]), covisible_landmarks)
-                })
-                .filter(|(_, covisible_landmarks)| {
-                    covisible_landmarks.len()
-                        >= self
-                            .settings
-                            .optimization_robust_covisibility_minimum_landmarks
-                })
-                .collect_vec();
+            })
+            .collect_vec();
 
-            // Sort the covisibilities such that the best ones show up first.
-            robust_three_view_covisibilities.sort_unstable_by_key(|(_, covisible_landmarks)| {
-                cmp::Reverse(covisible_landmarks.len())
-            });
+        // Sort the covisibilities such that the best ones show up first.
+        robust_three_view_covisibilities.sort_unstable_by_key(|(_, covisible_landmarks)| {
+            cmp::Reverse(covisible_landmarks.len())
+        });
 
-            // Limit the number of constraints to only the best constraints.
-            robust_three_view_covisibilities
-                .truncate(self.settings.optimization_maximum_three_view_constraints);
+        // Limit the number of constraints to only the best constraints.
+        robust_three_view_covisibilities
+            .truncate(self.settings.optimization_maximum_three_view_constraints);
 
-            // Any constraint which is already imposed counts and doesn't need to be re-imposed (less work).
-            robust_three_view_covisibilities.retain(|(key, _)| !constraints.contains_key(key));
-
-            // Compute the `ThreeViewConstraint` for each robust three view covisibility.
-            for (views, landmarks) in robust_three_view_covisibilities {
-                if let Some([first_pose, second_pose]) =
-                    self.optimize_three_view(reconstruction, views, landmarks)
-                {
-                    let three_view_constraint = ThreeViewConstraint {
-                        views,
-                        poses: [first_pose.isometry(), second_pose.isometry()],
-                    };
-                    constraints.insert(views, three_view_constraint);
-                } else {
-                    for view in views {
-                        *strikes.entry(view).or_default() += 1;
-                    }
-                }
-            }
-        }
-
-        let mut edges: HashMap<ViewKey, Vec<(ViewKey, IsometryMatrix3<f64>)>> = HashMap::new();
-        for (view, constraint) in constraints
+        // Compute the `ThreeViewConstraint` for each robust three view covisibility.
+        robust_three_view_covisibilities
             .into_iter()
-            .flat_map(|(_, constraint)| constraint.edge_constraints())
+            .filter_map(move |(views, landmarks)| {
+                self.optimize_three_view(reconstruction, views, landmarks)
+            })
+    }
+
+    /// Gets the flattened constraints for a reconstruction for optimization.
+    fn flatten_constraints(
+        &self,
+        reconstruction: ReconstructionKey,
+    ) -> HashMap<ViewKey, Vec<(ViewKey, IsometryMatrix3<f64>)>> {
+        let mut edges: HashMap<ViewKey, Vec<(ViewKey, IsometryMatrix3<f64>)>> = HashMap::new();
+        for (view, constraint) in self.data.reconstructions[reconstruction]
+            .constraints
+            .values()
+            .flat_map(|constraint| constraint.edge_constraints())
         {
             edges.entry(view).or_default().push(constraint);
         }
-        Constraints { edges, strikes }
+        edges
     }
 
     /// Get all of the covisibilities of a view (using robust landmarks).
@@ -2724,6 +2740,19 @@ where
         }
         info!("SANITY CHECK ENDED");
     }
+}
+
+pub fn is_observation_good_raw(
+    pose: WorldToCamera,
+    bearing: impl Bearing,
+    point: WorldPoint,
+    threshold: f64,
+) -> bool {
+    let bearing = bearing.bearing();
+    let view_point = pose.transform(point);
+    let residual = 1.0 - bearing.dot(&view_point.bearing());
+    // If the observation is finite and has a low enough residual, it is good.
+    residual.is_finite() && residual < threshold
 }
 
 fn matching(a_frame: &Frame, b_frame: &Frame, better_by: u32) -> Vec<Option<usize>> {

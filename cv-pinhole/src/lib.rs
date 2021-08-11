@@ -166,7 +166,9 @@ impl CameraModel for CameraIntrinsics {
         let centered = point.image_point() - self.principal_point;
         let y = centered.y / self.focals.y;
         let x = (centered.x - self.skew * y) / self.focals.x;
-        NormalizedKeyPoint(Point2::new(x, y))
+        // Y is flipped to be up because the image coordinates have Y being down but we use
+        // a left-handed coordinate system from here on out.
+        NormalizedKeyPoint(Point2::new(x, -y))
     }
 
     /// Converts a [`NormalizedKeyPoint`] back into pixel coordinates.
@@ -186,8 +188,8 @@ impl CameraModel for CameraIntrinsics {
     /// assert!((kp.0 - ukp.0).norm() < 1e-6);
     /// ```
     fn uncalibrate(&self, projection: NormalizedKeyPoint) -> KeyPoint {
-        let y = projection.y * self.focals.y;
-        let x = projection.x * self.focals.x + self.skew * projection.y;
+        let y = -projection.y * self.focals.y;
+        let x = projection.x * self.focals.x + self.skew * -projection.y;
         let centered = Point2::new(x, y);
         KeyPoint(centered + self.principal_point.coords)
     }
