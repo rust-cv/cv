@@ -2352,7 +2352,10 @@ where
     }
 
     /// Remove all constraints in the reconstruction and re-generate all constraints.
-    pub fn regenerate_reconstruction(&mut self, reconstruction: ReconstructionKey) {
+    pub fn regenerate_reconstruction(
+        &mut self,
+        reconstruction: ReconstructionKey,
+    ) -> Option<ReconstructionKey> {
         // Remove all constraints.
         self.data.reconstructions[reconstruction]
             .constraints
@@ -2367,8 +2370,11 @@ where
             // TODO: This might leave the graph disconnected
             // if a set of views only connect to each other and not the surrounding graph.
             // This needs to be fixed eventually.
-            self.record_view_constraints(reconstruction, view);
+            if !self.record_view_constraints(reconstruction, view) {
+                self.data.remove_view(reconstruction, view);
+            }
         }
+        self.optimize_reconstruction(reconstruction)
     }
 
     /// Splits all observations in the landmark into their own separate landmarks.
