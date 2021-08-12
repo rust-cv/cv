@@ -1777,7 +1777,9 @@ where
         }
 
         for view in dest_views {
-            self.record_view_constraints(dest_reconstruction, view);
+            if !self.record_view_constraints(dest_reconstruction, view) {
+                self.data.remove_view(dest_reconstruction, view);
+            }
         }
 
         self.data.reconstructions.remove(src_reconstruction);
@@ -1948,14 +1950,14 @@ where
     }
 
     /// Generate and add view constraints to reconstruction.
+    ///
+    /// Returns `true` if enough constraints were added.
     fn record_view_constraints(
         &mut self,
         reconstruction: ReconstructionKey,
         view: ViewKey,
     ) -> bool {
-        let constraints = self
-            .generate_view_constraints(reconstruction, view)
-            .collect_vec();
+        let constraints = self.generate_view_constraints(reconstruction, view);
         if constraints.len() < self.settings.optimization_minimum_new_constraints {
             return false;
         }
@@ -2228,7 +2230,7 @@ where
         &self,
         reconstruction: ReconstructionKey,
         view: ViewKey,
-    ) -> impl Iterator<Item = ThreeViewConstraint> + '_ {
+    ) -> Vec<ThreeViewConstraint> {
         // Get all of the covisibilities of this view by robust landmarks.
         let mut covisibilities = self.view_covisibilities(reconstruction, view);
         // Take only the covisibilities which satisfy the minimum landmarks requirement.
@@ -2284,6 +2286,7 @@ where
             .filter_map(move |(views, landmarks)| {
                 self.optimize_three_view(reconstruction, views, landmarks)
             })
+            .collect()
     }
 
     /// Gets the flattened constraints for a reconstruction for optimization.
@@ -2551,7 +2554,10 @@ where
             {
                 // If the landmark still exists, search its nearest neighbors (up to 4, the first is itself).
                 let position: &[f64; 3] = landmark_point_a.geom();
-                for landmark_point_b in landmark_index.nearest_neighbor_iter(position).take(5) {
+                for landmark_point_b in landmark_index
+                    .nearest_neighbor_iter(position)
+                    .take(self.settings.merge_nearest_neighbors)
+                {
                     // Check if it is not matched to itself, if landmark b still exists, and if merging was successful.
                     if landmark_point_a.data != landmark_point_b.data
                         && self

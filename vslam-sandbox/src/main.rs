@@ -9,7 +9,8 @@ use cv::{
 use log::*;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256PlusPlus;
-use std::path::PathBuf;
+use slotmap::Key;
+use std::{collections::HashSet, path::PathBuf};
 use structopt::StructOpt;
 
 #[derive(StructOpt, Clone)]
@@ -117,39 +118,43 @@ fn main() {
     // Add the feed.
     let feed = vslam.add_feed(intrinsics);
 
+    let mut normalized = HashSet::new();
+
     // Add the frames.
     for frame_path in &opt.images {
         info!("loading image {}", frame_path.display());
         let image = image::open(frame_path).expect("failed to load image");
         let frame = vslam.add_frame(feed, &image);
         if let Some((reconstruction, _)) = vslam.data.frame(frame).view {
-            if vslam.data.reconstruction(reconstruction).views.len() == 4 {
+            if normalized.insert(reconstruction) {
+                info!("new reconstruction; normalizing reconstruction");
                 vslam.normalize_reconstruction(reconstruction);
             }
-        }
-        info!("exporting all reconstructions");
-        if let Some(path) = &opt.output {
-            if !path.is_dir() {
-                warn!("output path is not a directory; it must be a directory; skipping export");
-            } else {
-                // Keep track of the old settings
-                let old_settings = vslam.settings;
-                // Set the settings based on the command line arguments for export purposes.
-                vslam.settings.maximum_cosine_distance = opt.export_maximum_cosine_distance;
-                vslam.settings.robust_maximum_cosine_distance = opt.export_maximum_cosine_distance;
-                vslam.settings.robust_minimum_observations = opt.export_robust_minimum_observations;
-                let reconstructions: Vec<_> = vslam.data.reconstructions().enumerate().collect();
-                for (ix, reconstruction) in reconstructions {
+            info!("exporting reconstruction");
+            if let Some(path) = &opt.output {
+                if !path.is_dir() {
+                    warn!(
+                        "output path is not a directory; it must be a directory; skipping export"
+                    );
+                } else {
+                    // Keep track of the old settings
+                    let old_settings = vslam.settings;
+                    // Set the settings based on the command line arguments for export purposes.
+                    vslam.settings.maximum_cosine_distance = opt.export_maximum_cosine_distance;
+                    vslam.settings.robust_maximum_cosine_distance =
+                        opt.export_maximum_cosine_distance;
+                    vslam.settings.robust_minimum_observations =
+                        opt.export_robust_minimum_observations;
                     let path = path.join(format!(
                         "{}_{}.ply",
                         frame_path.file_name().unwrap().to_str().unwrap(),
-                        ix
+                        reconstruction.data().as_ffi()
                     ));
                     vslam.export_reconstruction(reconstruction, &path);
                     info!("exported {}", path.display());
+                    // Restore the pre-export settings.
+                    vslam.settings = old_settings;
                 }
-                // Restore the pre-export settings.
-                vslam.settings = old_settings;
             }
         }
     }
