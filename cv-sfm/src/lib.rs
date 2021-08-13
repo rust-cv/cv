@@ -1664,7 +1664,10 @@ where
 
         let num_robust_final_matches = final_matches
             .values()
-            .filter(|&&landmark| self.triangulate_landmark_robust(reconstruction_key, landmark).is_some())
+            .filter(|&&landmark| {
+                self.triangulate_landmark_robust(reconstruction_key, landmark)
+                    .is_some()
+            })
             .count();
 
         let inlier_ratio = final_matches.len() as f64 / original_matches_len as f64;
@@ -2324,7 +2327,10 @@ where
     ) -> HashMap<ViewKey, Vec<LandmarkKey>> {
         let mut covisibilities: HashMap<ViewKey, Vec<LandmarkKey>> = HashMap::new();
         for &landmark in &self.data.reconstructions[reconstruction].views[view].landmarks {
-            if self.triangulate_landmark_robust(reconstruction, landmark).is_some() {
+            if self
+                .triangulate_landmark_robust(reconstruction, landmark)
+                .is_some()
+            {
                 for &coview in self.data.reconstructions[reconstruction].landmarks[landmark]
                     .observations
                     .keys()
@@ -2394,7 +2400,10 @@ where
             .reconstruction(reconstruction)
             .landmarks
             .keys()
-            .filter(|&landmark| self.triangulate_landmark_robust(reconstruction, landmark).is_some())
+            .filter(|&landmark| {
+                self.triangulate_landmark_robust(reconstruction, landmark)
+                    .is_some()
+            })
             .count();
         info!(
             "started with {} robust landmarks",
@@ -2431,7 +2440,10 @@ where
             .reconstruction(reconstruction)
             .landmarks
             .keys()
-            .filter(|&landmark| self.triangulate_landmark_robust(reconstruction, landmark).is_some())
+            .filter(|&landmark| {
+                self.triangulate_landmark_robust(reconstruction, landmark)
+                    .is_some()
+            })
             .count();
         info!("ended with {} robust landmarks", final_num_robust_landmarks,);
 
@@ -2484,7 +2496,10 @@ where
 
         // Split any landmark that isnt robust.
         for landmark in landmarks {
-            if self.triangulate_landmark_robust(reconstruction, landmark).is_none() {
+            if self
+                .triangulate_landmark_robust(reconstruction, landmark)
+                .is_none()
+            {
                 self.split_landmark(reconstruction, landmark);
             }
         }
