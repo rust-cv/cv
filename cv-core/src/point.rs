@@ -1,4 +1,4 @@
-use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
+use derive_more::{AsMut, AsRef, From, Into};
 use nalgebra::{Point3, Unit, Vector3, Vector4};
 
 #[cfg(feature = "serde-serialize")]
@@ -44,7 +44,7 @@ pub trait Projective: From<Vector4<f64>> + Clone + Copy {
 /// the positive X axis is right, positive Y axis is down, and positive Z axis is forwards
 /// from the optical center of the camera. The unit of distance of a `CameraPoint` is
 /// unspecified and relative to the current reconstruction.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, From, Into)]
 #[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct CameraPoint(pub Vector4<f64>);
 
@@ -87,7 +87,7 @@ impl Projective for CameraPoint {
 /// If you must join two reconstructions, please solve for the similarity (rotation, translation and scale)
 /// between the two reconstructions using an optimizer. APIs will eventually be added to perform this operation
 /// as well.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, From, Into)]
 #[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct WorldPoint(pub Vector4<f64>);
 
