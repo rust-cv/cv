@@ -1073,7 +1073,7 @@ where
                 common.len()
             );
 
-            let loss_cutoff = self.settings.maximum_cosine_distance;
+            let loss_cutoff = self.settings.three_view_loss_cutoff;
             info!("optimizing poses with loss cutoff {}", loss_cutoff);
 
             info!(
@@ -1664,7 +1664,7 @@ where
 
         let num_robust_final_matches = final_matches
             .values()
-            .filter(|&&landmark| self.is_landmark_robust(reconstruction_key, landmark))
+            .filter(|&&landmark| self.triangulate_landmark_robust(reconstruction_key, landmark).is_some())
             .count();
 
         let inlier_ratio = final_matches.len() as f64 / original_matches_len as f64;
@@ -2324,7 +2324,7 @@ where
     ) -> HashMap<ViewKey, Vec<LandmarkKey>> {
         let mut covisibilities: HashMap<ViewKey, Vec<LandmarkKey>> = HashMap::new();
         for &landmark in &self.data.reconstructions[reconstruction].views[view].landmarks {
-            if self.is_landmark_robust(reconstruction, landmark) {
+            if self.triangulate_landmark_robust(reconstruction, landmark).is_some() {
                 for &coview in self.data.reconstructions[reconstruction].landmarks[landmark]
                     .observations
                     .keys()
@@ -2394,7 +2394,7 @@ where
             .reconstruction(reconstruction)
             .landmarks
             .keys()
-            .filter(|&landmark| self.is_landmark_robust(reconstruction, landmark))
+            .filter(|&landmark| self.triangulate_landmark_robust(reconstruction, landmark).is_some())
             .count();
         info!(
             "started with {} robust landmarks",
@@ -2431,7 +2431,7 @@ where
             .reconstruction(reconstruction)
             .landmarks
             .keys()
-            .filter(|&landmark| self.is_landmark_robust(reconstruction, landmark))
+            .filter(|&landmark| self.triangulate_landmark_robust(reconstruction, landmark).is_some())
             .count();
         info!("ended with {} robust landmarks", final_num_robust_landmarks,);
 
@@ -2484,7 +2484,7 @@ where
 
         // Split any landmark that isnt robust.
         for landmark in landmarks {
-            if !self.is_landmark_robust(reconstruction, landmark) {
+            if self.triangulate_landmark_robust(reconstruction, landmark).is_none() {
                 self.split_landmark(reconstruction, landmark);
             }
         }
@@ -2514,8 +2514,12 @@ where
         landmark_b: LandmarkKey,
     ) -> Option<LandmarkKey> {
         // First, check if both landmarks are robust. If either is not robust, they should not be merged.
-        if !self.is_landmark_robust(reconstruction, landmark_a)
-            || !self.is_landmark_robust(reconstruction, landmark_b)
+        if self
+            .triangulate_landmark_robust(reconstruction, landmark_a)
+            .is_none()
+            || self
+                .triangulate_landmark_robust(reconstruction, landmark_b)
+                .is_none()
         {
             return None;
         }
@@ -2635,34 +2639,6 @@ where
         info!("merged {} landmarks", num_merged);
     }
 
-    /// This checks if a landmark is sufficiently robust by observing its number of robust observations and the largest
-    /// observed angle of incidence to see if they are within appropriate thresholds.
-    pub fn is_landmark_robust(
-        &self,
-        reconstruction: ReconstructionKey,
-        landmark: LandmarkKey,
-    ) -> bool {
-        self.landmark_robust_observations(reconstruction, landmark)
-            .count()
-            >= self.settings.robust_minimum_observations
-            && self
-                .landmark_robust_observations(reconstruction, landmark)
-                .map(|(view, feature)| {
-                    let pose = self.data.pose(reconstruction, view).inverse();
-                    pose.isometry()
-                        * self
-                            .data
-                            .observation_keypoint(reconstruction, view, feature)
-                })
-                .tuple_combinations()
-                .any(|(bearing_a, bearing_b)| {
-                    1.0 - bearing_a.dot(&bearing_b)
-                        > self
-                            .settings
-                            .robust_observation_incidence_minimum_cosine_distance
-                })
-    }
-
     pub fn triangulate_landmark(
         &self,
         reconstruction: ReconstructionKey,
@@ -2699,14 +2675,32 @@ where
         reconstruction: ReconstructionKey,
         landmark: LandmarkKey,
     ) -> Option<WorldPoint> {
-        if self.is_landmark_robust(reconstruction, landmark) {
-            self.triangulate_observations(
-                reconstruction,
-                self.landmark_robust_observations(reconstruction, landmark),
-            )
-        } else {
-            None
-        }
+        // Retrieve the robust observations.
+        let robust_observations = self
+            .landmark_robust_observations(reconstruction, landmark)
+            .collect_vec();
+        // Ensure we have the minimum robust observations.
+        (robust_observations.len() >= self.settings.robust_minimum_observations).then(|| ())?;
+        // Ensure at least two robust observations have an incidence angle between them exceeding the minimum.
+        robust_observations
+            .iter()
+            .map(|&(view, feature)| {
+                let pose = self.data.pose(reconstruction, view).inverse();
+                pose.isometry()
+                    * self
+                        .data
+                        .observation_keypoint(reconstruction, view, feature)
+            })
+            .tuple_combinations()
+            .any(|(bearing_a, bearing_b)| {
+                1.0 - bearing_a.dot(&bearing_b)
+                    > self
+                        .settings
+                        .robust_observation_incidence_minimum_cosine_distance
+            })
+            .then(|| ())?;
+        // Lastly, triangulate the point.
+        self.triangulate_observations(reconstruction, robust_observations.iter().copied())
     }
 
     pub fn triangulate_landmark_with_appended_observations(

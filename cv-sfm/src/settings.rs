@@ -185,6 +185,12 @@ pub struct VSlamSettings {
         serde(default = "default_three_view_std_dev_threshold")
     )]
     pub three_view_std_dev_threshold: f64,
+    /// The maximum cosine distance before the loss is capped during optimization, treating a point as an outlier.
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_three_view_loss_cutoff")
+    )]
+    pub three_view_loss_cutoff: f64,
     /// The maximum iterations to run three-view optimization and filtering
     #[cfg_attr(
         feature = "serde-serialize",
@@ -341,6 +347,7 @@ impl Default for VSlamSettings {
             three_view_relative_scale_incidence_minimum_cosine_distance:
                 default_three_view_relative_scale_incidence_minimum_cosine_distance(),
             three_view_std_dev_threshold: default_three_view_std_dev_threshold(),
+            three_view_loss_cutoff: default_three_view_loss_cutoff(),
             three_view_filter_loop_iterations: default_three_view_filter_loop_iterations(),
             three_view_optimization_landmarks: default_three_view_optimization_landmarks(),
             three_view_inlier_ratio_threshold: default_three_view_inlier_ratio_threshold(),
@@ -375,7 +382,7 @@ fn default_akaze_threshold() -> f64 {
 }
 
 fn default_robust_maximum_cosine_distance() -> f64 {
-    5e-6
+    2e-6
 }
 
 fn default_minimum_robust_landmarks() -> usize {
@@ -399,7 +406,7 @@ fn default_merge_nearest_neighbors() -> usize {
 }
 
 fn default_robust_observation_incidence_minimum_cosine_distance() -> f64 {
-    1e-3
+    3e-3
 }
 
 fn default_single_view_consensus_threshold() -> f64 {
@@ -488,6 +495,10 @@ fn default_three_view_minimum_relative_scales() -> usize {
 
 fn default_three_view_std_dev_threshold() -> f64 {
     1e-16
+}
+
+fn default_three_view_loss_cutoff() -> f64 {
+    1e-5
 }
 
 fn default_three_view_filter_loop_iterations() -> usize {
