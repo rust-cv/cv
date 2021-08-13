@@ -1,22 +1,47 @@
-use crate::{Bearing, CameraPoint, CameraToCamera, Pose, WorldPoint, WorldToCamera};
+use crate::{CameraPoint, CameraToCamera, Pose, Projective, WorldPoint, WorldToCamera};
+use nalgebra::UnitVector3;
 
 /// This trait is for algorithms which allow you to triangulate a point from two or more observances.
-/// Each observance is a [`WorldToCamera`] and a [`Bearing`].
+/// Each observance is a [`WorldToCamera`] and a bearing.
 pub trait TriangulatorObservations {
-    fn triangulate_observations<B: Bearing>(
+    /// This function takes a series of [`WorldToCamera`] and bearings that (supposedly) correspond to the same 3d point.
+    /// It returns the triangulated [`WorldPoint`] if successful.
+    fn triangulate_observations(
         &self,
-        pairs: impl IntoIterator<Item = (WorldToCamera, B)>,
+        pairs: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)>,
     ) -> Option<WorldPoint>;
+
+    /// This function takes one bearing (`center_bearing`) coming from the camera whos reference frame we will
+    /// triangulate the [`CameraPoint`] in and an iterator over a series of observations
+    /// from other cameras, along with the transformation from the original camera to the observation's camera.
+    /// It returns the triangulated [`CameraPoint`] if successful.
+    #[inline(always)]
+    fn triangulate_observations_to_camera(
+        &self,
+        center_bearing: UnitVector3<f64>,
+        pairs: impl Iterator<Item = (CameraToCamera, UnitVector3<f64>)>,
+    ) -> Option<CameraPoint> {
+        use core::iter::once;
+
+        // We use the first camera as the "world", thus it is the identity (optical center at origin).
+        // The each subsequent pose maps the first camera (the world) to the second camera (the camera).
+        // This is how we convert the `CameraToCamera` into a `WorldToCamera`.
+        self.triangulate_observations(
+            once((WorldToCamera::identity(), center_bearing))
+                .chain(pairs.map(|(pose, bearing)| (WorldToCamera(pose.0), bearing))),
+        )
+        .map(|p| CameraPoint::from_homogeneous(p.0))
+    }
 }
 
 /// This trait allows you to take one relative pose from camera `A` to camera `B` and two bearings `a` and `b` from
 /// their respective cameras to triangulate a point from the perspective of camera `A`.
 pub trait TriangulatorRelative {
-    fn triangulate_relative<A: Bearing, B: Bearing>(
+    fn triangulate_relative(
         &self,
         relative_pose: CameraToCamera,
-        a: A,
-        b: B,
+        a: UnitVector3<f64>,
+        b: UnitVector3<f64>,
     ) -> Option<CameraPoint>;
 }
 
@@ -24,22 +49,15 @@ impl<T> TriangulatorRelative for T
 where
     T: TriangulatorObservations,
 {
-    fn triangulate_relative<A: Bearing, B: Bearing>(
+    #[inline(always)]
+    fn triangulate_relative(
         &self,
-        CameraToCamera(pose): CameraToCamera,
-        a: A,
-        b: B,
+        pose: CameraToCamera,
+        a: UnitVector3<f64>,
+        b: UnitVector3<f64>,
     ) -> Option<CameraPoint> {
         use core::iter::once;
 
-        // We use the first camera as the "world".
-        // The first pose maps the first camera to itself (the world).
-        // The second pose maps the first camera (the world) to the second camera (the camera).
-        // This is how we convert the `CameraToCamera` into a `WorldToCamera`.
-        self.triangulate_observations(
-            once((WorldToCamera::identity(), a.bearing()))
-                .chain(once((WorldToCamera(pose), b.bearing()))),
-        )
-        .map(|p| CameraPoint(p.0))
+        self.triangulate_observations_to_camera(a, once((pose, b)))
     }
 }

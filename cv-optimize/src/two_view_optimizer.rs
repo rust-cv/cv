@@ -10,7 +10,7 @@ use cv_core::{
         DMatrix, DVector, Matrix3, UnitVector3, VecStorage, Vector2, Vector3, Vector4, Vector5,
         Vector6,
     },
-    Bearing, CameraPoint, CameraToCamera, FeatureMatch, Pose, Projective, TriangulatorRelative,
+    CameraPoint, CameraToCamera, FeatureMatch, Pose, Projective, TriangulatorRelative,
 };
 use levenberg_marquardt::LeastSquaresProblem;
 
@@ -62,10 +62,9 @@ pub struct StructurelessTwoViewOptimizer<I, T> {
     triangulator: T,
 }
 
-impl<I, P, T> StructurelessTwoViewOptimizer<I, T>
+impl<I, T> StructurelessTwoViewOptimizer<I, T>
 where
-    I: Iterator<Item = FeatureMatch<P>> + Clone,
-    P: Bearing,
+    I: Iterator<Item = FeatureMatch> + Clone,
     T: TriangulatorRelative,
 {
     pub fn new(matches: I, triangulator: T) -> Self {
@@ -83,18 +82,12 @@ where
         }
     }
 
-    pub fn residuals(&self, pose: CameraToCamera) -> impl Iterator<Item = f64> + '_
-    where
-        P: Clone,
-    {
+    pub fn residuals(&self, pose: CameraToCamera) -> impl Iterator<Item = f64> + '_ {
         self.matches.clone().flat_map(move |FeatureMatch(a, b)| {
-            if let Some(pa) = self
-                .triangulator
-                .triangulate_relative(pose, a.clone(), b.clone())
-            {
+            if let Some(pa) = self.triangulator.triangulate_relative(pose, a, b) {
                 let pb = pose.transform(pa);
-                let sim_a = pa.bearing().dot(&a.bearing());
-                let sim_b = pb.bearing().dot(&b.bearing());
+                let sim_a = pa.bearing().dot(&a);
+                let sim_b = pb.bearing().dot(&b);
                 let loss = |n: f64| {
                     if n > self.loss_cutoff {
                         self.loss_cutoff
@@ -110,10 +103,9 @@ where
     }
 }
 
-impl<I, P, T> ArgminOp for StructurelessTwoViewOptimizer<I, T>
+impl<I, T> ArgminOp for StructurelessTwoViewOptimizer<I, T>
 where
-    I: Iterator<Item = FeatureMatch<P>> + Clone,
-    P: Bearing + Clone,
+    I: Iterator<Item = FeatureMatch> + Clone,
     T: TriangulatorRelative + Clone,
 {
     type Param = Vector5<f64>;
@@ -150,10 +142,9 @@ pub struct TwoViewOptimizer<I, T> {
     triangulator: T,
 }
 
-impl<I, P, T> TwoViewOptimizer<I, T>
+impl<I, T> TwoViewOptimizer<I, T>
 where
-    I: Iterator<Item = FeatureMatch<P>> + Clone,
-    P: Bearing,
+    I: Iterator<Item = FeatureMatch> + Clone,
     T: TriangulatorRelative,
 {
     pub fn new(matches: I, pose: CameraToCamera, triangulator: T) -> Self {
@@ -178,10 +169,9 @@ where
     }
 }
 
-impl<I, P, T> LeastSquaresProblem<f64, Dynamic, Dynamic> for TwoViewOptimizer<I, T>
+impl<I, T> LeastSquaresProblem<f64, Dynamic, Dynamic> for TwoViewOptimizer<I, T>
 where
-    I: Iterator<Item = FeatureMatch<P>> + Clone,
-    P: Bearing,
+    I: Iterator<Item = FeatureMatch> + Clone,
     T: TriangulatorRelative + Clone,
 {
     /// Storage type used for the residuals. Use `nalgebra::storage::Owned<F, M>`
@@ -195,7 +185,7 @@ where
         self.pose = Pose::from_se3(Vector6::new(x[0], x[1], x[2], x[3], x[4], x[5]));
         for (ix, point) in self.points.iter_mut().enumerate() {
             if let Some(p) = point {
-                *p = CameraPoint(x.fixed_rows::<4>(6 + 4 * ix).into_owned());
+                *p = Projective::from_homogeneous(x.fixed_rows::<4>(6 + 4 * ix).into_owned());
             }
         }
     }
@@ -204,14 +194,20 @@ where
     fn params(&self) -> DVector<f64> {
         let pose_len = 6;
         let point_len = self.points.len() * 4;
-        let zeros = Vector4::zeros();
         DVector::from_iterator(
             pose_len + point_len,
-            self.pose.se3().iter().copied().chain(
-                self.points
-                    .iter()
-                    .flat_map(|p| p.as_ref().map(|p| &p.0).unwrap_or(&zeros).iter().copied()),
-            ),
+            self.pose
+                .se3()
+                .iter()
+                .copied()
+                .chain(self.points.iter().flat_map(|p| {
+                    std::array::IntoIter::new(
+                        p.as_ref()
+                            .map(|p| p.homogeneous())
+                            .unwrap_or_else(Vector4::zeros)
+                            .into(),
+                    )
+                })),
         )
     }
 
@@ -225,8 +221,8 @@ where
                 .flat_map(|(pa, FeatureMatch(a, b))| {
                     if let Some(pa) = *pa {
                         let pb = self.pose.transform(pa);
-                        let sim_a = pa.bearing().dot(&a.bearing());
-                        let sim_b = pb.bearing().dot(&b.bearing());
+                        let sim_a = pa.bearing().dot(&a);
+                        let sim_b = pb.bearing().dot(&b);
                         let loss = |n: f64| {
                             if n > self.loss_cutoff {
                                 self.loss_cutoff
@@ -260,15 +256,12 @@ where
 
             // Get the bearings.
             let ap_bearing = ap.bearing().into_inner();
-            let ap_xyz_norm = ap.bearing_unnormalized().norm();
             let bp_bearing = bp.bearing().into_inner();
-            let bp_xyz_norm = bp.bearing_unnormalized().norm();
 
             // The jacobian relating the a residual to the normalized form of ap.
-            let jacobian_ares_ap_bearing = -a.bearing().into_inner().transpose();
+            let jacobian_ares_ap_bearing = -a.into_inner().transpose();
             // The jacobian relating the normalized form of ap to ap.
-            let jacobian_ap_bearing =
-                (Matrix3::identity() - ap_bearing * ap_bearing.transpose()) / ap_xyz_norm;
+            let jacobian_ap_bearing = Matrix3::identity() - ap_bearing * ap_bearing.transpose();
 
             // Form the jacobian relating the a residual to ap.
             let jacobian_ares_ap = (jacobian_ares_ap_bearing * jacobian_ap_bearing)
@@ -277,10 +270,9 @@ where
                 .transpose();
 
             // The jacobian relating the b residual to the normalized form of bp.
-            let jacobian_bres_bp_bearing = -b.bearing().into_inner().transpose();
+            let jacobian_bres_bp_bearing = -b.into_inner().transpose();
             // The jacobian relating the normalized form of bp to bp.
-            let jacobian_bp_bearing =
-                (Matrix3::identity() - bp_bearing * bp_bearing.transpose()) / bp_xyz_norm;
+            let jacobian_bp_bearing = Matrix3::identity() - bp_bearing * bp_bearing.transpose();
 
             // Form the jacobian relating the b residual to bp.
             // A 0 is appended because the homogeneous dimension has no effect (the transpose is needed due to nalgebra prefering column vectors).

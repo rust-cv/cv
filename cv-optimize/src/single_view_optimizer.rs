@@ -3,7 +3,7 @@ use argmin::{
     solver::neldermead::NelderMead,
 };
 use average::Mean;
-use cv_core::{nalgebra::Vector6, Bearing, FeatureWorldMatch, Pose, Projective, WorldToCamera};
+use cv_core::{nalgebra::Vector6, FeatureWorldMatch, Pose, Projective, WorldToCamera};
 
 pub fn single_view_nelder_mead(pose: WorldToCamera) -> NelderMead<Vector6<f64>, f64> {
     let original = pose.se3();
@@ -23,15 +23,12 @@ pub fn single_view_nelder_mead(pose: WorldToCamera) -> NelderMead<Vector6<f64>, 
 }
 
 #[derive(Clone)]
-pub struct SingleViewOptimizer<B> {
+pub struct SingleViewOptimizer {
     loss_cutoff: f64,
-    landmarks: Vec<FeatureWorldMatch<B>>,
+    landmarks: Vec<FeatureWorldMatch>,
 }
 
-impl<B> SingleViewOptimizer<B>
-where
-    B: Bearing + Clone,
-{
+impl SingleViewOptimizer {
     /// Creates a ManyViewConstraint.
     ///
     /// Note that `landmarks` is an iterator over each landmark. Each landmark is an iterator over each
@@ -40,7 +37,7 @@ where
     ///
     /// A landmark is often called a "track" by other MVG software, but the term landmark is preferred to avoid
     /// ambiguity between "camera tracking" and "a track".
-    pub fn new(landmarks: Vec<FeatureWorldMatch<B>>) -> Self {
+    pub fn new(landmarks: Vec<FeatureWorldMatch>) -> Self {
         Self {
             loss_cutoff: 0.0001,
             landmarks,
@@ -67,15 +64,12 @@ where
             .iter()
             .map(move |FeatureWorldMatch(bearing, world_point)| {
                 let camera_point = pose.transform(*world_point);
-                self.loss(1.0 - bearing.bearing().dot(&camera_point.bearing()))
+                self.loss(1.0 - bearing.dot(&camera_point.bearing()))
             })
     }
 }
 
-impl<B> ArgminOp for SingleViewOptimizer<B>
-where
-    B: Bearing + Clone,
-{
+impl ArgminOp for SingleViewOptimizer {
     type Param = Vector6<f64>;
     type Output = f64;
     type Hessian = ();

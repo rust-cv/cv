@@ -2,11 +2,10 @@ use approx::assert_relative_eq;
 use arrayvec::ArrayVec;
 use arrsac::Arrsac;
 use cv_core::{
-    nalgebra::{IsometryMatrix3, Point2, Point3, Rotation3, Translation, Vector3},
+    nalgebra::{IsometryMatrix3, Point2, Point3, Rotation3, Translation, UnitVector3, Vector3},
     sample_consensus::Consensus,
-    FeatureWorldMatch,
+    FeatureWorldMatch, Projective,
 };
-use cv_pinhole::NormalizedKeyPoint;
 use lambda_twist::LambdaTwist;
 use rand::{rngs::SmallRng, SeedableRng};
 
@@ -44,10 +43,15 @@ fn arrsac_manual() {
     // Compute normalized image coordinates.
     let normalized_image_coordinates = map(|p| (p / p.z).xy(), camera_depth_points);
 
-    let samples: Vec<FeatureWorldMatch<NormalizedKeyPoint>> = world_points
+    let samples: Vec<FeatureWorldMatch> = world_points
         .iter()
         .zip(&normalized_image_coordinates)
-        .map(|(&world, &image)| FeatureWorldMatch(image.into(), world.to_homogeneous().into()))
+        .map(|(&world, &image)| {
+            FeatureWorldMatch(
+                UnitVector3::new_normalize(image.to_homogeneous()),
+                Projective::from_homogeneous(world.to_homogeneous()),
+            )
+        })
         .collect();
 
     // Estimate potential poses with P3P.
@@ -67,40 +71,58 @@ fn endless_loop_case() {
 
     let samples = [
         FeatureWorldMatch(
-            NormalizedKeyPoint(Point2::new(0.3070512144698557, 0.19317668016026052)),
-            Point3::new(1.0, 1.0, 0.0).to_homogeneous().into(),
+            UnitVector3::new_normalize(
+                Point2::new(0.3070512144698557, 0.19317668016026052).to_homogeneous(),
+            ),
+            Projective::from_point(Point3::new(1.0, 1.0, 0.0)),
         ),
         FeatureWorldMatch(
-            NormalizedKeyPoint(Point2::new(0.3208462966353674, 0.20741702947913013)),
-            Point3::new(1.0, 1.5, 0.0).to_homogeneous().into(),
+            UnitVector3::new_normalize(
+                Point2::new(0.3208462966353674, 0.20741702947913013).to_homogeneous(),
+            ),
+            Projective::from_point(Point3::new(1.0, 1.5, 0.0)),
         ),
         FeatureWorldMatch(
-            NormalizedKeyPoint(Point2::new(0.3070512144698557, 0.19317668016026052)),
-            Point3::new(3.0, 1.0, 0.0).to_homogeneous().into(),
+            UnitVector3::new_normalize(
+                Point2::new(0.3070512144698557, 0.19317668016026052).to_homogeneous(),
+            ),
+            Projective::from_point(Point3::new(3.0, 1.0, 0.0)),
         ),
         FeatureWorldMatch(
-            NormalizedKeyPoint(Point2::new(0.3208462966353674, 0.20741702947913013)),
-            Point3::new(1.0, 2.0, 0.0).to_homogeneous().into(),
+            UnitVector3::new_normalize(
+                Point2::new(0.3208462966353674, 0.20741702947913013).to_homogeneous(),
+            ),
+            Projective::from_point(Point3::new(1.0, 2.0, 0.0)),
         ),
         FeatureWorldMatch(
-            NormalizedKeyPoint(Point2::new(0.3208462966353674, 0.20741702947913013)),
-            Point3::new(2.0, 2.0, 0.0).to_homogeneous().into(),
+            UnitVector3::new_normalize(
+                Point2::new(0.3208462966353674, 0.20741702947913013).to_homogeneous(),
+            ),
+            Projective::from_point(Point3::new(2.0, 2.0, 0.0)),
         ),
         FeatureWorldMatch(
-            NormalizedKeyPoint(Point2::new(0.3070512144698557, 0.19317668016026052)),
-            Point3::new(3.0, 2.0, 0.0).to_homogeneous().into(),
+            UnitVector3::new_normalize(
+                Point2::new(0.3070512144698557, 0.19317668016026052).to_homogeneous(),
+            ),
+            Projective::from_point(Point3::new(3.0, 2.0, 0.0)),
         ),
         FeatureWorldMatch(
-            NormalizedKeyPoint(Point2::new(0.26619553978146293, 0.15033756455213498)),
-            Point3::new(1.0, 3.0, 0.0).to_homogeneous().into(),
+            UnitVector3::new_normalize(
+                Point2::new(0.26619553978146293, 0.15033756455213498).to_homogeneous(),
+            ),
+            Projective::from_point(Point3::new(1.0, 3.0, 0.0)),
         ),
         FeatureWorldMatch(
-            NormalizedKeyPoint(Point2::new(0.3494806979265859, 0.18264329458710366)),
-            Point3::new(2.0, 3.0, 0.0).to_homogeneous().into(),
+            UnitVector3::new_normalize(
+                Point2::new(0.3494806979265859, 0.18264329458710366).to_homogeneous(),
+            ),
+            Projective::from_point(Point3::new(2.0, 3.0, 0.0)),
         ),
         FeatureWorldMatch(
-            NormalizedKeyPoint(Point2::new(0.32132193890323213, 0.15408143785084824)),
-            Point3::new(3.0, 3.0, 0.0).to_homogeneous().into(),
+            UnitVector3::new_normalize(
+                Point2::new(0.32132193890323213, 0.15408143785084824).to_homogeneous(),
+            ),
+            Projective::from_point(Point3::new(3.0, 3.0, 0.0)),
         ),
     ];
 

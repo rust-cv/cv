@@ -29,8 +29,8 @@
 #![no_std]
 
 use cv_core::{
-    nalgebra::{zero, Matrix3x4, Matrix4, RowVector4},
-    Bearing, CameraPoint, CameraToCamera, Pose, TriangulatorObservations, TriangulatorRelative,
+    nalgebra::{zero, Matrix3x4, Matrix4, RowVector4, UnitVector3},
+    CameraPoint, CameraToCamera, Pose, Projective, TriangulatorObservations, TriangulatorRelative,
     WorldPoint, WorldToCamera,
 };
 
@@ -39,7 +39,7 @@ use cv_core::{
 /// This is a quick triangulator to execute and is fairly robust.
 ///
 /// ```
-/// use cv_core::nalgebra::{Vector3, Point3, Rotation3, Unit};
+/// use cv_core::nalgebra::{Vector3, Point3, Rotation3};
 /// use cv_core::{TriangulatorRelative, CameraToCamera, CameraPoint, Pose, Projective};
 /// use cv_geom::MinSquaresTriangulator;
 ///
@@ -93,17 +93,16 @@ impl Default for MinSquaresTriangulator {
 }
 
 impl TriangulatorObservations for MinSquaresTriangulator {
-    fn triangulate_observations<B: Bearing>(
+    fn triangulate_observations(
         &self,
-        pairs: impl IntoIterator<Item = (WorldToCamera, B)>,
+        pairs: impl IntoIterator<Item = (WorldToCamera, UnitVector3<f64>)>,
     ) -> Option<WorldPoint> {
         let mut a: Matrix4<f64> = zero();
         let mut count = 0;
 
         for (pose, bearing) in pairs {
             count += 1;
-            // Get the normalized bearing.
-            let bearing = bearing.bearing().into_inner();
+            let bearing = bearing.into_inner();
             // Get the pose as a 3x4 matrix.
             let rot = pose.0.rotation.matrix();
             let trans = pose.0.translation.vector;
@@ -124,13 +123,16 @@ impl TriangulatorObservations for MinSquaresTriangulator {
 
         let se = a.try_symmetric_eigen(self.epsilon, self.max_iterations)?;
 
+        // Make sure `w` stays positive. If it isn't, the xyz component technically
+        // doesn't point into the correct direction (dividing by `w` would flip vector).
+        // Since we depend on the xyz components pointing in the correct direction, keep `w` positive.
         se.eigenvalues
             .iter()
             .enumerate()
             .min_by_key(|&(_, &n)| float_ord::FloatOrd(n))
             .map(|(ix, _)| se.eigenvectors.column(ix).into_owned())
             .map(|v| if v.w.is_sign_negative() { -v } else { v })
-            .map(Into::into)
+            .map(Projective::from_homogeneous)
     }
 }
 
@@ -177,15 +179,13 @@ impl Default for RelativeDltTriangulator {
 }
 
 impl TriangulatorRelative for RelativeDltTriangulator {
-    fn triangulate_relative<A: Bearing, B: Bearing>(
+    fn triangulate_relative(
         &self,
         relative_pose: CameraToCamera,
-        a: A,
-        b: B,
+        a: UnitVector3<f64>,
+        b: UnitVector3<f64>,
     ) -> Option<CameraPoint> {
         let pose = relative_pose.homogeneous();
-        let a = a.bearing_unnormalized();
-        let b = b.bearing_unnormalized();
         let mut design = Matrix4::zeros();
         design
             .row_mut(0)
@@ -204,12 +204,15 @@ impl TriangulatorRelative for RelativeDltTriangulator {
 
         // Extract the null-space vector from V* corresponding to the smallest
         // singular value and then normalize it back from heterogeneous coordinates.
+        // Make sure `w` stays positive. If it isn't, the xyz component technically
+        // doesn't point into the correct direction (dividing by `w` would flip vector).
+        // Since we depend on the xyz components pointing in the correct direction, keep `w` positive.
         svd.singular_values
             .iter()
             .enumerate()
             .min_by_key(|&(_, &n)| float_ord::FloatOrd(n))
             .map(|(ix, _)| svd.v_t.unwrap().row(ix).transpose().into_owned())
             .map(|v| if v.w.is_sign_negative() { -v } else { v })
-            .map(Into::into)
+            .map(Projective::from_homogeneous)
     }
 }

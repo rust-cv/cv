@@ -1,9 +1,10 @@
 use crate::WorldPoint;
+use nalgebra::UnitVector3;
 
-/// Normalized keypoint match
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
-pub struct FeatureMatch<P>(pub P, pub P);
+/// Two keypoint bearings matched together from two separate images
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FeatureMatch(pub UnitVector3<f64>, pub UnitVector3<f64>);
 
-/// Normalized keypoint to world point match
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
-pub struct FeatureWorldMatch<P>(pub P, pub WorldPoint);
+/// A keypoint bearing matched to a [`WorldPoint`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FeatureWorldMatch(pub UnitVector3<f64>, pub WorldPoint);

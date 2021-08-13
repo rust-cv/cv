@@ -35,7 +35,7 @@ use num_traits::Float;
 use cv_core::{
     nalgebra::{Matrix3, Rotation3, Vector3},
     sample_consensus::Estimator,
-    Bearing, FeatureWorldMatch, Pose, Projective, WorldToCamera,
+    FeatureWorldMatch, Pose, Projective, WorldToCamera,
 };
 
 type Mat3 = Matrix3<f64>;
@@ -104,9 +104,9 @@ impl LambdaTwist {
     ///
     /// The 3x3 matrix `world_3d_points` contains one 3D point per column.
     /// The 3x3 matrix `bearing_vectors` contains one homogeneous image coordinate per column.
-    fn compute_poses_nordberg<P: Bearing>(
+    fn compute_poses_nordberg(
         &self,
-        samples: [FeatureWorldMatch<P>; 3],
+        samples: [FeatureWorldMatch; 3],
     ) -> ArrayVec<WorldToCamera, 4> {
         // Extraction of 3D points vectors
         let to_wp = |&FeatureWorldMatch(_, point)| point.point();
@@ -127,7 +127,7 @@ impl LambdaTwist {
                 return ArrayVec::new();
             },
         ];
-        let to_bearing = |FeatureWorldMatch(point, _): &FeatureWorldMatch<P>| point.bearing();
+        let to_bearing = |&FeatureWorldMatch(bearing, _): &FeatureWorldMatch| bearing;
         let bearings = [
             to_bearing(&samples[0]),
             to_bearing(&samples[1]),
@@ -324,16 +324,13 @@ impl Default for LambdaTwist {
     }
 }
 
-impl<P> Estimator<FeatureWorldMatch<P>> for LambdaTwist
-where
-    P: Bearing,
-{
+impl Estimator<FeatureWorldMatch> for LambdaTwist {
     type Model = WorldToCamera;
     type ModelIter = ArrayVec<WorldToCamera, 4>;
     const MIN_SAMPLES: usize = 3;
     fn estimate<I>(&self, mut data: I) -> Self::ModelIter
     where
-        I: Iterator<Item = FeatureWorldMatch<P>> + Clone,
+        I: Iterator<Item = FeatureWorldMatch> + Clone,
     {
         self.compute_poses_nordberg([
             data.next()

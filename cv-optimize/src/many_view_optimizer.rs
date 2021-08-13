@@ -6,9 +6,9 @@ use average::Mean;
 use cv_core::{
     nalgebra::{
         dimension::{Dynamic, U1},
-        DMatrix, DVector, Matrix3, VecStorage, Vector4, Vector6,
+        DMatrix, DVector, Matrix3, UnitVector3, VecStorage, Vector4, Vector6,
     },
-    Bearing, Pose, Projective, TriangulatorObservations, WorldPoint, WorldToCamera,
+    Pose, Projective, TriangulatorObservations, WorldPoint, WorldToCamera,
 };
 use levenberg_marquardt::LeastSquaresProblem;
 
@@ -39,16 +39,15 @@ pub fn many_view_nelder_mead(poses: Vec<WorldToCamera>) -> NelderMead<Vec<Vec<f6
 }
 
 #[derive(Clone)]
-pub struct StructurelessManyViewOptimizer<B, T> {
+pub struct StructurelessManyViewOptimizer<T> {
     loss_cutoff: f64,
     // Stored as a list of landmarks, each of which contains a list of observations in (view, bearing) format.
-    landmarks: Vec<Vec<(usize, B)>>,
+    landmarks: Vec<Vec<(usize, UnitVector3<f64>)>>,
     triangulator: T,
 }
 
-impl<B, T> StructurelessManyViewOptimizer<B, T>
+impl<T> StructurelessManyViewOptimizer<T>
 where
-    B: Bearing + Clone,
     T: TriangulatorObservations,
 {
     /// Creates a ManyViewConstraint.
@@ -62,7 +61,7 @@ where
     pub fn new<L, O>(landmarks: L, triangulator: T) -> Self
     where
         L: Iterator<Item = O> + Clone,
-        O: Iterator<Item = Option<B>>,
+        O: Iterator<Item = Option<UnitVector3<f64>>>,
         T: TriangulatorObservations,
     {
         let landmarks = landmarks
@@ -102,12 +101,12 @@ where
         self.landmarks.iter().flat_map(move |observations| {
             if let Some(world_point) =
                 self.triangulator
-                    .triangulate_observations(observations.iter().map(|(view, bearing)| {
+                    .triangulate_observations(observations.iter().map(|&(view, bearing)| {
                         (
-                        poses.clone().nth(*view).expect(
+                        poses.clone().nth(view).expect(
                             "unexpected pose requested in landmark passed to ManyViewConstraint",
                         ),
-                        bearing.clone(),
+                        bearing,
                     )
                     }))
             {
@@ -120,12 +119,12 @@ where
                         poses_res.clone().nth(*view).expect(
                             "unexpected pose requested in landmark passed to ManyViewConstraint",
                         ),
-                        bearing.clone(),
+                        bearing,
                     )
                         })
-                        .map(move |(pose, lm)| {
+                        .map(move |(pose, bearing)| {
                             let camera_point = pose.transform(world_point);
-                            loss(1.0 - lm.bearing().dot(&camera_point.bearing()))
+                            loss(1.0 - bearing.dot(&camera_point.bearing()))
                         }),
                 )
             } else {
@@ -137,9 +136,8 @@ where
     }
 }
 
-impl<B, T> ArgminOp for StructurelessManyViewOptimizer<B, T>
+impl<T> ArgminOp for StructurelessManyViewOptimizer<T>
 where
-    B: Bearing + Clone,
     T: TriangulatorObservations,
 {
     type Param = Vec<Vec<f64>>;
@@ -159,17 +157,14 @@ where
 }
 
 #[derive(Clone)]
-pub struct ManyViewOptimizer<B> {
+pub struct ManyViewOptimizer {
     pub poses: Vec<WorldToCamera>,
     pub points: Vec<Option<WorldPoint>>,
-    landmarks: Vec<Vec<Option<B>>>,
+    landmarks: Vec<Vec<Option<UnitVector3<f64>>>>,
     loss_cutoff: f64,
 }
 
-impl<B> ManyViewOptimizer<B>
-where
-    B: Bearing,
-{
+impl ManyViewOptimizer {
     /// Creates a ManyViewOptimizer.
     ///
     /// Note that `landmarks` is an iterator over each landmark. Each landmark is an iterator over each
@@ -181,7 +176,7 @@ where
     pub fn new<L, O, T>(poses: Vec<WorldToCamera>, landmarks: L, triangulator: T) -> Self
     where
         L: Iterator<Item = O> + Clone,
-        O: Iterator<Item = Option<B>>,
+        O: Iterator<Item = Option<UnitVector3<f64>>>,
         T: TriangulatorObservations,
     {
         let points = landmarks
@@ -199,7 +194,7 @@ where
                 )
             })
             .collect();
-        let landmarks = landmarks.map(|observances| observances.collect()).collect();
+        let landmarks = landmarks.map(|bearings| bearings.collect()).collect();
         Self {
             poses,
             points,
@@ -216,10 +211,7 @@ where
     }
 }
 
-impl<B> LeastSquaresProblem<f64, Dynamic, Dynamic> for ManyViewOptimizer<B>
-where
-    B: Bearing + Clone,
-{
+impl LeastSquaresProblem<f64, Dynamic, Dynamic> for ManyViewOptimizer {
     /// Storage type used for the residuals. Use `nalgebra::storage::Owned<F, M>`
     /// if you want to use `OVector` or `OMatrix`.
     type ResidualStorage = VecStorage<f64, Dynamic, U1>;
@@ -269,15 +261,18 @@ where
             self.points
                 .iter()
                 .zip(self.landmarks.iter())
-                .flat_map(|(&pw, lms)| {
-                    self.poses.iter().zip(lms.iter()).map(move |(pose, lm)| {
-                        // TODO: Once try blocks get added, this should be replaced with a try block.
-                        let res = || -> Option<f64> {
-                            let pc = pose.transform(pw?);
-                            Some(loss(1.0 - lm.as_ref()?.bearing().dot(&pc.bearing())))
-                        };
-                        res().unwrap_or(0.0)
-                    })
+                .flat_map(|(&pw, bearings)| {
+                    self.poses
+                        .iter()
+                        .zip(bearings.iter())
+                        .map(move |(pose, bearing)| {
+                            // TODO: Once try blocks get added, this should be replaced with a try block.
+                            let res = || -> Option<f64> {
+                                let pc = pose.transform(pw?);
+                                Some(loss(1.0 - bearing.as_ref()?.dot(&pc.bearing())))
+                            };
+                            res().unwrap_or(0.0)
+                        })
                 }),
         ))
     }
@@ -287,17 +282,18 @@ where
         let pose_len = self.poses.len() * 6;
         let point_len = self.points.len() * 4;
         let mut mat = DMatrix::zeros(self.points.len() * self.poses.len(), pose_len + point_len);
-        for (ix, wp, lm, pose) in self
+        for (ix, wp, bearing, pose) in self
             .points
             .iter()
             .zip(self.landmarks.iter())
-            .flat_map(|(&point, lms)| {
-                lms.iter()
+            .flat_map(|(&point, bearings)| {
+                bearings
+                    .iter()
                     .zip(&self.poses)
-                    .map(move |(lm, &pose)| (point, lm.clone(), pose))
+                    .map(move |(&bearing, &pose)| (point, bearing, pose))
             })
             .enumerate()
-            .filter_map(|(ix, (point, lm, pose))| Some((ix, point?, lm?, pose)))
+            .filter_map(|(ix, (point, bearing, pose))| Some((ix, point?, bearing?, pose)))
         {
             // Get the row corresponding to this index.
             let mut row = mat.row_mut(ix);
@@ -305,12 +301,10 @@ where
             let (cp, jacobian_cp_wp, jacobian_cp_pose) = pose.transform_jacobians(wp);
             // Get the cp bearing and norm.
             let cp_bearing = cp.bearing().into_inner();
-            let cp_norm = cp.bearing_unnormalized().norm();
             // The jacobian relating the residual to the normalized form of cp (cpn).
-            let jacobian_res_cpn = -lm.bearing().into_inner().transpose();
+            let jacobian_res_cpn = -bearing.into_inner().transpose();
             // The jacobian relating cpn to cp.
-            let jacobian_cpn_cp =
-                (Matrix3::identity() - cp_bearing * cp_bearing.transpose()) / cp_norm;
+            let jacobian_cpn_cp = Matrix3::identity() - cp_bearing * cp_bearing.transpose();
 
             // The jacobian relating residual to cp (0.0 appended to convert to homogeneous coordinates).
             let jacobian_res_cp = (jacobian_res_cpn * jacobian_cpn_cp)

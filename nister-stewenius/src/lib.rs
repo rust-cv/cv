@@ -24,9 +24,9 @@ const BASIS_1: usize = 19;
 use cv_core::nalgebra::{
     self,
     dimension::{U10, U20, U4, U5, U9},
-    DimName, Matrix3, OMatrix, OVector, Vector4,
+    DimName, Matrix3, OMatrix, OVector, UnitVector3, Vector4,
 };
-use cv_pinhole::{EssentialMatrix, NormalizedKeyPoint};
+use cv_pinhole::EssentialMatrix;
 
 const EIGEN_CONVERGENCE: f64 = 1e-6;
 const EIGEN_ITERATIONS: usize = 50;
@@ -43,14 +43,14 @@ type ConstraintMat = OMatrix<f64, U10, U20>;
 type Square10 = OMatrix<f64, U10, U10>;
 
 fn encode_epipolar_equation(
-    a: &[NormalizedKeyPoint; 5],
-    b: &[NormalizedKeyPoint; 5],
+    a: &[UnitVector3<f64>; 5],
+    b: &[UnitVector3<f64>; 5],
 ) -> OMatrix<f64, U5, U9> {
     let mut out: OMatrix<f64, U5, U9> = nalgebra::zero();
     for i in 0..U5::dim() {
         let mut row = OVector::<f64, U9>::zeros();
-        let ap = a[i].virtual_image_point().coords;
-        let bp = b[i].virtual_image_point().coords;
+        let ap = a[i].into_inner();
+        let bp = b[i].into_inner();
         for j in 0..3 {
             let v = ap[j] * bp;
             row.fixed_rows_mut::<3>(3 * j).copy_from(&v);
@@ -61,8 +61,8 @@ fn encode_epipolar_equation(
 }
 
 pub fn five_points_nullspace_basis(
-    a: &[NormalizedKeyPoint; 5],
-    b: &[NormalizedKeyPoint; 5],
+    a: &[UnitVector3<f64>; 5],
+    b: &[UnitVector3<f64>; 5],
 ) -> Option<NullspaceMat> {
     let epipolar_constraint = encode_epipolar_equation(a, b);
     let ee = epipolar_constraint.transpose() * epipolar_constraint;
@@ -241,8 +241,8 @@ fn essentials_from_action_ebasis(
 /// Takes in two sets of normalized key points.
 /// Returns all essential matrix solutions.
 pub fn five_points_relative_pose(
-    a: &[NormalizedKeyPoint; 5],
-    b: &[NormalizedKeyPoint; 5],
+    a: &[UnitVector3<f64>; 5],
+    b: &[UnitVector3<f64>; 5],
 ) -> impl Iterator<Item = EssentialMatrix> {
     // Step 1: Nullspace Extraction.
     let e_basis = if let Some(m) = five_points_nullspace_basis(a, b) {

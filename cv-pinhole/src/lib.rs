@@ -13,72 +13,14 @@ mod essential;
 pub use essential::*;
 
 use cv_core::{
-    nalgebra::{Matrix3, Point2, Point3, Vector2, Vector3},
-    Bearing, CameraModel, CameraPoint, CameraToCamera, FeatureMatch, ImagePoint, KeyPoint, Pose,
-    Projective, TriangulatorRelative,
+    nalgebra::{Matrix3, Point2, UnitVector3, Vector2},
+    CameraModel, CameraToCamera, FeatureMatch, ImagePoint, KeyPoint, Pose, Projective,
+    TriangulatorRelative,
 };
-use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use num_traits::Float;
 
 #[cfg(feature = "serde-serialize")]
 use serde::{Deserialize, Serialize};
-
-/// A point in normalized image coordinates. This keypoint has been corrected
-/// for distortion and normalized based on the camrea intrinsic matrix.
-/// Please note that the intrinsic matrix accounts for the natural focal length
-/// and any magnification to the image. Ultimately, the key points must be
-/// represented by their position on the camera sensor and normalized to the
-/// focal length of the camera.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
-#[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
-pub struct NormalizedKeyPoint(pub Point2<f64>);
-
-impl NormalizedKeyPoint {
-    /// Tries to convert the [`CameraPoint`] into a [`NormalizedKeyPoint`], but it may fail
-    /// in extreme conditions, in which case `None` is returned.
-    pub fn from_camera_point(point: CameraPoint) -> Option<Self> {
-        Point2::from_homogeneous(point.bearing_unnormalized()).map(Self)
-    }
-
-    /// Conceptually appends a `1.0` component to the normalized keypoint to create
-    /// a [`CameraPoint`] on the virtual image plane and then multiplies
-    /// the point by `depth`. This `z`/`depth` component must be the depth of
-    /// the keypoint in the direction the camera is pointing from the
-    /// camera's optical center.
-    ///
-    /// The `depth` is computed as the dot product of the unit camera norm
-    /// with the vector that represents the position delta of the point from
-    /// the camera.
-    pub fn with_depth(self, depth: f64) -> CameraPoint {
-        (self.coords * depth).push(depth).to_homogeneous().into()
-    }
-
-    /// Projects the keypoint out to the [`CameraPoint`] that is
-    /// `distance` away from the optical center of the camera. This
-    /// `distance` is defined as the norm of the vector that represents
-    /// the position delta of the point from the camera.
-    pub fn with_distance(self, distance: f64) -> CameraPoint {
-        (distance * *self.bearing()).to_homogeneous().into()
-    }
-
-    /// Get the virtual image point as a [`Point3`].
-    ///
-    /// The virtual image point is the point that is formed on the virtual
-    /// image plane at a depth 1.0 in front of the camera.
-    pub fn virtual_image_point(self) -> Point3<f64> {
-        self.coords.push(1.0).into()
-    }
-}
-
-impl Bearing for NormalizedKeyPoint {
-    fn bearing_unnormalized(&self) -> Vector3<f64> {
-        self.0.coords.push(1.0)
-    }
-
-    fn from_bearing_vector(bearing: Vector3<f64>) -> Self {
-        Self((bearing.xy() / bearing.z).into())
-    }
-}
 
 /// This contains intrinsic camera parameters as per
 /// [this Wikipedia page](https://en.wikipedia.org/wiki/Camera_resectioning#Intrinsic_parameters).
@@ -139,10 +81,8 @@ impl CameraIntrinsics {
 }
 
 impl CameraModel for CameraIntrinsics {
-    type Projection = NormalizedKeyPoint;
-
     /// Takes in a point from an image in pixel coordinates and
-    /// converts it to a [`NormalizedKeyPoint`].
+    /// converts it to a bearing as [`UnitVector3`].
     ///
     /// ```
     /// use cv_core::{KeyPoint, CameraModel};
@@ -159,7 +99,7 @@ impl CameraModel for CameraIntrinsics {
     /// let distance = (kp.to_homogeneous() - calibration_matrix * nkp.to_homogeneous()).norm();
     /// assert!(distance < 0.1);
     /// ```
-    fn calibrate<P>(&self, point: P) -> NormalizedKeyPoint
+    fn calibrate<P>(&self, point: P) -> UnitVector3<f64>
     where
         P: ImagePoint,
     {
@@ -168,10 +108,10 @@ impl CameraModel for CameraIntrinsics {
         let x = (centered.x - self.skew * y) / self.focals.x;
         // Y is flipped to be up because the image coordinates have Y being down but we use
         // a left-handed coordinate system from here on out.
-        NormalizedKeyPoint(Point2::new(x, -y))
+        UnitVector3::new_normalize(Point2::new(x, -y).to_homogeneous())
     }
 
-    /// Converts a [`NormalizedKeyPoint`] back into pixel coordinates.
+    /// Converts a bearing as [`UnitVector3`] back into pixel coordinates.
     ///
     /// ```
     /// use cv_core::{KeyPoint, CameraModel};
@@ -187,11 +127,15 @@ impl CameraModel for CameraIntrinsics {
     /// let ukp = intrinsics.uncalibrate(nkp);
     /// assert!((kp.0 - ukp.0).norm() < 1e-6);
     /// ```
-    fn uncalibrate(&self, projection: NormalizedKeyPoint) -> KeyPoint {
-        let y = -projection.y * self.focals.y;
-        let x = projection.x * self.focals.x + self.skew * -projection.y;
+    fn uncalibrate(&self, projection: UnitVector3<f64>) -> Option<KeyPoint> {
+        projection.z.is_sign_positive().then(|| ())?;
+        let mut projection = projection.xy() / projection.z;
+        // Flip Y axis (different in image space vs camera space).
+        projection.y = -projection.y;
+        let y = projection.y * self.focals.y;
+        let x = projection.x * self.focals.x + self.skew * projection.y;
         let centered = Point2::new(x, y);
-        KeyPoint(centered + self.principal_point.coords)
+        Some(KeyPoint(centered + self.principal_point.coords))
     }
 }
 
@@ -217,8 +161,6 @@ impl CameraIntrinsicsK1Distortion {
 }
 
 impl CameraModel for CameraIntrinsicsK1Distortion {
-    type Projection = NormalizedKeyPoint;
-
     /// Takes in a point from an image in pixel coordinates and
     /// converts it to a [`NormalizedKeyPoint`].
     ///
@@ -242,15 +184,19 @@ impl CameraModel for CameraIntrinsicsK1Distortion {
     /// let distance = (nkp.0.coords - (simple_nkp.0.coords / (1.0 + k1 * simple_nkp.0.coords.norm_squared()))).norm();
     /// assert!(distance < 0.1);
     /// ```
-    fn calibrate<P>(&self, point: P) -> NormalizedKeyPoint
+    fn calibrate<P>(&self, point: P) -> UnitVector3<f64>
     where
         P: ImagePoint,
     {
-        let NormalizedKeyPoint(distorted) = self.simple_intrinsics.calibrate(point);
-        let r2 = distorted.coords.norm_squared();
-        let undistorted = (distorted.coords / (1.0 + self.k1 * r2)).into();
-
-        NormalizedKeyPoint(undistorted)
+        let centered = point.image_point() - self.simple_intrinsics.principal_point;
+        let y = centered.y / self.simple_intrinsics.focals.y;
+        let x = (centered.x - self.simple_intrinsics.skew * y) / self.simple_intrinsics.focals.x;
+        let distorted = Vector2::new(x, y);
+        let r2 = distorted.norm_squared();
+        let mut undistorted = Point2::from(distorted / (1.0 + self.k1 * r2));
+        // Flip Y axis (different in image space vs camera space).
+        undistorted.y = -undistorted.y;
+        UnitVector3::new_normalize(undistorted.to_homogeneous())
     }
 
     /// Converts a [`NormalizedKeyPoint`] back into pixel coordinates.
@@ -273,17 +219,24 @@ impl CameraModel for CameraIntrinsicsK1Distortion {
     /// let ukp = intrinsics.uncalibrate(nkp);
     /// assert!((kp.0 - ukp.0).norm() < 1e-6, "{:?}", (kp.0 - ukp.0).norm());
     /// ```
-    fn uncalibrate(&self, projection: NormalizedKeyPoint) -> KeyPoint {
-        let NormalizedKeyPoint(undistorted) = projection;
+    fn uncalibrate(&self, projection: UnitVector3<f64>) -> Option<KeyPoint> {
+        projection.z.is_sign_positive().then(|| ())?;
+        let mut undistorted = projection.xy() / projection.z;
+        // Flip Y axis (different in image space vs camera space).
+        undistorted.y = -undistorted.y;
         // This was not easy to compute, but you can set up a quadratic to solve
         // for r^2 with the undistorted keypoint. This is the result.
-        let u2 = undistorted.coords.norm_squared();
+        let u2 = undistorted.norm_squared();
         // This is actually r^2 * k1.
         let r2_mul_k1 = -(2.0 * self.k1 * u2 + Float::sqrt(1.0 - 4.0 * self.k1 * u2) - 1.0)
             / (2.0 * self.k1 * u2);
-        self.simple_intrinsics.uncalibrate(NormalizedKeyPoint(
-            (undistorted.coords * (1.0 + r2_mul_k1)).into(),
-        ))
+        let distorted = undistorted * (1.0 + r2_mul_k1);
+        let y = distorted.y * self.simple_intrinsics.focals.y;
+        let x = distorted.x * self.simple_intrinsics.focals.x
+            + self.simple_intrinsics.skew * distorted.y;
+        let centered = Point2::new(x, y);
+        let uncentered = centered + self.simple_intrinsics.principal_point.coords;
+        Some(KeyPoint(uncentered))
     }
 }
 
@@ -362,17 +315,27 @@ impl CameraSpecification {
 /// ```
 pub fn pose_reprojection_error(
     pose: CameraToCamera,
-    m: FeatureMatch<NormalizedKeyPoint>,
+    m: FeatureMatch,
     triangulator: impl TriangulatorRelative,
 ) -> Option<[Vector2<f64>; 2]> {
     let FeatureMatch(a, b) = m;
+    let a_norm = a.xy() / a.z;
+    let b_norm = b.xy() / b.z;
     triangulator
         .triangulate_relative(pose, a, b)
         .and_then(|point_a| {
-            let reproject_a = NormalizedKeyPoint::from_camera_point(point_a)?;
+            let bearing_a = point_a.bearing();
+            let reproject_a = bearing_a
+                .z
+                .is_sign_positive()
+                .then(|| bearing_a.xy() / bearing_a.z)?;
             let point_b = pose.transform(point_a);
-            let reproject_b = NormalizedKeyPoint::from_camera_point(point_b)?;
-            Some([a.0 - reproject_a.0, b.0 - reproject_b.0])
+            let bearing_b = point_b.bearing();
+            let reproject_b = bearing_b
+                .z
+                .is_sign_positive()
+                .then(|| bearing_b.xy() / bearing_b.z)?;
+            Some([a_norm - reproject_a, b_norm - reproject_b])
         })
 }
 
@@ -404,7 +367,7 @@ pub fn pose_reprojection_error(
 /// ```
 pub fn average_pose_reprojection_error(
     pose: CameraToCamera,
-    m: FeatureMatch<NormalizedKeyPoint>,
+    m: FeatureMatch,
     triangulator: impl TriangulatorRelative,
 ) -> Option<f64> {
     pose_reprojection_error(pose, m, triangulator)

@@ -1,8 +1,7 @@
-use crate::NormalizedKeyPoint;
 use cv_core::{
-    nalgebra::{Matrix3, Rotation3, Vector3, SVD},
+    nalgebra::{Matrix3, Rotation3, UnitVector3, Vector3, SVD},
     sample_consensus::Model,
-    Bearing, CameraToCamera, FeatureMatch, Pose, Projective, TriangulatorRelative,
+    CameraToCamera, FeatureMatch, Pose, Projective, TriangulatorRelative,
 };
 use cv_geom::MinSquaresTriangulator;
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
@@ -314,14 +313,11 @@ impl From<CameraToCamera> for EssentialMatrix {
     }
 }
 
-impl Model<FeatureMatch<NormalizedKeyPoint>> for EssentialMatrix {
-    fn residual(&self, data: &FeatureMatch<NormalizedKeyPoint>) -> f64 {
+impl Model<FeatureMatch> for EssentialMatrix {
+    fn residual(&self, data: &FeatureMatch) -> f64 {
         let Self(mat) = *self;
-        let FeatureMatch(a, b) = data;
-        let normalized = |p: &NormalizedKeyPoint| {
-            let p = p.bearing_unnormalized();
-            p / p.z
-        };
+        let &FeatureMatch(a, b) = data;
+        let normalized = |p: UnitVector3<f64>| p.into_inner() / p.z;
 
         // The result is a 1x1 matrix which we must get element 0 from.
         Float::abs((normalized(b).transpose() * mat * normalized(a))[0])
@@ -412,7 +408,7 @@ impl<'a> PoseSolver<'a> {
     /// This does not communicate which points were outliers to each model.
     pub fn solve_unscaled(
         &self,
-        correspondences: impl Iterator<Item = FeatureMatch<NormalizedKeyPoint>>,
+        correspondences: impl Iterator<Item = FeatureMatch>,
     ) -> Option<CameraToCamera> {
         let triangulator = MinSquaresTriangulator::new()
             .epsilon(self.epsilon)
@@ -434,9 +430,8 @@ impl<'a> PoseSolver<'a> {
                                 return false;
                             };
                             let bp = pose.transform(ap);
-                            1.0 - ap.bearing().dot(&a.bearing()) < self.maximum_cosine_distance
-                                && 1.0 - bp.bearing().dot(&b.bearing())
-                                    < self.maximum_cosine_distance
+                            1.0 - ap.bearing().dot(&a) < self.maximum_cosine_distance
+                                && 1.0 - bp.bearing().dot(&b) < self.maximum_cosine_distance
                         };
 
                         // Do it for all poses.
@@ -476,7 +471,7 @@ impl<'a> PoseSolver<'a> {
     #[cfg(feature = "alloc")]
     pub fn solve_unscaled_inliers(
         &self,
-        correspondences: impl Iterator<Item = FeatureMatch<NormalizedKeyPoint>>,
+        correspondences: impl Iterator<Item = FeatureMatch>,
     ) -> Option<(CameraToCamera, alloc::vec::Vec<usize>)> {
         let triangulator = MinSquaresTriangulator::new()
             .epsilon(self.epsilon)
@@ -506,9 +501,8 @@ impl<'a> PoseSolver<'a> {
                                 return false;
                             };
                             let bp = pose.transform(ap);
-                            1.0 - ap.bearing().dot(&a.bearing()) < self.maximum_cosine_distance
-                                && 1.0 - bp.bearing().dot(&b.bearing())
-                                    < self.maximum_cosine_distance
+                            1.0 - ap.bearing().dot(&a) < self.maximum_cosine_distance
+                                && 1.0 - bp.bearing().dot(&b) < self.maximum_cosine_distance
                         };
 
                         // Do it for all poses.

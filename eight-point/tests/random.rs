@@ -1,9 +1,8 @@
 use cv_core::{
-    nalgebra::{IsometryMatrix3, Rotation3, Vector2, Vector3},
+    nalgebra::{IsometryMatrix3, Point3, Rotation3, UnitVector3, Vector3},
     sample_consensus::{Estimator, Model},
-    CameraPoint, CameraToCamera, FeatureMatch, Pose,
+    CameraPoint, CameraToCamera, FeatureMatch, Pose, Projective,
 };
-use cv_pinhole::NormalizedKeyPoint;
 
 const SAMPLE_POINTS: usize = 16;
 const RESIDUAL_THRESHOLD: f64 = 1e-4;
@@ -74,8 +73,8 @@ fn run_round() -> bool {
 /// Gets a random relative pose, input points A, input points B, and A point depths.
 fn some_test_data() -> (
     CameraToCamera,
-    [NormalizedKeyPoint; SAMPLE_POINTS],
-    [NormalizedKeyPoint; SAMPLE_POINTS],
+    [UnitVector3<f64>; SAMPLE_POINTS],
+    [UnitVector3<f64>; SAMPLE_POINTS],
 ) {
     // The relative pose orientation is fixed and translation is random.
     let relative_pose = CameraToCamera(IsometryMatrix3::from_parts(
@@ -86,11 +85,11 @@ fn some_test_data() -> (
     // Generate A's camera points.
     let cams_a = (0..SAMPLE_POINTS)
         .map(|_| {
-            let mut a = Vector3::new_random() * POINT_BOX_SIZE;
+            let mut a = Point3::from(Vector3::new_random() * POINT_BOX_SIZE);
             a.x -= 0.5 * POINT_BOX_SIZE;
             a.y -= 0.5 * POINT_BOX_SIZE;
             a.z += POINT_DISTANCE;
-            CameraPoint(a.push(1.0))
+            CameraPoint::from_point(a)
         })
         .collect::<Vec<_>>()
         .into_iter();
@@ -98,13 +97,13 @@ fn some_test_data() -> (
     // Generate B's camera points.
     let cams_b = cams_a.clone().map(|a| relative_pose.transform(a));
 
-    let mut kps_a = [NormalizedKeyPoint(Vector2::zeros().into()); SAMPLE_POINTS];
+    let mut kps_a = [UnitVector3::new_normalize(Vector3::z()); SAMPLE_POINTS];
     for (keypoint, camera) in kps_a.iter_mut().zip(cams_a) {
-        *keypoint = NormalizedKeyPoint::from_camera_point(camera).unwrap();
+        *keypoint = camera.bearing();
     }
-    let mut kps_b = [NormalizedKeyPoint(Vector2::zeros().into()); SAMPLE_POINTS];
+    let mut kps_b = [UnitVector3::new_normalize(Vector3::z()); SAMPLE_POINTS];
     for (keypoint, camera) in kps_b.iter_mut().zip(cams_b.clone()) {
-        *keypoint = NormalizedKeyPoint::from_camera_point(camera).unwrap();
+        *keypoint = camera.bearing();
     }
 
     (relative_pose, kps_a, kps_b)

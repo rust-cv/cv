@@ -1,17 +1,29 @@
-use derive_more::{AsMut, AsRef, From, Into};
-use nalgebra::{Point3, Unit, Vector3, Vector4};
+use derive_more::AsRef;
+use nalgebra::{Point3, UnitVector3, Vector4};
 
 #[cfg(feature = "serde-serialize")]
 use serde::{Deserialize, Serialize};
 
 /// This trait is implemented for homogeneous projective 3d coordinate.
-pub trait Projective: From<Vector4<f64>> + Clone + Copy {
+pub trait Projective: Clone + Copy {
     /// Retrieve the homogeneous vector.
     ///
-    /// No constraints are put on this vector. All components can move freely and it is not normalized.
-    /// However, this vector may be normalized if desired and it will still be equivalent to the original.
-    /// You may wish to normalize it if you want to avoid floating point precision issues, for instance.
+    /// The homonegeous vector is guaranteed to have xyz normalized.
+    /// The distance of the point is encoded as the reciprocal of the `w` component.
+    /// A `w` component of `0` implies the point is at infinity.
     fn homogeneous(self) -> Vector4<f64>;
+
+    /// Create the projective using a homogeneous vector.
+    ///
+    /// This will normalize the xyz components of the provided vector and adjust `w` accordingly.
+    fn from_homogeneous(point: Vector4<f64>) -> Self {
+        Self::from_homogeneous_unchecked(point.unscale(point.xyz().norm()))
+    }
+
+    /// It is not recommended to call this directly, unless you have a good reason.
+    ///
+    /// The xyz components MUST be of unit length (normalized), and `w` must be adjusted accordingly.
+    fn from_homogeneous_unchecked(point: Vector4<f64>) -> Self;
 
     /// Retrieve the euclidean 3d point by normalizing the homogeneous coordinate.
     ///
@@ -23,34 +35,33 @@ pub trait Projective: From<Vector4<f64>> + Clone + Copy {
 
     /// Convert the euclidean 3d point into homogeneous coordinates.
     fn from_point(point: Point3<f64>) -> Self {
-        point.to_homogeneous().into()
+        Self::from_homogeneous(point.to_homogeneous())
     }
 
     /// Retrieve the normalized bearing of the coordinate.
-    fn bearing(self) -> Unit<Vector3<f64>> {
-        Unit::new_normalize(self.bearing_unnormalized())
-    }
-
-    /// Retrieve the unnormalized bearing of the coordinate.
-    ///
-    /// Use this when you know that you do not need the bearing to be normalized,
-    /// and it may increase performance. Otherwise use [`Projective::bearing`].
-    fn bearing_unnormalized(self) -> Vector3<f64> {
-        self.homogeneous().xyz()
+    fn bearing(self) -> UnitVector3<f64> {
+        UnitVector3::new_unchecked(self.homogeneous().xyz())
     }
 }
 
-/// A 3d point which is relative to the camera's optical center and orientation where
-/// the positive X axis is right, positive Y axis is down, and positive Z axis is forwards
-/// from the optical center of the camera. The unit of distance of a `CameraPoint` is
-/// unspecified and relative to the current reconstruction.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, From, Into)]
+/// A 3d point in the camera's reference frame.
+///
+/// In the camera's reference frame, the origin is the optical center,
+/// positive X axis is right, positive Y axis is up, and positive Z axis is forwards.
+///
+/// The unit of distance of a `CameraPoint` is unspecified, but it should be consistent relative
+/// to other points in the reconstruction.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsRef)]
 #[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
-pub struct CameraPoint(pub Vector4<f64>);
+pub struct CameraPoint(Vector4<f64>);
 
 impl Projective for CameraPoint {
     fn homogeneous(self) -> Vector4<f64> {
-        self.into()
+        self.0
+    }
+
+    fn from_homogeneous_unchecked(point: Vector4<f64>) -> Self {
+        Self(point)
     }
 }
 
@@ -87,12 +98,16 @@ impl Projective for CameraPoint {
 /// If you must join two reconstructions, please solve for the similarity (rotation, translation and scale)
 /// between the two reconstructions using an optimizer. APIs will eventually be added to perform this operation
 /// as well.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, From, Into)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsRef)]
 #[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct WorldPoint(pub Vector4<f64>);
 
 impl Projective for WorldPoint {
     fn homogeneous(self) -> Vector4<f64> {
-        self.into()
+        self.0
+    }
+
+    fn from_homogeneous_unchecked(point: Vector4<f64>) -> Self {
+        Self(point)
     }
 }

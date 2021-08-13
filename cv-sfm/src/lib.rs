@@ -10,17 +10,16 @@ use argmin::core::{ArgminKV, ArgminOp, Error, Executor, IterState, Observe, Obse
 use average::Mean;
 use bitarray::{BitArray, Hamming};
 use cv_core::{
-    nalgebra::{IsometryMatrix3, Matrix6x2, Point3, Vector3, Vector5, Vector6},
+    nalgebra::{IsometryMatrix3, Matrix6x2, Point3, UnitVector3, Vector3, Vector5, Vector6},
     sample_consensus::{Consensus, Estimator},
-    Bearing, CameraModel, CameraPoint, CameraToCamera, FeatureMatch, FeatureWorldMatch, Pose,
-    Projective, TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera,
-    WorldToWorld,
+    CameraModel, CameraPoint, CameraToCamera, FeatureMatch, FeatureWorldMatch, Pose, Projective,
+    TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera, WorldToWorld,
 };
 use cv_optimize::{
     single_view_nelder_mead, spherical_to_cartesian, three_view_nelder_mead, two_view_nelder_mead,
     SingleViewOptimizer, StructurelessThreeViewOptimizer, StructurelessTwoViewOptimizer,
 };
-use cv_pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix, NormalizedKeyPoint};
+use cv_pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix};
 use float_ord::FloatOrd;
 use hamming_lsh::HammingHasher;
 use hgg::HggLite as Hgg;
@@ -75,7 +74,7 @@ fn canonical_view_order(mut views: [ViewKey; 3]) -> [ViewKey; 3] {
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct Feature {
-    pub keypoint: NormalizedKeyPoint,
+    pub keypoint: UnitVector3<f64>,
     pub color: [u8; 3],
 }
 
@@ -99,7 +98,7 @@ impl Frame {
         self.descriptor_features.get_value(ix).unwrap()
     }
 
-    pub fn keypoint(&self, ix: usize) -> NormalizedKeyPoint {
+    pub fn keypoint(&self, ix: usize) -> UnitVector3<f64> {
         self.feature(ix).keypoint
     }
 
@@ -242,7 +241,7 @@ impl VSlamData {
         &self.frames[frame]
     }
 
-    pub fn keypoint(&self, frame: FrameKey, feature: usize) -> NormalizedKeyPoint {
+    pub fn keypoint(&self, frame: FrameKey, feature: usize) -> UnitVector3<f64> {
         self.frames[frame].keypoint(feature)
     }
 
@@ -301,7 +300,7 @@ impl VSlamData {
         reconstruction: ReconstructionKey,
         view: ViewKey,
         feature: usize,
-    ) -> NormalizedKeyPoint {
+    ) -> UnitVector3<f64> {
         self.keypoint(self.view_frame(reconstruction, view), feature)
     }
 
@@ -371,8 +370,8 @@ impl VSlamData {
         first_pose: CameraToCamera,
         second_pose: CameraToCamera,
         combined_matches: Vec<(usize, usize, usize)>,
-        first_matches: Vec<FeatureMatch<usize>>,
-        second_matches: Vec<FeatureMatch<usize>>,
+        first_matches: Vec<[usize; 2]>,
+        second_matches: Vec<[usize; 2]>,
     ) -> ReconstructionKey {
         // Create a new empty reconstruction.
         let reconstruction = self.reconstructions.insert(Reconstruction::default());
@@ -381,7 +380,7 @@ impl VSlamData {
         // Create a map for first landmarks.
         let first_landmarks: HashMap<usize, LandmarkKey> = first_matches
             .iter()
-            .map(|&FeatureMatch(c, f)| (f, c))
+            .map(|&[c, f]| (f, c))
             .chain(combined_matches.iter().map(|&(c, f, _)| (f, c)))
             .map(|(f, c)| (f, self.observation_landmark(reconstruction, center_view, c)))
             .collect();
@@ -395,7 +394,7 @@ impl VSlamData {
         // Create a map for second landmarks.
         let second_landmarks: HashMap<usize, LandmarkKey> = second_matches
             .iter()
-            .map(|&FeatureMatch(c, s)| (s, c))
+            .map(|&[c, s]| (s, c))
             .chain(combined_matches.iter().map(|&(c, _, s)| (s, c)))
             .map(|(s, c)| (s, self.observation_landmark(reconstruction, center_view, c)))
             .collect();
@@ -701,10 +700,10 @@ pub struct VSlam<C1, C2, PE, EE, T, R> {
 
 impl<C1, C2, PE, EE, T, R> VSlam<C1, C2, PE, EE, T, R>
 where
-    C1: Consensus<PE, FeatureWorldMatch<NormalizedKeyPoint>>,
-    C2: Consensus<EE, FeatureMatch<NormalizedKeyPoint>>,
-    PE: Estimator<FeatureWorldMatch<NormalizedKeyPoint>, Model = WorldToCamera>,
-    EE: Estimator<FeatureMatch<NormalizedKeyPoint>, Model = EssentialMatrix>,
+    C1: Consensus<PE, FeatureWorldMatch>,
+    C2: Consensus<EE, FeatureMatch>,
+    PE: Estimator<FeatureWorldMatch, Model = WorldToCamera>,
+    EE: Estimator<FeatureMatch, Model = EssentialMatrix>,
     T: TriangulatorObservations + Clone,
     R: Rng,
 {
@@ -909,13 +908,13 @@ where
         a: &Frame,
         b: &Frame,
         pose: CameraToCamera,
-        matches: impl Iterator<Item = FeatureMatch<usize>>,
+        matches: impl Iterator<Item = [usize; 2]>,
         residual_threshold: f64,
         incidence_threshold: f64,
-    ) -> Vec<FeatureMatch<usize>> {
+    ) -> Vec<[usize; 2]> {
         matches
             .filter(|m| {
-                let FeatureMatch(a, b) = FeatureMatch(a.keypoint(m.0), b.keypoint(m.1));
+                let FeatureMatch(a, b) = FeatureMatch(a.keypoint(m[0]), b.keypoint(m[1]));
                 self.is_bi_landmark_robust(pose, a, b, residual_threshold, incidence_threshold)
             })
             .collect()
@@ -927,17 +926,16 @@ where
     fn pair_robust_point(
         &self,
         pose: CameraToCamera,
-        a: NormalizedKeyPoint,
-        b: NormalizedKeyPoint,
+        a: UnitVector3<f64>,
+        b: UnitVector3<f64>,
         maximum_cosine_distance: f64,
         incidence_minimum_cosine_distance: f64,
     ) -> Option<CameraPoint> {
         let p = self.triangulator.triangulate_relative(pose, a, b)?;
-        let is_cosine_distance_satisfied = 1.0 - p.bearing().dot(&a.bearing())
-            < maximum_cosine_distance
-            && 1.0 - pose.transform(p).bearing().dot(&b.bearing()) < maximum_cosine_distance;
-        let is_incidence_angle_satisfied = 1.0 - (pose.isometry() * a.bearing()).dot(&b.bearing())
-            > incidence_minimum_cosine_distance;
+        let is_cosine_distance_satisfied = 1.0 - p.bearing().dot(&a) < maximum_cosine_distance
+            && 1.0 - pose.transform(p).bearing().dot(&b) < maximum_cosine_distance;
+        let is_incidence_angle_satisfied =
+            1.0 - (pose.isometry() * a).dot(&b) > incidence_minimum_cosine_distance;
         if is_cosine_distance_satisfied && is_incidence_angle_satisfied {
             Some(p)
         } else {
@@ -971,8 +969,8 @@ where
         (FrameKey, CameraToCamera),
         (FrameKey, CameraToCamera),
         Vec<(usize, usize, usize)>,
-        Vec<FeatureMatch<usize>>,
-        Vec<FeatureMatch<usize>>,
+        Vec<[usize; 2]>,
+        Vec<[usize; 2]>,
     )> {
         let options = options
             .filter_map(|option| {
@@ -987,14 +985,12 @@ where
             options.iter().tuple_combinations()
         {
             // Create a map from the center features to the second matches.
-            let second_map: HashMap<usize, usize> = second_matches
-                .iter()
-                .map(|&FeatureMatch(c, s)| (c, s))
-                .collect();
+            let second_map: HashMap<usize, usize> =
+                second_matches.iter().map(|&[c, s]| (c, s)).collect();
             // Use the map created above to create triples of (center, first, second) feature matches.
             let mut common = first_matches
                 .iter()
-                .filter_map(|&FeatureMatch(c, f)| Some((c, f, *second_map.get(&c)?)))
+                .filter_map(|&[c, f]| Some((c, f, *second_map.get(&c)?)))
                 .collect_vec();
             common.shuffle(&mut *self.rng.borrow_mut());
             // Filter the common matches based on if they satisfy the criteria.
@@ -1060,7 +1056,7 @@ where
 
             // Get the matches to use for optimization.
             // Initially, this just includes everything to avoid
-            let opti_matches: Vec<[NormalizedKeyPoint; 3]> = common
+            let opti_matches: Vec<[UnitVector3<f64>; 3]> = common
                 .iter()
                 .map(|&(c, f, s)| {
                     let c = self.data.frame(center).keypoint(c);
@@ -1117,10 +1113,8 @@ where
             second_pose = Pose::from_se3(opti_result.state.best_param.column(1).into());
 
             // Create a map from the center features to the first matches.
-            let first_map: HashMap<usize, usize> = first_matches
-                .iter()
-                .map(|&FeatureMatch(c, f)| (c, f))
-                .collect();
+            let first_map: HashMap<usize, usize> =
+                first_matches.iter().map(|&[c, f]| (c, f)).collect();
 
             let combined_matches = common
                 .iter()
@@ -1144,7 +1138,7 @@ where
             let first_matches = first_matches
                 .iter()
                 .copied()
-                .filter(|&FeatureMatch(c, f)| {
+                .filter(|&[c, f]| {
                     if second_map.contains_key(&c) {
                         return false;
                     }
@@ -1163,7 +1157,7 @@ where
             let second_matches = second_matches
                 .iter()
                 .copied()
-                .filter(|&FeatureMatch(c, s)| {
+                .filter(|&[c, s]| {
                     if first_map.contains_key(&c) {
                         return false;
                     }
@@ -1243,8 +1237,8 @@ where
     fn is_bi_landmark_robust(
         &self,
         pose: CameraToCamera,
-        a: NormalizedKeyPoint,
-        b: NormalizedKeyPoint,
+        a: UnitVector3<f64>,
+        b: UnitVector3<f64>,
         residual_threshold: f64,
         incidence_threshold: f64,
     ) -> bool {
@@ -1257,16 +1251,16 @@ where
         // Transform the point to the other camera.
         let bp = pose.transform(ap);
         // Compute the residuals for each observation.
-        let ra = 1.0 - ap.bearing().dot(&a.bearing());
-        let rb = 1.0 - bp.bearing().dot(&b.bearing());
+        let ra = 1.0 - ap.bearing().dot(&a);
+        let rb = 1.0 - bp.bearing().dot(&b);
         // All must satisfy the consensus threshold at worst.
         let satisfies_cosine_distance = [ra, rb]
             .iter()
             .all(|&r| r.is_finite() && r < residual_threshold);
         // The a bearing in the A camera reference frame.
-        let a_bearing = a.bearing();
+        let a_bearing = a;
         // The b bearing in the A camera reference frame.
-        let b_bearing = pose.inverse().isometry() * b.bearing();
+        let b_bearing = pose.inverse().isometry() * b;
         // Incidence from center to first.
         let iab = 1.0 - a_bearing.dot(&b_bearing);
         // At least one pair must have a sufficiently large incidence angle.
@@ -1279,44 +1273,41 @@ where
         &self,
         first_pose: CameraToCamera,
         second_pose: CameraToCamera,
-        c: NormalizedKeyPoint,
-        f: NormalizedKeyPoint,
-        s: NormalizedKeyPoint,
+        c: UnitVector3<f64>,
+        f: UnitVector3<f64>,
+        s: UnitVector3<f64>,
         residual_threshold: f64,
         incidence_threshold: f64,
     ) -> bool {
         // The triangulated point in the center camera.
-        let cp = CameraPoint(
-            if let Some(cp) = self
-                .triangulator
-                .triangulate_observations(std::array::IntoIter::new([
-                    (WorldToCamera::identity(), c),
-                    (first_pose.isometry().into(), f),
-                    (second_pose.isometry().into(), s),
-                ]))
-            {
-                cp.0
-            } else {
-                return false;
-            },
-        );
+        let cp = if let Some(cp) = self.triangulator.triangulate_observations_to_camera(
+            c,
+            std::array::IntoIter::new([
+                (first_pose.isometry().into(), f),
+                (second_pose.isometry().into(), s),
+            ]),
+        ) {
+            cp
+        } else {
+            return false;
+        };
         // Transform the point to the other cameras.
         let fp = first_pose.transform(cp);
         let sp = second_pose.transform(cp);
         // Compute the residuals for each observation.
-        let rc = 1.0 - cp.bearing().dot(&c.bearing());
-        let rf = 1.0 - fp.bearing().dot(&f.bearing());
-        let rs = 1.0 - sp.bearing().dot(&s.bearing());
+        let rc = 1.0 - cp.bearing().dot(&c);
+        let rf = 1.0 - fp.bearing().dot(&f);
+        let rs = 1.0 - sp.bearing().dot(&s);
         // All must satisfy the consensus threshold at worst.
         let satisfies_cosine_distance = [rc, rf, rs]
             .iter()
             .all(|&r| r.is_finite() && r < residual_threshold);
         // The center bearing in the center camera reference frame.
-        let cc = c.bearing();
+        let cc = c;
         // The first bearing in the center camera reference frame.
-        let cf = first_pose.inverse().isometry() * f.bearing();
+        let cf = first_pose.inverse().isometry() * f;
         // The second bearing in the center camera reference frame.
-        let cs = second_pose.inverse().isometry() * s.bearing();
+        let cs = second_pose.inverse().isometry() * s;
         // Incidence from center to first.
         let icf = 1.0 - cc.dot(&cf);
         // Incidence from first to second.
@@ -1335,15 +1326,11 @@ where
     /// It then attempts to add one of the [``]
     ///
     /// This method resolves to an undefined scale, and thus is only appropriate for initialization.
-    fn init_two_view(
-        &self,
-        a: FrameKey,
-        b: FrameKey,
-    ) -> Option<(CameraToCamera, Vec<FeatureMatch<usize>>)> {
+    fn init_two_view(&self, a: FrameKey, b: FrameKey) -> Option<(CameraToCamera, Vec<[usize; 2]>)> {
         let a = self.data.frame(a);
         let b = self.data.frame(b);
         // A helper to convert an index match to a keypoint match given frame a and b.
-        let match_ix_kps = |FeatureMatch(feature_a, feature_b)| {
+        let match_ix_kps = |[feature_a, feature_b]: [usize; 2]| {
             FeatureMatch(a.keypoint(feature_a), b.keypoint(feature_b))
         };
 
@@ -1386,8 +1373,7 @@ where
             }))?;
 
         // Reconstitute only the inlier matches into a matches vector.
-        let matches: Vec<FeatureMatch<usize>> =
-            inliers.into_iter().map(|ix| original_matches[ix]).collect();
+        let matches: Vec<[usize; 2]> = inliers.into_iter().map(|ix| original_matches[ix]).collect();
 
         info!(
             "solve pose from essential matrix using {} inlier matches",
@@ -1597,7 +1583,7 @@ where
         info!("retrieving only robust landmarks corresponding to matches");
 
         // Extract the FeatureWorldMatch for each of the features.
-        let matches_3d: Vec<FeatureWorldMatch<NormalizedKeyPoint>> = original_matches
+        let matches_3d: Vec<FeatureWorldMatch> = original_matches
             .iter()
             .filter_map(|&(landmark, feature)| {
                 Some(FeatureWorldMatch(
@@ -1852,7 +1838,7 @@ where
         landmarks.shuffle(&mut *self.rng.borrow_mut());
 
         // Get the matches to use for optimization.
-        let opti_matches: Vec<[NormalizedKeyPoint; 3]> = landmarks
+        let opti_matches: Vec<[UnitVector3<f64>; 3]> = landmarks
             .iter()
             .map(|&landmark| {
                 views.map(|view| {
@@ -2667,7 +2653,6 @@ where
                         * self
                             .data
                             .observation_keypoint(reconstruction, view, feature)
-                            .bearing()
                 })
                 .tuple_combinations()
                 .any(|(bearing_a, bearing_b)| {
@@ -2728,7 +2713,7 @@ where
         &self,
         reconstruction: ReconstructionKey,
         landmark: LandmarkKey,
-        observations: impl Iterator<Item = (WorldToCamera, NormalizedKeyPoint)>,
+        observations: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)>,
     ) -> Option<WorldPoint> {
         self.triangulator.triangulate_observations(
             self.data
@@ -2748,7 +2733,7 @@ where
         &self,
         reconstruction: ReconstructionKey,
         landmark: LandmarkKey,
-        mut observations: impl Iterator<Item = (WorldToCamera, NormalizedKeyPoint)> + Clone,
+        mut observations: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)> + Clone,
     ) -> Option<WorldPoint> {
         self.triangulate_landmark_with_appended_observations(
             reconstruction,
@@ -2756,9 +2741,9 @@ where
             observations.clone(),
         )
         .filter(|world_point| {
-            let verify = |pose: WorldToCamera, keypoint: NormalizedKeyPoint| {
+            let verify = |pose: WorldToCamera, keypoint: UnitVector3<f64>| {
                 let camera_point = pose.transform(*world_point);
-                let residual = 1.0 - keypoint.bearing().dot(&camera_point.bearing());
+                let residual = 1.0 - keypoint.dot(&camera_point.bearing());
                 residual.is_finite() && residual < self.settings.maximum_cosine_distance
             };
             self.data
@@ -2835,11 +2820,10 @@ where
 
 pub fn is_observation_good_raw(
     pose: WorldToCamera,
-    bearing: impl Bearing,
+    bearing: UnitVector3<f64>,
     point: WorldPoint,
     threshold: f64,
 ) -> bool {
-    let bearing = bearing.bearing();
     let view_point = pose.transform(point);
     let residual = 1.0 - bearing.dot(&view_point.bearing());
     // If the observation is finite and has a low enough residual, it is good.
@@ -2865,7 +2849,7 @@ fn matching(a_frame: &Frame, b_frame: &Frame, better_by: u32) -> Vec<Option<usiz
         .collect()
 }
 
-fn symmetric_matching(a: &Frame, b: &Frame, better_by: u32) -> Vec<FeatureMatch<usize>> {
+fn symmetric_matching(a: &Frame, b: &Frame, better_by: u32) -> Vec<[usize; 2]> {
     // The best match for each feature in frame a to frame b's features.
     let forward_matches = matching(a, b, better_by);
     // The best match for each feature in frame b to frame a's features.
@@ -2878,8 +2862,8 @@ fn symmetric_matching(a: &Frame, b: &Frame, better_by: u32) -> Vec<FeatureMatch<
             // Filter out matches which are not symmetric.
             // Symmetric is defined as the best and sufficient match of a being b,
             // and likewise the best and sufficient match of b being a.
-            bix.map(|bix| FeatureMatch(aix, bix))
-                .filter(|&FeatureMatch(aix, bix)| reverse_matches[bix] == Some(aix))
+            bix.map(|bix| [aix, bix])
+                .filter(|&[aix, bix]| reverse_matches[bix] == Some(aix))
         })
         .collect()
 }

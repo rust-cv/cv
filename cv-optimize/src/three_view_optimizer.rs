@@ -5,8 +5,8 @@ use argmin::{
 use average::Mean;
 use core::iter::once;
 use cv_core::{
-    nalgebra::Matrix6x2, Bearing, CameraPoint, CameraToCamera, FeatureMatch, Pose, Projective,
-    TriangulatorObservations, TriangulatorRelative, WorldToCamera,
+    nalgebra::{Matrix6x2, UnitVector3},
+    CameraToCamera, Pose, Projective, TriangulatorObservations,
 };
 
 pub fn three_view_nelder_mead(
@@ -47,10 +47,9 @@ pub struct StructurelessThreeViewOptimizer<I, T> {
     triangulator: T,
 }
 
-impl<I, P, T> StructurelessThreeViewOptimizer<I, T>
+impl<I, T> StructurelessThreeViewOptimizer<I, T>
 where
-    I: Iterator<Item = [P; 3]> + Clone,
-    P: Bearing,
+    I: Iterator<Item = [UnitVector3<f64>; 3]> + Clone,
     T: TriangulatorObservations,
 {
     pub fn new(matches: I, triangulator: T) -> Self {
@@ -72,28 +71,20 @@ where
         &self,
         first_pose: CameraToCamera,
         second_pose: CameraToCamera,
-        c: P,
-        f: P,
-        s: P,
-    ) -> Option<[f64; 3]>
-    where
-        P: Clone,
-    {
-        let cp = CameraPoint(
-            self.triangulator
-                .triangulate_observations(
-                    once((WorldToCamera::identity(), c.clone()))
-                        .chain(once((first_pose.isometry().into(), f.clone())))
-                        .chain(once((second_pose.isometry().into(), s.clone()))),
-                )?
-                .0,
-        );
+        c: UnitVector3<f64>,
+        f: UnitVector3<f64>,
+        s: UnitVector3<f64>,
+    ) -> Option<[f64; 3]> {
+        let cp = self.triangulator.triangulate_observations_to_camera(
+            c,
+            once((first_pose.isometry().into(), f)).chain(once((second_pose.isometry().into(), s))),
+        )?;
         let fp = first_pose.transform(cp);
         let sp = second_pose.transform(cp);
         Some([
-            1.0 - cp.bearing().dot(&c.bearing()),
-            1.0 - fp.bearing().dot(&f.bearing()),
-            1.0 - sp.bearing().dot(&s.bearing()),
+            1.0 - cp.bearing().dot(&c),
+            1.0 - fp.bearing().dot(&f),
+            1.0 - sp.bearing().dot(&s),
         ])
     }
 
@@ -101,10 +92,7 @@ where
         &self,
         first_pose: CameraToCamera,
         second_pose: CameraToCamera,
-    ) -> impl Iterator<Item = f64> + '_
-    where
-        P: Clone,
-    {
+    ) -> impl Iterator<Item = f64> + '_ {
         self.matches.clone().flat_map(move |[c, f, s]| {
             if let Some([rc, rf, rs]) = self.residual(first_pose, second_pose, c, f, s) {
                 let loss = |n: f64| {
@@ -124,10 +112,9 @@ where
     }
 }
 
-impl<I, P, T> ArgminOp for StructurelessThreeViewOptimizer<I, T>
+impl<I, T> ArgminOp for StructurelessThreeViewOptimizer<I, T>
 where
-    I: Iterator<Item = [P; 3]> + Clone,
-    P: Bearing + Clone,
+    I: Iterator<Item = [UnitVector3<f64>; 3]> + Clone,
     T: TriangulatorObservations + Clone,
 {
     type Param = Matrix6x2<f64>;
@@ -141,42 +128,5 @@ where
         let second_pose = Pose::from_se3(p.column(1).into());
         let mean: Mean = self.residuals(first_pose, second_pose).collect();
         Ok(mean.mean())
-    }
-}
-
-#[derive(Clone)]
-pub struct ThreeViewOptimizer<I, T> {
-    pub pose: CameraToCamera,
-    pub loss_cutoff: f64,
-    matches: I,
-    points: Vec<Option<CameraPoint>>,
-    triangulator: T,
-}
-
-impl<I, P, T> ThreeViewOptimizer<I, T>
-where
-    I: Iterator<Item = FeatureMatch<P>> + Clone,
-    P: Bearing,
-    T: TriangulatorRelative,
-{
-    pub fn new(matches: I, pose: CameraToCamera, triangulator: T) -> Self {
-        let points = matches
-            .clone()
-            .map(|FeatureMatch(a, b)| triangulator.triangulate_relative(pose, a, b))
-            .collect();
-        Self {
-            pose,
-            loss_cutoff: 0.001,
-            matches,
-            points,
-            triangulator,
-        }
-    }
-
-    pub fn loss_cutoff(self, loss_cutoff: f64) -> Self {
-        Self {
-            loss_cutoff,
-            ..self
-        }
     }
 }

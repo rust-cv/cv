@@ -15,7 +15,7 @@ use std::path::Path;
 const LOWES_RATIO: f32 = 0.5;
 
 type Descriptor = BitArray<64>;
-type Match = FeatureMatch<cv_pinhole::NormalizedKeyPoint>;
+type Match = FeatureMatch;
 
 fn image_to_kps(path: impl AsRef<Path>) -> (Vec<akaze::KeyPoint>, Vec<Descriptor>) {
     Akaze::sparse().extract_path(path).unwrap()

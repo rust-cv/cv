@@ -1,4 +1,4 @@
-use crate::{Bearing, CameraPoint, FeatureWorldMatch, Projective, Skew3, WorldPoint};
+use crate::{CameraPoint, FeatureWorldMatch, Projective, Skew3, WorldPoint};
 use derive_more::{AsMut, AsRef, From, Into};
 use nalgebra::{
     IsometryMatrix3, Matrix4, Matrix4x6, Matrix6x4, Rotation3, Vector3, Vector4, Vector6,
@@ -77,7 +77,11 @@ pub trait Pose: From<IsometryMatrix3<f64>> + Clone + Copy {
         let (rotated, output) = pose_rotated_output(self, input);
         let jacobian_input = pose_jacobian_input(self);
         let jacobian_self = pose_jacobian_self(self, rotated, output);
-        (output.into(), jacobian_input, jacobian_self)
+        (
+            Projective::from_homogeneous(output),
+            jacobian_input,
+            jacobian_self,
+        )
     }
 
     /// Transform the given point to an output point, while also retrieving the input Jacobian.
@@ -92,7 +96,7 @@ pub trait Pose: From<IsometryMatrix3<f64>> + Clone + Copy {
     ) -> (Self::OutputPoint, Matrix4<f64>) {
         let output = pose_output(self, input);
         let jacobian_input = pose_jacobian_input(self);
-        (output.into(), jacobian_input)
+        (Projective::from_homogeneous(output), jacobian_input)
     }
 
     /// Transform the given point to an output point, while also retrieving the transform Jacobian.
@@ -107,7 +111,7 @@ pub trait Pose: From<IsometryMatrix3<f64>> + Clone + Copy {
     ) -> (Self::OutputPoint, Matrix4x6<f64>) {
         let (rotated, output) = pose_rotated_output(self, input);
         let jacobian_self = pose_jacobian_self(self, rotated, output);
-        (output.into(), jacobian_self)
+        (Projective::from_homogeneous(output), jacobian_self)
     }
 
     /// Transform the given point to an output point, while also retrieving the transform Jacobian.
@@ -117,23 +121,17 @@ pub trait Pose: From<IsometryMatrix3<f64>> + Clone + Copy {
     /// * The output point of the transformation
     /// * The Jacobian of the output in respect to the pose in se(3) (with translation components before so(3) components)
     fn transform(self, input: Self::InputPoint) -> Self::OutputPoint {
-        pose_output(self, input).into()
+        Projective::from_homogeneous(pose_output(self, input))
     }
 }
 
 /// Retrieves the output coordinate from the pose and input.
-fn pose_output<P: Pose>(pose: P, input: P::InputPoint) -> Vector4<f64>
-where
-    P::InputPoint: From<Vector4<f64>>,
-{
+fn pose_output<P: Pose>(pose: P, input: P::InputPoint) -> Vector4<f64> {
     pose.isometry().to_homogeneous() * input.homogeneous()
 }
 
 /// Retrieves the rotated and output coordinates (in that order) from the pose and input.
-fn pose_rotated_output<P: Pose>(pose: P, input: P::InputPoint) -> (Vector4<f64>, Vector4<f64>)
-where
-    P::InputPoint: From<Vector4<f64>>,
-{
+fn pose_rotated_output<P: Pose>(pose: P, input: P::InputPoint) -> (Vector4<f64>, Vector4<f64>) {
     let rotated = pose.isometry().rotation.to_homogeneous() * input.homogeneous();
     let output = pose.isometry().to_homogeneous() * input.homogeneous();
     (rotated, output)
@@ -185,22 +183,19 @@ impl Pose for WorldToCamera {
     type OutputPoint = CameraPoint;
     type Inverse = CameraToWorld;
 
+    #[inline(always)]
     fn isometry(self) -> IsometryMatrix3<f64> {
         self.into()
     }
 }
 
-impl<P> Model<FeatureWorldMatch<P>> for WorldToCamera
-where
-    P: Bearing,
-{
-    fn residual(&self, data: &FeatureWorldMatch<P>) -> f64 {
-        let WorldToCamera(iso) = *self;
-        let FeatureWorldMatch(feature, world) = data;
+impl Model<FeatureWorldMatch> for WorldToCamera {
+    #[inline(always)]
+    fn residual(&self, data: &FeatureWorldMatch) -> f64 {
+        let &FeatureWorldMatch(keypoint_bearing, world) = data;
 
-        let new_bearing = (iso.to_homogeneous() * world.0).xyz().normalize();
-        let bearing_vector = feature.bearing();
-        1.0 - bearing_vector.dot(&new_bearing)
+        let observation_bearing = self.transform(world).bearing();
+        1.0 - keypoint_bearing.dot(&observation_bearing)
     }
 }
 
@@ -216,6 +211,7 @@ impl Pose for CameraToWorld {
     type OutputPoint = WorldPoint;
     type Inverse = WorldToCamera;
 
+    #[inline(always)]
     fn isometry(self) -> IsometryMatrix3<f64> {
         self.into()
     }
@@ -242,6 +238,7 @@ impl Pose for CameraToCamera {
     type OutputPoint = CameraPoint;
     type Inverse = CameraToCamera;
 
+    #[inline(always)]
     fn isometry(self) -> IsometryMatrix3<f64> {
         self.into()
     }
@@ -259,6 +256,7 @@ impl Pose for WorldToWorld {
     type OutputPoint = WorldPoint;
     type Inverse = WorldToWorld;
 
+    #[inline(always)]
     fn isometry(self) -> IsometryMatrix3<f64> {
         self.into()
     }

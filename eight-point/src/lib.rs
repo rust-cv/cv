@@ -5,16 +5,14 @@ use cv_core::{
     sample_consensus::Estimator,
     FeatureMatch,
 };
-use cv_pinhole::{EssentialMatrix, NormalizedKeyPoint};
+use cv_pinhole::EssentialMatrix;
 
-fn encode_epipolar_equation(
-    matches: impl Iterator<Item = FeatureMatch<NormalizedKeyPoint>>,
-) -> OMatrix<f64, U8, U9> {
+fn encode_epipolar_equation(matches: impl Iterator<Item = FeatureMatch>) -> OMatrix<f64, U8, U9> {
     let mut out: OMatrix<f64, U8, U9> = nalgebra::zero();
     for (i, FeatureMatch(a, b)) in (0..8).zip(matches) {
         let mut row = OVector::<f64, U9>::zeros();
-        let ap = a.virtual_image_point().coords;
-        let bp = b.virtual_image_point().coords;
+        let ap = a.into_inner() / a.z;
+        let bp = b.into_inner() / a.z;
         for j in 0..3 {
             let v = ap[j] * bp;
             row.fixed_rows_mut::<3>(3 * j).copy_from(&v);
@@ -51,14 +49,14 @@ impl Default for EightPoint {
     }
 }
 
-impl Estimator<FeatureMatch<NormalizedKeyPoint>> for EightPoint {
+impl Estimator<FeatureMatch> for EightPoint {
     type Model = EssentialMatrix;
     type ModelIter = Option<EssentialMatrix>;
     const MIN_SAMPLES: usize = 8;
 
     fn estimate<I>(&self, data: I) -> Self::ModelIter
     where
-        I: Iterator<Item = FeatureMatch<NormalizedKeyPoint>> + Clone,
+        I: Iterator<Item = FeatureMatch> + Clone,
     {
         let epipolar_constraint = encode_epipolar_equation(data);
         let eet = epipolar_constraint.transpose() * epipolar_constraint;
