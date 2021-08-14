@@ -119,7 +119,6 @@ fn main() {
     let feed = vslam.add_feed(intrinsics);
 
     let mut normalized = HashSet::new();
-    let mut regenerated = HashSet::new();
 
     // Add the frames.
     for frame_path in &opt.images {
@@ -130,12 +129,6 @@ fn main() {
             if normalized.insert(reconstruction) {
                 info!("new reconstruction; normalizing reconstruction");
                 vslam.normalize_reconstruction(reconstruction);
-            }
-            if vslam.data.reconstruction(reconstruction).views.len() >= 10
-                && regenerated.insert(reconstruction)
-            {
-                info!("reconstruction hit 10 or more views; regenerating reconstruction");
-                vslam.regenerate_reconstruction(reconstruction);
             }
             info!("exporting reconstruction");
             if let Some(path) = &opt.output {
