@@ -94,7 +94,7 @@ impl CameraModel for CameraIntrinsics {
     ///     skew: 1.7,
     /// };
     /// let kp = KeyPoint(Point2::new(471.0, 322.0));
-    /// let mut nkp = intrinsics.calibrate(kp);
+    /// let mut nkp = intrinsics.calibrate(kp).into_inner();
     /// // The bearing's Y is flipped back to image space from camera space.
     /// nkp.y = -nkp.y;
     /// let calibration_matrix = intrinsics.matrix();

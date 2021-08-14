@@ -566,7 +566,7 @@ fn default_optimization_minimum_landmarks() -> usize {
 }
 
 fn default_optimization_maximum_landmarks() -> usize {
-    1 << 8
+    1 << 9
 }
 
 fn default_optimization_robust_covisibility_minimum_landmarks() -> usize {
