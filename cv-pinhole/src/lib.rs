@@ -86,7 +86,7 @@ impl CameraModel for CameraIntrinsics {
     ///
     /// ```
     /// use cv_core::{KeyPoint, CameraModel};
-    /// use cv_pinhole::{NormalizedKeyPoint, CameraIntrinsics};
+    /// use cv_pinhole::CameraIntrinsics;
     /// use cv_core::nalgebra::{Vector2, Vector3, Point2};
     /// let intrinsics = CameraIntrinsics {
     ///     focals: Vector2::new(800.0, 900.0),
@@ -94,9 +94,13 @@ impl CameraModel for CameraIntrinsics {
     ///     skew: 1.7,
     /// };
     /// let kp = KeyPoint(Point2::new(471.0, 322.0));
-    /// let nkp = intrinsics.calibrate(kp);
+    /// let mut nkp = intrinsics.calibrate(kp);
+    /// // The bearing's Y is flipped back to image space from camera space.
+    /// nkp.y = -nkp.y;
     /// let calibration_matrix = intrinsics.matrix();
-    /// let distance = (kp.to_homogeneous() - calibration_matrix * nkp.to_homogeneous()).norm();
+    /// let uncalibrated = (calibration_matrix * (nkp.xyz() / nkp.z));
+    /// let uncalibrated = uncalibrated.xy() / uncalibrated.z;
+    /// let distance = (kp.coords - uncalibrated).norm();
     /// assert!(distance < 0.1);
     /// ```
     fn calibrate<P>(&self, point: P) -> UnitVector3<f64>
@@ -115,7 +119,7 @@ impl CameraModel for CameraIntrinsics {
     ///
     /// ```
     /// use cv_core::{KeyPoint, CameraModel};
-    /// use cv_pinhole::{NormalizedKeyPoint, CameraIntrinsics};
+    /// use cv_pinhole::CameraIntrinsics;
     /// use cv_core::nalgebra::{Vector2, Vector3, Point2};
     /// let intrinsics = CameraIntrinsics {
     ///     focals: Vector2::new(800.0, 900.0),
@@ -124,7 +128,7 @@ impl CameraModel for CameraIntrinsics {
     /// };
     /// let kp = KeyPoint(Point2::new(471.0, 322.0));
     /// let nkp = intrinsics.calibrate(kp);
-    /// let ukp = intrinsics.uncalibrate(nkp);
+    /// let ukp = intrinsics.uncalibrate(nkp).unwrap();
     /// assert!((kp.0 - ukp.0).norm() < 1e-6);
     /// ```
     fn uncalibrate(&self, projection: UnitVector3<f64>) -> Option<KeyPoint> {
@@ -166,7 +170,7 @@ impl CameraModel for CameraIntrinsicsK1Distortion {
     ///
     /// ```
     /// use cv_core::{KeyPoint, CameraModel};
-    /// use cv_pinhole::{NormalizedKeyPoint, CameraIntrinsics, CameraIntrinsicsK1Distortion};
+    /// use cv_pinhole::{CameraIntrinsics, CameraIntrinsicsK1Distortion};
     /// use cv_core::nalgebra::{Vector2, Vector3, Point2};
     /// let intrinsics = CameraIntrinsics {
     ///     focals: Vector2::new(800.0, 900.0),
@@ -179,9 +183,11 @@ impl CameraModel for CameraIntrinsicsK1Distortion {
     ///     k1,
     /// );
     /// let kp = KeyPoint(Point2::new(471.0, 322.0));
-    /// let nkp = intrinsics.calibrate(kp);
-    /// let simple_nkp = intrinsics.simple_intrinsics.calibrate(kp);
-    /// let distance = (nkp.0.coords - (simple_nkp.0.coords / (1.0 + k1 * simple_nkp.0.coords.norm_squared()))).norm();
+    /// let nkp = intrinsics.calibrate(kp).into_inner();
+    /// let nkp = nkp.xy() / nkp.z;
+    /// let simple_nkp = intrinsics.simple_intrinsics.calibrate(kp).into_inner();
+    /// let simple_nkp = simple_nkp.xy() / simple_nkp.z;
+    /// let distance = (nkp - (simple_nkp / (1.0 + k1 * simple_nkp.norm_squared()))).norm();
     /// assert!(distance < 0.1);
     /// ```
     fn calibrate<P>(&self, point: P) -> UnitVector3<f64>
@@ -203,7 +209,7 @@ impl CameraModel for CameraIntrinsicsK1Distortion {
     ///
     /// ```
     /// use cv_core::{KeyPoint, CameraModel};
-    /// use cv_pinhole::{NormalizedKeyPoint, CameraIntrinsics, CameraIntrinsicsK1Distortion};
+    /// use cv_pinhole::{CameraIntrinsics, CameraIntrinsicsK1Distortion};
     /// use cv_core::nalgebra::{Vector2, Vector3, Point2};
     /// let intrinsics = CameraIntrinsics {
     ///     focals: Vector2::new(800.0, 900.0),
@@ -216,7 +222,7 @@ impl CameraModel for CameraIntrinsicsK1Distortion {
     /// );
     /// let kp = KeyPoint(Point2::new(471.0, 322.0));
     /// let nkp = intrinsics.calibrate(kp);
-    /// let ukp = intrinsics.uncalibrate(nkp);
+    /// let ukp = intrinsics.uncalibrate(nkp).unwrap();
     /// assert!((kp.0 - ukp.0).norm() < 1e-6, "{:?}", (kp.0 - ukp.0).norm());
     /// ```
     fn uncalibrate(&self, projection: UnitVector3<f64>) -> Option<KeyPoint> {
@@ -291,19 +297,18 @@ impl CameraSpecification {
 /// perspective of camera A, and the pose will be used to transform the point into the perspective of camera B.
 ///
 /// ```
-/// use cv_core::{CameraToCamera, CameraPoint, FeatureMatch, Pose};
+/// use cv_core::{CameraToCamera, CameraPoint, FeatureMatch, Pose, Projective};
 /// use cv_core::nalgebra::{Point3, IsometryMatrix3, Vector3, Rotation3};
-/// use cv_pinhole::NormalizedKeyPoint;
 /// // Create an arbitrary point in the space of camera A.
-/// let point_a = CameraPoint(Point3::new(0.4, -0.25, 5.0).to_homogeneous());
+/// let point_a = CameraPoint::from_point(Point3::new(0.4, -0.25, 5.0));
 /// // Create an arbitrary relative pose between two cameras A and B.
 /// let pose = CameraToCamera::from_parts(Vector3::new(0.1, 0.2, -0.5), Rotation3::identity());
 /// // Transform the point in camera A to camera B.
 /// let point_b = pose.transform(point_a);
 ///
 /// // Convert the camera points to normalized image coordinates.
-/// let nkpa = NormalizedKeyPoint::from_camera_point(point_a).unwrap();
-/// let nkpb = NormalizedKeyPoint::from_camera_point(point_b).unwrap();
+/// let nkpa = point_a.bearing();
+/// let nkpb = point_b.bearing();
 ///
 /// // Create a triangulator.
 /// let triangulator = cv_geom::MinSquaresTriangulator::new();
@@ -344,19 +349,18 @@ pub fn pose_reprojection_error(
 /// This is a convenience function that simply finds the average reprojection error rather than all components.
 ///
 /// ```
-/// use cv_core::{CameraToCamera, CameraPoint, FeatureMatch, Pose};
+/// use cv_core::{CameraToCamera, CameraPoint, FeatureMatch, Pose, Projective};
 /// use cv_core::nalgebra::{Point3, IsometryMatrix3, Vector3, Rotation3};
-/// use cv_pinhole::NormalizedKeyPoint;
 /// // Create an arbitrary point in the space of camera A.
-/// let point_a = CameraPoint(Point3::new(0.4, -0.25, 5.0).to_homogeneous());
+/// let point_a = CameraPoint::from_point(Point3::new(0.4, -0.25, 5.0));
 /// // Create an arbitrary relative pose between two cameras A and B.
 /// let pose = CameraToCamera::from_parts(Vector3::new(0.1, 0.2, -0.5), Rotation3::identity());
 /// // Transform the point in camera A to camera B.
 /// let point_b = pose.transform(point_a);
 ///
 /// // Convert the camera points to normalized image coordinates.
-/// let nkpa = NormalizedKeyPoint::from_camera_point(point_a).unwrap();
-/// let nkpb = NormalizedKeyPoint::from_camera_point(point_b).unwrap();
+/// let nkpa = point_a.bearing();
+/// let nkpb = point_b.bearing();
 ///
 /// // Create a triangulator.
 /// let triangulator = cv_geom::MinSquaresTriangulator::new();

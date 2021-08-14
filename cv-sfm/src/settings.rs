@@ -246,7 +246,7 @@ pub struct VSlamSettings {
     /// The number of most recent frames to attempt to match when tracking.
     #[cfg_attr(
         feature = "serde-serialize",
-        serde(default = "default_tracking_similar_frames")
+        serde(default = "default_tracking_recent_frames")
     )]
     pub tracking_recent_frames: usize,
     /// The maximum number of iterations to optimize three-view constraints.
@@ -522,7 +522,7 @@ fn default_reconstruction_optimization_iterations() -> usize {
 }
 
 fn default_tracking_similar_frames() -> usize {
-    1 << 6
+    1 << 5
 }
 
 fn default_tracking_similar_frame_recent_threshold() -> usize {
