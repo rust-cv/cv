@@ -24,7 +24,7 @@ pub fn export(
 ) {
     // crete a ply objet
     let mut ply = Ply::<DefaultElement>::new();
-    ply.header.encoding = Encoding::BinaryLittleEndian;
+    ply.header.encoding = Encoding::Ascii;
     ply.header
         .comments
         .push("Exported from rust-cv/vslam-sandbox".to_string());
