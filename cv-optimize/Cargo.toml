@@ -9,6 +9,6 @@ levenberg-marquardt = "0.10.0"
 cv-core = { version = "0.15.0", path = "../cv-core" }
 nalgebra = { version = "0.28.0", features = ["alloc"], default-features = false }
 num-traits = "0.2.14"
-argmin = { version = "0.4.6", default-features = false, features = ["nalgebral"] }
+argmin = { version = "=0.4.6", default-features = false, features = ["nalgebral"] }
 average = "0.13.1"
 itertools = "0.10.1"
