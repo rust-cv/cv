@@ -140,7 +140,6 @@ fn main() {
                     // Keep track of the old settings
                     let old_settings = vslam.settings;
                     // Set the settings based on the command line arguments for export purposes.
-                    vslam.settings.maximum_cosine_distance = opt.export_maximum_cosine_distance;
                     vslam.settings.robust_maximum_cosine_distance =
                         opt.export_maximum_cosine_distance;
                     vslam.settings.robust_minimum_observations =

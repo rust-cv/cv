@@ -29,12 +29,6 @@ pub struct VSlamSettings {
         serde(default = "default_robust_minimum_observations")
     )]
     pub robust_minimum_observations: usize,
-    /// The maximum cosine distance permitted in a valid match
-    #[cfg_attr(
-        feature = "serde-serialize",
-        serde(default = "default_maximum_cosine_distance")
-    )]
-    pub maximum_cosine_distance: f64,
     /// The threshold of all observations in a landmark relative to another landmark to merge the two.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -119,6 +113,19 @@ pub struct VSlamSettings {
         serde(default = "default_two_view_consensus_threshold")
     )]
     pub two_view_consensus_threshold: f64,
+    /// The maximum amount of loss before a point in optimization is treated as an outlier
+    /// and its loss is capped to prevent its influence.
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_two_view_loss_cutoff")
+    )]
+    pub two_view_loss_cutoff: f64,
+    /// The maximum cosine distance allowed for two-view matches.
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_two_view_maximum_cosine_distance")
+    )]
+    pub two_view_maximum_cosine_distance: f64,
     /// The minimum ratio of good matches to total matches to consider a two-view match successful.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -319,7 +326,6 @@ impl Default for VSlamSettings {
             robust_maximum_cosine_distance: default_robust_maximum_cosine_distance(),
             minimum_robust_landmarks: default_minimum_robust_landmarks(),
             robust_minimum_observations: default_robust_minimum_observations(),
-            maximum_cosine_distance: default_maximum_cosine_distance(),
             merge_maximum_cosine_distance: default_merge_maximum_cosine_distance(),
             merge_nearest_neighbors: default_merge_nearest_neighbors(),
             robust_observation_incidence_minimum_cosine_distance:
@@ -335,6 +341,8 @@ impl Default for VSlamSettings {
             single_view_minimum_robust_landmarks: default_single_view_minimum_robust_landmarks(),
             single_view_match_better_by: default_single_view_match_better_by(),
             two_view_consensus_threshold: default_two_view_consensus_threshold(),
+            two_view_loss_cutoff: default_two_view_loss_cutoff(),
+            two_view_maximum_cosine_distance: default_two_view_maximum_cosine_distance(),
             two_view_inlier_minimum_threshold: default_two_view_inlier_minimum_threshold(),
             two_view_minimum_robust_matches: default_two_view_minimum_robust_matches(),
             two_view_match_better_by: default_two_view_match_better_by(),
@@ -393,12 +401,8 @@ fn default_robust_minimum_observations() -> usize {
     3
 }
 
-fn default_maximum_cosine_distance() -> f64 {
-    1e-3
-}
-
 fn default_merge_maximum_cosine_distance() -> f64 {
-    1e-3
+    2e-6
 }
 
 fn default_merge_nearest_neighbors() -> usize {
@@ -453,6 +457,14 @@ fn default_two_view_consensus_threshold() -> f64 {
     0.1
 }
 
+fn default_two_view_loss_cutoff() -> f64 {
+    1e-3
+}
+
+fn default_two_view_maximum_cosine_distance() -> f64 {
+    1e-3
+}
+
 fn default_two_view_inlier_minimum_threshold() -> f64 {
     0.05
 }
@@ -482,7 +494,7 @@ fn default_three_view_patience() -> usize {
 }
 
 fn default_three_view_relative_scale_maximum_cosine_distance() -> f64 {
-    1e-3
+    1e-5
 }
 
 fn default_three_view_relative_scale_incidence_minimum_cosine_distance() -> f64 {
@@ -558,7 +570,7 @@ fn default_optimization_loss_cutoff() -> f64 {
 }
 
 fn default_optimization_iterations() -> usize {
-    1 << 7
+    1 << 10
 }
 
 fn default_optimization_minimum_landmarks() -> usize {
@@ -574,5 +586,5 @@ fn default_optimization_robust_covisibility_minimum_landmarks() -> usize {
 }
 
 fn default_optimization_convergence_rate() -> f64 {
-    0.01
+    0.001
 }

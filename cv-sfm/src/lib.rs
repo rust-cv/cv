@@ -22,14 +22,14 @@ use cv_optimize::{
 use cv_pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix};
 use float_ord::FloatOrd;
 use hamming_lsh::HammingHasher;
-use hgg::HggLite as Hgg;
+use hgg::{Hgg, HggLite};
 use image::DynamicImage;
 use itertools::{izip, Itertools};
 use log::*;
 use maplit::hashmap;
 use rand::{seq::SliceRandom, Rng};
 use slotmap::{new_key_type, DenseSlotMap};
-use space::{Knn, KnnInsert, KnnMap};
+use space::{Knn, KnnInsert, KnnMap, Metric};
 use std::{
     cell::RefCell,
     cmp::{self, Reverse},
@@ -86,7 +86,7 @@ pub struct Frame {
     /// This frame's index in the feed.
     pub feed_frame: usize,
     /// A KnnMap from feature descriptors to keypoint and color data.
-    pub descriptor_features: Hgg<Hamming, BitArray<64>, Feature>,
+    pub descriptor_features: HggLite<Hamming, BitArray<64>, Feature>,
     /// The views this frame produced.
     pub view: Option<(ReconstructionKey, ViewKey)>,
     /// The LSH of this frame.
@@ -151,6 +151,8 @@ pub struct Reconstruction {
     pub landmarks: DenseSlotMap<LandmarkKey, Landmark>,
     /// Constraints imposed during pose optimization
     pub constraints: DenseSlotMap<ConstraintKey, ThreeViewConstraint>,
+    /// Views that need to have landmarks merged after optimization
+    pub merge_views: Vec<ViewKey>,
 }
 
 /// Contains the results of a bundle adjust
@@ -217,7 +219,7 @@ pub struct VSlamData {
     /// Contains the LSH hasher.
     hasher: HammingHasher<64, 128>,
     /// The HGG to search descriptors for keypoint `(Reconstruction::view, Frame::features)` instances
-    lsh_to_frame: Hgg<Hamming, BitArray<128>, FrameKey>,
+    lsh_to_frame: HggLite<Hamming, BitArray<128>, FrameKey>,
 }
 
 impl Default for VSlamData {
@@ -239,6 +241,10 @@ impl VSlamData {
 
     pub fn frame(&self, frame: FrameKey) -> &Frame {
         &self.frames[frame]
+    }
+
+    pub fn frame_mut(&mut self, frame: FrameKey) -> &mut Frame {
+        &mut self.frames[frame]
     }
 
     pub fn keypoint(&self, frame: FrameKey, feature: usize) -> UnitVector3<f64> {
@@ -269,8 +275,12 @@ impl VSlamData {
         &mut self.reconstructions[reconstruction].views[view]
     }
 
-    pub fn view_frame(&self, reconstruction: ReconstructionKey, view: ViewKey) -> FrameKey {
-        self.view(reconstruction, view).frame
+    pub fn view_frame(&self, reconstruction: ReconstructionKey, view: ViewKey) -> &Frame {
+        self.frame(self.view(reconstruction, view).frame)
+    }
+
+    fn view_frame_mut(&mut self, reconstruction: ReconstructionKey, view: ViewKey) -> &mut Frame {
+        self.frame_mut(self.view(reconstruction, view).frame)
     }
 
     pub fn pose(&self, reconstruction: ReconstructionKey, view: ViewKey) -> WorldToCamera {
@@ -292,7 +302,7 @@ impl VSlamData {
         view: ViewKey,
         feature: usize,
     ) -> [u8; 3] {
-        self.color(self.view_frame(reconstruction, view), feature)
+        self.color(self.view(reconstruction, view).frame, feature)
     }
 
     pub fn observation_keypoint(
@@ -301,7 +311,7 @@ impl VSlamData {
         view: ViewKey,
         feature: usize,
     ) -> UnitVector3<f64> {
-        self.keypoint(self.view_frame(reconstruction, view), feature)
+        self.keypoint(self.view(reconstruction, view).frame, feature)
     }
 
     pub fn is_observation_good(
@@ -317,6 +327,20 @@ impl VSlamData {
             self.observation_keypoint(reconstruction, view, feature),
             point,
             threshold,
+        )
+    }
+
+    pub fn observation_residual(
+        &self,
+        reconstruction: ReconstructionKey,
+        view: ViewKey,
+        feature: usize,
+        point: WorldPoint,
+    ) -> f64 {
+        observation_residual_raw(
+            self.reconstructions[reconstruction].views[view].pose,
+            self.observation_keypoint(reconstruction, view, feature),
+            point,
         )
     }
 
@@ -411,6 +435,9 @@ impl VSlamData {
                 views: canonical_view_order([center_view, first_view, second_view]),
                 poses: [first_pose.isometry(), second_pose.isometry()],
             });
+        self.reconstructions[reconstruction]
+            .merge_views
+            .extend_from_slice(&[center_view, first_view, second_view]);
         reconstruction
     }
 
@@ -483,8 +510,7 @@ impl VSlamData {
     }
 
     fn remove_view(&mut self, reconstruction: ReconstructionKey, view: ViewKey) {
-        let frame = self.view_frame(reconstruction, view);
-        self.frames[frame].view = None;
+        self.view_frame_mut(reconstruction, view).view = None;
         let landmarks = mem::take(&mut self.reconstructions[reconstruction].views[view].landmarks);
         for landmark in landmarks {
             match self.reconstructions[reconstruction].landmarks[landmark]
@@ -509,13 +535,14 @@ impl VSlamData {
 
     /// Splits the observation into its own landmark.
     ///
-    /// Returns the landmark ID (new or old, as necessary).
+    /// Returns `true` if the observation was split into a new landmark.
+    /// Returns `false` if the landmark already only had one observation.
     fn split_observation(
         &mut self,
         reconstruction: ReconstructionKey,
         view: ViewKey,
         feature: usize,
-    ) -> LandmarkKey {
+    ) -> bool {
         // Check if this is the only observation in the landmark.
         let old_landmark = self.observation_landmark(reconstruction, view, feature);
         if self
@@ -542,34 +569,10 @@ impl VSlamData {
                 });
             // Assign the landmark ID to the observation.
             self.view_mut(reconstruction, view).landmarks[feature] = new_landmark;
-            new_landmark
+            true
         } else {
-            old_landmark
+            false
         }
-    }
-
-    /// Merges two landmarks unconditionally. Returns the new landmark ID.
-    fn merge_landmarks(
-        &mut self,
-        reconstruction: ReconstructionKey,
-        landmark_a: LandmarkKey,
-        landmark_b: LandmarkKey,
-    ) -> LandmarkKey {
-        let old_landmark = self.reconstructions[reconstruction]
-            .landmarks
-            .remove(landmark_b)
-            .expect("landmark_b didnt exist");
-        for (view, feature) in old_landmark.observations {
-            // We must start by updating the landmark in the view for this feature.
-            self.view_mut(reconstruction, view).landmarks[feature] = landmark_a;
-            // Add the observation to landmark A.
-            assert!(self
-                .landmark_mut(reconstruction, landmark_a)
-                .observations
-                .insert(view, feature)
-                .is_none());
-        }
-        landmark_a
     }
 
     /// Get the most visually similar frames and the most recent frames.
@@ -655,7 +658,7 @@ impl VSlamData {
     fn add_frame(&mut self, feed: FeedKey, features: Vec<(BitArray<64>, Feature)>) -> FrameKey {
         info!("adding frame with {} features", features.len());
         let lsh = self.hasher.hash_bag(features.iter().map(|(d, _)| d));
-        let mut descriptor_features = Hgg::new(Hamming).insert_knn(32);
+        let mut descriptor_features = HggLite::new(Hamming).insert_knn(32);
         for (descriptor, feature) in features {
             descriptor_features.insert(descriptor, feature);
         }
@@ -1129,7 +1132,7 @@ where
                         c,
                         f,
                         s,
-                        self.settings.maximum_cosine_distance,
+                        self.settings.robust_maximum_cosine_distance,
                         0.0,
                     )
                 })
@@ -1148,7 +1151,7 @@ where
                         first_pose,
                         c,
                         f,
-                        self.settings.maximum_cosine_distance,
+                        self.settings.robust_maximum_cosine_distance,
                         0.0,
                     )
                 })
@@ -1167,7 +1170,7 @@ where
                         second_pose,
                         c,
                         s,
-                        self.settings.maximum_cosine_distance,
+                        self.settings.robust_maximum_cosine_distance,
                         0.0,
                     )
                 })
@@ -1394,12 +1397,12 @@ where
             b,
             pose,
             original_matches.iter().copied(),
-            self.settings.two_view_consensus_threshold,
+            self.settings.two_view_maximum_cosine_distance,
             0.0,
         );
 
         // Set the loss cutoff to the regular maximum cosine distance.
-        let loss_cutoff = self.settings.maximum_cosine_distance;
+        let loss_cutoff = self.settings.two_view_loss_cutoff;
         info!("optimizing pose with loss cutoff {}", loss_cutoff);
 
         // Create solver and constraint for two-view optimizer.
@@ -1449,7 +1452,7 @@ where
             b,
             pose,
             original_matches.iter().copied(),
-            self.settings.maximum_cosine_distance,
+            self.settings.two_view_maximum_cosine_distance,
             0.0,
         );
 
@@ -1459,7 +1462,7 @@ where
             b,
             pose,
             original_matches.iter().copied(),
-            self.settings.maximum_cosine_distance,
+            self.settings.two_view_maximum_cosine_distance,
             self.settings
                 .robust_observation_incidence_minimum_cosine_distance,
         );
@@ -1577,6 +1580,14 @@ where
         let landmark_counts = original_matches.iter().counts_by(|&(landmark, _)| landmark);
         original_matches.retain(|(landmark, _)| landmark_counts[landmark] == 1);
         original_matches.shuffle(&mut *self.rng.borrow_mut());
+        original_matches.sort_unstable_by_key(|&(landmark, _)| {
+            cmp::Reverse(
+                self.data
+                    .landmark(reconstruction_key, landmark)
+                    .observations
+                    .len(),
+            )
+        });
 
         info!("found {} initial feature matches", original_matches.len());
 
@@ -1712,7 +1723,7 @@ where
             .collect();
         let mut dest_views = vec![];
         for src_view in src_views {
-            let frame = self.data.view_frame(src_reconstruction, src_view);
+            let frame = self.data.view(src_reconstruction, src_view).frame;
 
             // Transform the pose to go from (world b -> world a) -> camera.
             // Now the transformation goes from world b -> camera, which is correct.
@@ -1839,6 +1850,15 @@ where
             + second_pose.isometry().translation.vector.norm();
         // Shuffle the landmarks to avoid bias.
         landmarks.shuffle(&mut *self.rng.borrow_mut());
+        // Sort the landmarks by their number of observations so the best ones are at the front.
+        landmarks.sort_unstable_by_key(|&landmark| {
+            cmp::Reverse(
+                self.data
+                    .landmark(reconstruction, landmark)
+                    .observations
+                    .len(),
+            )
+        });
 
         // Get the matches to use for optimization.
         let opti_matches: Vec<[UnitVector3<f64>; 3]> = landmarks
@@ -1846,7 +1866,7 @@ where
             .map(|&landmark| {
                 views.map(|view| {
                     self.data
-                        .frame(self.data.view_frame(reconstruction, view))
+                        .view_frame(reconstruction, view)
                         .keypoint(self.data.landmark(reconstruction, landmark).observations[&view])
                 })
             })
@@ -1927,6 +1947,9 @@ where
         });
 
         if self.record_view_constraints(reconstruction, view) {
+            self.data.reconstructions[reconstruction]
+                .merge_views
+                .push(view);
             Some(view)
         } else {
             self.data.remove_view(reconstruction, view);
@@ -1971,7 +1994,7 @@ where
             self.data.reconstructions[src_reconstruction].views.len(),
             self.data.reconstructions[dest_reconstruction].views.len()
         );
-        let frame = self.data.view_frame(src_reconstruction, src_view);
+        let frame = self.data.view(src_reconstruction, src_view).frame;
         let src_pose = self.data.view(src_reconstruction, src_view).pose;
 
         // Try to register the view into the dest reconstruction.
@@ -2019,6 +2042,12 @@ where
         self.data.reconstructions[src_reconstruction]
             .views
             .remove(src_view);
+
+        // Since we are past the point of no return, also add the destination view to the merge_views
+        // list so that it has its landmarks merged properly.
+        self.data.reconstructions[dest_reconstruction]
+            .merge_views
+            .push(dest_view);
 
         // Create the transformation from the source to the destination reconstruction.
         let world_transform = WorldToWorld::from_camera_poses(src_pose, dest_pose);
@@ -2173,9 +2202,11 @@ where
             self.bundle_adjust_reconstruction(reconstruction)
                 .or_else(opeek(|| info!("failed to bundle adjust reconstruction")))?;
             // Filter observations after running bundle-adjust.
-            self.filter_observations(reconstruction)?;
+            self.filter_non_robust_observations(reconstruction)?;
             // Merge landmarks.
-            self.merge_nearby_landmarks(reconstruction);
+            for view in mem::take(&mut self.data.reconstructions[reconstruction].merge_views) {
+                self.merge_view_landmarks(reconstruction, view);
+            }
         }
         Some(reconstruction)
     }
@@ -2381,7 +2412,7 @@ where
         }
     }
 
-    pub fn filter_observations(
+    pub fn filter_non_robust_observations(
         &mut self,
         reconstruction: ReconstructionKey,
     ) -> Option<ReconstructionKey> {
@@ -2423,7 +2454,7 @@ where
                         view,
                         feature,
                         point,
-                        self.settings.maximum_cosine_distance,
+                        self.settings.robust_maximum_cosine_distance,
                     ) {
                         // If the observation is bad, we must remove it from the landmark and the view.
                         self.data.split_observation(reconstruction, view, feature);
@@ -2462,13 +2493,8 @@ where
 
     /// Filters landmarks that arent robust.
     ///
-    /// It is recommended not to perform this stage normally, as only robust observations are used in the
-    /// optimization process. It can be beneficial to have landmarks that are either not triangulatable
-    /// or are infinitely far away from the camera (such as stars). Additionally, having weaker obervations
-    /// allows the potential for a landmark to become robust in the future. Use this if you really want to strip
-    /// out useful data from the reconstruction and only leave the most robust data used for optimization purposes.
-    /// This may be useful to do if the amount of data is too large and needs to be trimmed down to only the useful data
-    /// for image registration.
+    /// It is recommended to filter observations instead, which will filter out non-robust observations.
+    /// This will remove the landmarks outright.
     pub fn filter_non_robust_landmarks(&mut self, reconstruction: ReconstructionKey) {
         info!("filtering non-robust landmarks");
         let landmarks: Vec<LandmarkKey> = self
@@ -2521,137 +2547,222 @@ where
         info!("ended with {} 3d landmarks", num_3d_landmarks,);
     }
 
-    /// Attempts to merge two landmarks. If it succeeds, it returns the landmark ID.
-    fn try_merge_landmarks(
+    /// Merges two landmarks unconditionally. Returns the new landmark ID.
+    fn merge_landmarks(
         &mut self,
         reconstruction: ReconstructionKey,
         landmark_a: LandmarkKey,
         landmark_b: LandmarkKey,
+        point: WorldPoint,
     ) -> Option<LandmarkKey> {
-        // First, check if both landmarks are robust. If either is not robust, they should not be merged.
-        if self
-            .triangulate_landmark_robust(reconstruction, landmark_a)
-            .is_none()
-            || self
-                .triangulate_landmark_robust(reconstruction, landmark_b)
-                .is_none()
+        // First, we need to handle the situation where the same view is present in each landmark.
+        let mut dups: Vec<(ViewKey, [usize; 2])> = vec![];
+        for (&view, &observation_a) in self
+            .data
+            .landmark(reconstruction, landmark_a)
+            .observations
+            .iter()
         {
-            return None;
+            if let Some(&observation_b) = self
+                .data
+                .landmark(reconstruction, landmark_b)
+                .observations
+                .get(&view)
+            {
+                dups.push((view, [observation_a, observation_b]));
+            }
         }
-        // If the same view appears in each landmark, then that means two different features from the same view
-        // would appear in the resulting landmark, which is invalid.
-        let duplicate_view = self
-            .data
-            .landmark_observations(reconstruction, landmark_a)
-            .any(|(view_a, _)| {
-                self.data
-                    .landmark_observations(reconstruction, landmark_b)
-                    .any(|(view_b, _)| view_a == view_b)
-            });
-        if duplicate_view {
-            // We got a duplicate view, so return none.
-            return None;
+        let mut success = true;
+        for (view, observations) in dups {
+            // In this case, we have two features in one view pointing to the same landmark.
+            // To correct this, we will figure out which observation is closer to the point.
+            // We will only keep the observation which has the lowest cosine distance.
+            // Find the worst observation by the cosine distance.
+            let &worst_observation = observations
+                .iter()
+                .max_by_key(|&&observation| {
+                    FloatOrd(self.data.observation_residual(
+                        reconstruction,
+                        view,
+                        observation,
+                        point,
+                    ))
+                })
+                .unwrap();
+
+            // Split off the worst observation.
+            if !self
+                .data
+                .split_observation(reconstruction, view, worst_observation)
+            {
+                // In this case, we would have split the very last observation out of the landmark.
+                // If that is the case, then merging the landmark is pointless because
+                // there would be nothing to merge.
+                // We should continue splitting the observations off here for consistency, but
+                // we need to mark that we will abort the merge after this or else it would panic from a duplicate.
+                success = false;
+            }
         }
-        // Get an iterator over all the observations in both landmarks.
-        let all_observations = self
-            .data
-            .landmark_observations(reconstruction, landmark_a)
-            .chain(self.data.landmark_observations(reconstruction, landmark_b));
-
-        // Triangulate the point which would be the combination of all landmarks.
-        let point = self.triangulate_observations(reconstruction, all_observations.clone())?;
-
-        // Determine if all observations would be good if merged.
-        let all_good = all_observations.clone().all(|(view, feature)| {
-            self.data.is_observation_good(
-                reconstruction,
-                view,
-                feature,
-                point,
-                self.settings.merge_maximum_cosine_distance,
-            )
-        });
-        // Determine if the point would be robust if merged.
-        let any_robust = all_observations.clone().any(|(view, feature)| {
-            self.data.is_observation_good(
-                reconstruction,
-                view,
-                feature,
-                point,
-                self.settings.robust_maximum_cosine_distance,
-            )
-        });
-        // Non-lexical lifetimes failed me.
-        drop(all_observations);
-
-        if all_good && any_robust {
-            // If they would all be good, merge them.
-            Some(
-                self.data
-                    .merge_landmarks(reconstruction, landmark_a, landmark_b),
-            )
-        } else {
-            // If they would not all be good, dont merge them.
-            None
+        // Only continue if successful.
+        success.then(|| ())?;
+        // At this point, we are now sure that we have no duplicate views as they have been removed.
+        let old_landmark = self.data.reconstructions[reconstruction]
+            .landmarks
+            .remove(landmark_b)
+            .expect("landmark_b didnt exist");
+        for (view, feature) in old_landmark.observations {
+            // We must start by updating the landmark in the view for this feature.
+            self.data.view_mut(reconstruction, view).landmarks[feature] = landmark_a;
+            // Add the observation to landmark A.
+            assert!(self
+                .data
+                .landmark_mut(reconstruction, landmark_a)
+                .observations
+                .insert(view, feature)
+                .is_none());
         }
+        Some(landmark_a)
     }
 
-    pub fn merge_nearby_landmarks(&mut self, reconstruction: ReconstructionKey) {
-        use rstar::{primitives::GeomWithData, RTree};
-        type LandmarkPoint = GeomWithData<[f64; 3], LandmarkKey>;
-        info!("merging reconstruction landmarks");
-        // Only take landmarks with at least two observations.
-        let landmarks: Vec<LandmarkPoint> = self
+    pub fn merge_view_landmarks(&mut self, reconstruction: ReconstructionKey, view: ViewKey) {
+        // Define the cosine distance as a metric.
+        struct CosineDistance;
+        impl Metric<UnitVector3<f64>> for CosineDistance {
+            type Unit = u64;
+
+            fn distance(&self, a: &UnitVector3<f64>, b: &UnitVector3<f64>) -> Self::Unit {
+                // The reason the max is taken is because if the two vectors are EXACTLY equal to each other,
+                // then it actually seems to produce a negative value, which is undesirable.
+                let dis = 1.0 - a.dot(b);
+                let dis = if dis.is_sign_negative() { 0.0 } else { dis };
+                assert!(
+                    dis.is_finite() && dis.is_sign_positive(),
+                    "a: {}, b: {}",
+                    a.into_inner(),
+                    b.into_inner()
+                );
+                dis.to_bits()
+            }
+        }
+
+        info!("merging landmarks into view");
+        // Keep track of the num merged landmarks.
+        let mut num_merged = 0usize;
+        let mut num_removed = 0usize;
+        // Get the view's pose.
+        let pose = self.data.view(reconstruction, view).pose;
+        // Transform all the points into the specified view's camera space and then add their bearings to an HGG.
+        let mut bearings_to_landmarks: Hgg<CosineDistance, UnitVector3<f64>, LandmarkKey> =
+            Hgg::new(CosineDistance);
+        // Get the set of landmarks in this view.
+        let current_view_landmarks: HashSet<LandmarkKey> = self
             .data
-            .reconstruction(reconstruction)
+            .view(reconstruction, view)
             .landmarks
             .iter()
-            .filter_map(|(landmark, _)| {
-                self.triangulate_landmark(reconstruction, landmark)
-                    .and_then(|wp| {
-                        wp.point()
-                            .map(|p| LandmarkPoint::new([p.x, p.y, p.z], landmark))
-                    })
-            })
+            .copied()
             .collect();
-        let landmark_index: RTree<LandmarkPoint> = RTree::bulk_load(landmarks.clone());
-
-        let mut num_merged = 0usize;
-        for landmark_point_a in landmarks {
-            // Check if landmark a still exists.
-            if self
-                .data
-                .reconstruction(reconstruction)
-                .landmarks
-                .contains_key(landmark_point_a.data)
-            {
-                // If the landmark still exists, search its nearest neighbors (up to 4, the first is itself).
-                let position: &[f64; 3] = landmark_point_a.geom();
-                for landmark_point_b in landmark_index
-                    .nearest_neighbor_iter(position)
-                    .take(self.settings.merge_nearest_neighbors)
+        // Only take landmarks that arent in the current view.
+        for landmark in self.data.reconstructions[reconstruction]
+            .landmarks
+            .keys()
+            .filter(|landmark| !current_view_landmarks.contains(landmark))
+        {
+            // Try to triangulate the landmark.
+            if let Some(world_point) = self.triangulate_landmark(reconstruction, landmark) {
+                // Transform the point into the camera's reference frame.
+                let camera_point = pose.transform(world_point);
+                // Extract the bearing of the camera point and add it to the HGG.
+                bearings_to_landmarks.insert(camera_point.bearing(), landmark);
+            }
+        }
+        // Go through every landmark in this view that has at least 2 observations.
+        for (feature, landmark) in self
+            .data
+            .view(reconstruction, view)
+            .landmarks
+            .iter()
+            .copied()
+            .enumerate()
+            .filter(|&(_, landmark)| {
+                self.data
+                    .landmark(reconstruction, landmark)
+                    .observations
+                    .len()
+                    >= 2
+            })
+            .collect_vec()
+        {
+            // Find the nearest points in cosine distance.
+            let knn = bearings_to_landmarks.knn(
+                &self
+                    .data
+                    .observation_keypoint(reconstruction, view, feature),
+                self.settings.merge_nearest_neighbors,
+            );
+            for nn in knn {
+                // Get the landmark.
+                let old_landmark = *bearings_to_landmarks.get_value(nn.index).unwrap();
+                // Make sure the landmark still exists (and wasnt merged into a previous landmark).
+                // Also make sure the landmark still has at least 2 observations (they can get removed).
+                if !self.data.reconstructions[reconstruction]
+                    .landmarks
+                    .contains_key(old_landmark)
+                    || self
+                        .data
+                        .landmark(reconstruction, old_landmark)
+                        .observations
+                        .len()
+                        == 1
                 {
-                    // Check if it is not matched to itself, if landmark b still exists, and if merging was successful.
-                    if landmark_point_a.data != landmark_point_b.data
-                        && self
-                            .data
-                            .reconstruction(reconstruction)
-                            .landmarks
-                            .contains_key(landmark_point_b.data)
-                        && self
-                            .try_merge_landmarks(
-                                reconstruction,
-                                landmark_point_a.data,
-                                landmark_point_b.data,
-                            )
-                            .is_some()
+                    continue;
+                }
+                // In this case, we want to check all of the observations of this landmark to see if they are also less than the threshold.
+                if let Some(point) = self
+                    .triangulate_landmark_with_appended_observations_and_verify_with_threshold(
+                        reconstruction,
+                        old_landmark,
+                        self.settings.merge_maximum_cosine_distance,
+                        self.data
+                            .landmark_observations(reconstruction, landmark)
+                            .map(|(view, feature)| {
+                                (
+                                    self.data.view(reconstruction, view).pose,
+                                    self.data
+                                        .observation_keypoint(reconstruction, view, feature),
+                                )
+                            }),
+                    )
+                {
+                    // Merge the landmarks.
+                    if self
+                        .merge_landmarks(reconstruction, landmark, old_landmark, point)
+                        .is_none()
                     {
+                        num_removed += 1;
+                        // If it fails to merge the landmarks, check if the landmark only has 1 observation.
+                        if self
+                            .data
+                            .landmark(reconstruction, landmark)
+                            .observations
+                            .len()
+                            == 1
+                        {
+                            // Since it only has one observation, the landmark is eliminated,
+                            // and it can simply be ignored now.
+                            break;
+                        }
+                    } else {
+                        // Keep track of the successful merge.
                         num_merged += 1;
                     }
                 }
             }
         }
-        info!("merged {} landmarks", num_merged);
+        info!(
+            "merged {} landmarks and removed {} landmarks",
+            num_merged, num_removed
+        );
     }
 
     pub fn triangulate_landmark(
@@ -2659,10 +2770,20 @@ where
         reconstruction: ReconstructionKey,
         landmark: LandmarkKey,
     ) -> Option<WorldPoint> {
-        self.triangulate_observations(
-            reconstruction,
-            self.data.landmark_observations(reconstruction, landmark),
-        )
+        if self
+            .data
+            .landmark(reconstruction, landmark)
+            .observations
+            .len()
+            >= 2
+        {
+            self.triangulate_observations(
+                reconstruction,
+                self.data.landmark_observations(reconstruction, landmark),
+            )
+        } else {
+            None
+        }
     }
 
     /// Return observations that are robust of a landmark.
@@ -2742,6 +2863,21 @@ where
         &self,
         reconstruction: ReconstructionKey,
         landmark: LandmarkKey,
+        observations: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)> + Clone,
+    ) -> Option<WorldPoint> {
+        self.triangulate_landmark_with_appended_observations_and_verify_with_threshold(
+            reconstruction,
+            landmark,
+            self.settings.robust_maximum_cosine_distance,
+            observations,
+        )
+    }
+
+    pub fn triangulate_landmark_with_appended_observations_and_verify_with_threshold(
+        &self,
+        reconstruction: ReconstructionKey,
+        landmark: LandmarkKey,
+        threshold: f64,
         mut observations: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)> + Clone,
     ) -> Option<WorldPoint> {
         self.triangulate_landmark_with_appended_observations(
@@ -2753,7 +2889,7 @@ where
             let verify = |pose: WorldToCamera, keypoint: UnitVector3<f64>| {
                 let camera_point = pose.transform(*world_point);
                 let residual = 1.0 - keypoint.dot(&camera_point.bearing());
-                residual.is_finite() && residual < self.settings.maximum_cosine_distance
+                residual.is_finite() && residual < threshold
             };
             self.data
                 .landmark_observations(reconstruction, landmark)
@@ -2833,10 +2969,18 @@ pub fn is_observation_good_raw(
     point: WorldPoint,
     threshold: f64,
 ) -> bool {
-    let view_point = pose.transform(point);
-    let residual = 1.0 - bearing.dot(&view_point.bearing());
+    let residual = observation_residual_raw(pose, bearing, point);
     // If the observation is finite and has a low enough residual, it is good.
     residual.is_finite() && residual < threshold
+}
+
+pub fn observation_residual_raw(
+    pose: WorldToCamera,
+    bearing: UnitVector3<f64>,
+    point: WorldPoint,
+) -> f64 {
+    let view_point = pose.transform(point);
+    1.0 - bearing.dot(&view_point.bearing())
 }
 
 fn matching(a_frame: &Frame, b_frame: &Frame, better_by: u32) -> Vec<Option<usize>> {
