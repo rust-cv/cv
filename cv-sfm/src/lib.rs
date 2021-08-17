@@ -510,7 +510,9 @@ impl VSlamData {
     }
 
     fn remove_view(&mut self, reconstruction: ReconstructionKey, view: ViewKey) {
+        // Remove the frame assignment to this view.
         self.view_frame_mut(reconstruction, view).view = None;
+        // Remove the observations corresponding to this view.
         let landmarks = mem::take(&mut self.reconstructions[reconstruction].views[view].landmarks);
         for landmark in landmarks {
             match self.reconstructions[reconstruction].landmarks[landmark]
@@ -530,6 +532,11 @@ impl VSlamData {
                 }
             }
         }
+        // Remove all constraints containing this view.
+        self.reconstructions[reconstruction]
+            .constraints
+            .retain(|_, constraint| !constraint.views.contains(&view));
+        // Remove the view itself.
         self.reconstructions[reconstruction].views.remove(view);
     }
 
@@ -866,7 +873,11 @@ where
                 }
                 // Try to incorporate the found frame into the reconstruction.
                 self.try_localize_and_incorporate(reconstruction, found_frame)
-                    .or_else(opeek(|| info!("failed to incorporate frame")))?;
+                    .or_else(opeek(|| info!("failed to incorporate frame")));
+                if !self.data.reconstructions.contains_key(reconstruction) {
+                    // If the reconstruction got eliminated in the previous step, exit with None.
+                    return None;
+                }
             }
         }
 
@@ -1837,6 +1848,17 @@ where
         views: [ViewKey; 3],
         mut landmarks: Vec<LandmarkKey>,
     ) -> Option<ThreeViewConstraint> {
+        info!(
+            "optimizing three-view constraint with {} robust landmarks",
+            landmarks.len()
+        );
+        if landmarks.len() < self.settings.optimization_landmarks {
+            info!(
+                "insufficient robust landmarks, needed {} robust landmarks; rejecting optimization",
+                self.settings.optimization_landmarks
+            );
+            return None;
+        }
         let poses = views.map(|view| {
             self.data.reconstructions[reconstruction].views[view]
                 .pose
@@ -1870,18 +1892,32 @@ where
                         .keypoint(self.data.landmark(reconstruction, landmark).observations[&view])
                 })
             })
-            .take(self.settings.optimization_maximum_landmarks)
+            .take(self.settings.optimization_landmarks)
             .collect::<Vec<_>>();
-        info!("retrieved {} robust landmarks", landmarks.len());
+
+        let mut opti_landmark_observation_nums = landmarks
+            .iter()
+            .take(self.settings.optimization_landmarks)
+            .map(|&landmark| {
+                self.data
+                    .landmark(reconstruction, landmark)
+                    .observations
+                    .len()
+            })
+            .counts()
+            .into_iter()
+            .collect_vec();
+        opti_landmark_observation_nums
+            .sort_unstable_by_key(|&(observations, _)| cmp::Reverse(observations));
+        info!(
+            "optimization landmarks chosen with (observations, count) of {:?}",
+            opti_landmark_observation_nums
+        );
 
         info!(
             "performing Nelder-Mead optimization on three-view constraint using {} landmarks",
             opti_matches.len()
         );
-        if landmarks.len() < self.settings.optimization_minimum_landmarks {
-            info!("insufficient robust landmarks, needed {} robust landmarks; rejecting view optimization", self.settings.optimization_minimum_landmarks);
-            return None;
-        }
 
         // Restrict the threshold for outliers to the robust maximum cosine distance since this pose is already optimized.
         let loss_cutoff = self.settings.optimization_loss_cutoff;
@@ -2208,6 +2244,9 @@ where
                 self.merge_view_landmarks(reconstruction, view);
             }
         }
+        if self.data.reconstructions[reconstruction].views.len() == 10 {
+            self.regenerate_reconstruction(reconstruction)?;
+        }
         Some(reconstruction)
     }
 
@@ -2322,14 +2361,35 @@ where
         });
 
         // Limit the number of constraints to only the best constraints.
-        robust_three_view_covisibilities
-            .truncate(self.settings.optimization_maximum_three_view_constraints);
+        // Start by getting only constraints that incorporate new views.
+        let mut already_visited: HashSet<ViewKey> = HashSet::new();
+        let unique_three_view_covisibilities = robust_three_view_covisibilities
+            .iter()
+            .filter(|(views, _)| views.iter().any(|&view| already_visited.insert(view)))
+            .take(self.settings.optimization_maximum_three_view_constraints)
+            .collect_vec();
+        // If we can't get enough of those, pad it out with more three-view covisibilities until
+        // we reach `settings.optimization_maximum_three_view_constraints` or run out.
+        let padded_three_view_covisibilities = unique_three_view_covisibilities
+            .iter()
+            .copied()
+            .chain(
+                robust_three_view_covisibilities
+                    .iter()
+                    .filter(|&&(views, _)| {
+                        !unique_three_view_covisibilities
+                            .iter()
+                            .any(|&&(uviews, _)| views == uviews)
+                    }),
+            )
+            .take(self.settings.optimization_maximum_three_view_constraints)
+            .collect_vec();
 
         // Compute the `ThreeViewConstraint` for each robust three view covisibility.
-        robust_three_view_covisibilities
+        padded_three_view_covisibilities
             .into_iter()
             .filter_map(move |(views, landmarks)| {
-                self.optimize_three_view(reconstruction, views, landmarks)
+                self.optimize_three_view(reconstruction, *views, landmarks.clone())
             })
             .collect()
     }
@@ -2379,25 +2439,37 @@ where
         &mut self,
         reconstruction: ReconstructionKey,
     ) -> Option<ReconstructionKey> {
-        // Remove all constraints.
-        self.data.reconstructions[reconstruction]
-            .constraints
-            .clear();
-        // Go through every view.
-        let views = self.data.reconstructions[reconstruction]
-            .views
-            .keys()
-            .collect_vec();
-        for view in views {
-            // Record the constraints for this view.
-            // TODO: This might leave the graph disconnected
-            // if a set of views only connect to each other and not the surrounding graph.
-            // This needs to be fixed eventually.
-            if !self.record_view_constraints(reconstruction, view) {
-                self.data.remove_view(reconstruction, view);
+        for _ in 0..self.settings.regenerate_iterations {
+            // Remove all constraints.
+            self.data.reconstructions[reconstruction]
+                .constraints
+                .clear();
+            // Go through every view.
+            let views = self.data.reconstructions[reconstruction]
+                .views
+                .keys()
+                .collect_vec();
+            for view in views {
+                // Record the constraints for this view.
+                // TODO: This might leave the graph disconnected
+                // if a set of views only connect to each other and not the surrounding graph.
+                // This needs to be fixed eventually.
+                if self.record_view_constraints(reconstruction, view) {
+                    self.data.reconstructions[reconstruction]
+                        .merge_views
+                        .push(view);
+                } else {
+                    self.data.remove_view(reconstruction, view);
+                }
+            }
+            self.bundle_adjust_reconstruction(reconstruction)
+                .or_else(opeek(|| info!("failed to bundle adjust reconstruction")))?;
+            self.filter_non_robust_observations(reconstruction)?;
+            for view in mem::take(&mut self.data.reconstructions[reconstruction].merge_views) {
+                self.merge_view_landmarks(reconstruction, view);
             }
         }
-        self.optimize_reconstruction(reconstruction)
+        Some(reconstruction)
     }
 
     /// Splits all observations in the landmark into their own separate landmarks.
@@ -2669,7 +2741,7 @@ where
             .filter(|landmark| !current_view_landmarks.contains(landmark))
         {
             // Try to triangulate the landmark.
-            if let Some(world_point) = self.triangulate_landmark(reconstruction, landmark) {
+            if let Some(world_point) = self.triangulate_landmark_robust(reconstruction, landmark) {
                 // Transform the point into the camera's reference frame.
                 let camera_point = pose.transform(world_point);
                 // Extract the bearing of the camera point and add it to the HGG.

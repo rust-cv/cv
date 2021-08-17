@@ -47,6 +47,12 @@ pub struct VSlamSettings {
         serde(default = "default_robust_observation_incidence_minimum_cosine_distance")
     )]
     pub robust_observation_incidence_minimum_cosine_distance: f64,
+    /// The number of iterations to run regeneration.
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_regenerate_iterations")
+    )]
+    pub regenerate_iterations: usize,
     /// The threshold used for single-view sample consensus
     #[cfg_attr(
         feature = "serde-serialize",
@@ -293,18 +299,12 @@ pub struct VSlamSettings {
         serde(default = "default_optimization_iterations")
     )]
     pub optimization_iterations: usize,
-    /// The minimum landmarks to use for optimization
+    /// The number of landmarks to use for optimization
     #[cfg_attr(
         feature = "serde-serialize",
-        serde(default = "default_optimization_minimum_landmarks")
+        serde(default = "default_optimization_landmarks")
     )]
-    pub optimization_minimum_landmarks: usize,
-    /// The maximum landmarks to use for optimization
-    #[cfg_attr(
-        feature = "serde-serialize",
-        serde(default = "default_optimization_maximum_landmarks")
-    )]
-    pub optimization_maximum_landmarks: usize,
+    pub optimization_landmarks: usize,
     /// The minimum landmarks required for a three-view pose to be considered robust
     #[cfg_attr(
         feature = "serde-serialize",
@@ -330,6 +330,7 @@ impl Default for VSlamSettings {
             merge_nearest_neighbors: default_merge_nearest_neighbors(),
             robust_observation_incidence_minimum_cosine_distance:
                 default_robust_observation_incidence_minimum_cosine_distance(),
+            regenerate_iterations: default_regenerate_iterations(),
             single_view_consensus_threshold: default_single_view_consensus_threshold(),
             single_view_final_loss_cutoff: default_single_view_final_loss_cutoff(),
             single_view_optimization_num_matches: default_single_view_optimization_num_matches(),
@@ -376,8 +377,7 @@ impl Default for VSlamSettings {
             optimization_std_dev_threshold: default_optimization_std_dev_threshold(),
             optimization_loss_cutoff: default_optimization_loss_cutoff(),
             optimization_iterations: default_optimization_iterations(),
-            optimization_minimum_landmarks: default_optimization_minimum_landmarks(),
-            optimization_maximum_landmarks: default_optimization_maximum_landmarks(),
+            optimization_landmarks: default_optimization_landmarks(),
             optimization_robust_covisibility_minimum_landmarks:
                 default_optimization_robust_covisibility_minimum_landmarks(),
             optimization_convergence_rate: default_optimization_convergence_rate(),
@@ -386,11 +386,11 @@ impl Default for VSlamSettings {
 }
 
 fn default_akaze_threshold() -> f64 {
-    1e-3
+    1e-4
 }
 
 fn default_robust_maximum_cosine_distance() -> f64 {
-    2e-6
+    1e-7
 }
 
 fn default_minimum_robust_landmarks() -> usize {
@@ -402,7 +402,7 @@ fn default_robust_minimum_observations() -> usize {
 }
 
 fn default_merge_maximum_cosine_distance() -> f64 {
-    2e-6
+    default_robust_maximum_cosine_distance()
 }
 
 fn default_merge_nearest_neighbors() -> usize {
@@ -410,7 +410,11 @@ fn default_merge_nearest_neighbors() -> usize {
 }
 
 fn default_robust_observation_incidence_minimum_cosine_distance() -> f64 {
-    3e-3
+    1e-3
+}
+
+fn default_regenerate_iterations() -> usize {
+    0
 }
 
 fn default_single_view_consensus_threshold() -> f64 {
@@ -458,19 +462,19 @@ fn default_two_view_consensus_threshold() -> f64 {
 }
 
 fn default_two_view_loss_cutoff() -> f64 {
-    1e-3
+    1e-5
 }
 
 fn default_two_view_maximum_cosine_distance() -> f64 {
-    1e-3
+    1e-4
 }
 
 fn default_two_view_inlier_minimum_threshold() -> f64 {
-    0.05
+    0.0
 }
 
 fn default_two_view_minimum_robust_matches() -> usize {
-    1 << 7
+    1 << 8
 }
 
 fn default_two_view_match_better_by() -> u32 {
@@ -486,7 +490,7 @@ fn default_two_view_optimization_maximum_matches() -> usize {
 }
 
 fn default_two_view_patience() -> usize {
-    1 << 10
+    1 << 12
 }
 
 fn default_three_view_patience() -> usize {
@@ -522,11 +526,11 @@ fn default_three_view_optimization_landmarks() -> usize {
 }
 
 fn default_three_view_inlier_ratio_threshold() -> f64 {
-    0.1
+    0.0
 }
 
 fn default_three_view_minimum_robust_matches() -> usize {
-    1 << 8
+    1 << 7
 }
 
 fn default_reconstruction_optimization_iterations() -> usize {
@@ -550,11 +554,11 @@ fn default_tracking_recent_frames() -> usize {
 }
 
 fn default_optimization_three_view_constraint_patience() -> usize {
-    10000
+    20000
 }
 
 fn default_optimization_maximum_three_view_constraints() -> usize {
-    1 << 3
+    1 << 4
 }
 
 fn default_optimization_minimum_new_constraints() -> usize {
@@ -573,12 +577,8 @@ fn default_optimization_iterations() -> usize {
     1 << 10
 }
 
-fn default_optimization_minimum_landmarks() -> usize {
+fn default_optimization_landmarks() -> usize {
     1 << 6
-}
-
-fn default_optimization_maximum_landmarks() -> usize {
-    1 << 9
 }
 
 fn default_optimization_robust_covisibility_minimum_landmarks() -> usize {
