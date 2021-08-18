@@ -10,14 +10,15 @@ use argmin::core::{ArgminKV, ArgminOp, Error, Executor, IterState, Observe, Obse
 use average::Mean;
 use bitarray::{BitArray, Hamming};
 use cv_core::{
-    nalgebra::{IsometryMatrix3, Point3, UnitVector3, Vector3, Vector5, Vector6},
+    nalgebra::{IsometryMatrix3, Matrix6x2, Point3, UnitVector3, Vector3, Vector5, Vector6},
     sample_consensus::{Consensus, Estimator},
     CameraModel, CameraPoint, CameraToCamera, FeatureMatch, FeatureWorldMatch, Pose, Projective,
     TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera, WorldToWorld,
 };
 use cv_optimize::{
-    single_view_nelder_mead, spherical_to_cartesian, three_view_simple_optimize,
-    two_view_nelder_mead, SingleViewOptimizer, StructurelessTwoViewOptimizer,
+    single_view_nelder_mead, spherical_to_cartesian, three_view_nelder_mead,
+    three_view_simple_optimize, two_view_nelder_mead, SingleViewOptimizer,
+    StructurelessThreeViewOptimizer, StructurelessTwoViewOptimizer,
 };
 use cv_pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix};
 use float_ord::FloatOrd;
@@ -1060,8 +1061,8 @@ where
                 .sqrt();
 
             // Scale the second pose using the scale.
-            let first_pose = *first_pose;
-            let second_pose = second_pose.scale(median_scale);
+            let mut first_pose = *first_pose;
+            let mut second_pose = second_pose.scale(median_scale);
 
             // Get the matches to use for optimization.
             // Initially, this just includes everything to avoid
@@ -1098,13 +1099,28 @@ where
                 continue;
             }
 
-            let [first_pose, second_pose] = three_view_simple_optimize(
-                [first_pose, second_pose],
-                &self.triangulator,
-                &opti_matches,
-                0.01,
-                1000,
-            );
+            let solver = three_view_nelder_mead(first_pose, second_pose)
+                .sd_tolerance(self.settings.three_view_std_dev_threshold);
+            let constraint = StructurelessThreeViewOptimizer::new(
+                opti_matches.iter().copied(),
+                self.triangulator.clone(),
+            )
+            .loss_cutoff(loss_cutoff);
+
+            // The initial parameter is empty becasue nelder mead is passed its own initial parameter directly.
+            let opti_result = Executor::new(constraint, solver, Matrix6x2::zeros())
+                .add_observer(OptimizationObserver, ObserverMode::Always)
+                .max_iters(self.settings.three_view_patience as u64)
+                .run()
+                .expect("three-view optimization failed");
+
+            info!(
+                    "extracted three-view poses with mean capped cosine distance of {} in {} iterations with reason: {}",
+                    opti_result.state.best_cost, opti_result.state.iter + 1, opti_result.state.termination_reason,
+                );
+
+            first_pose = Pose::from_se3(opti_result.state.best_param.column(0).into());
+            second_pose = Pose::from_se3(opti_result.state.best_param.column(1).into());
 
             // Create a map from the center features to the first matches.
             let first_map: HashMap<usize, usize> =
