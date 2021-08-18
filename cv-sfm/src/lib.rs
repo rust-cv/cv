@@ -1919,7 +1919,6 @@ where
             [first_pose, second_pose],
             &self.triangulator,
             &opti_matches,
-            self.settings.optimization_loss_cutoff,
             0.01,
             1000,
         );
