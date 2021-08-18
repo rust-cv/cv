@@ -2215,7 +2215,7 @@ where
                 let c2w = v.pose.inverse();
                 ExportCamera {
                     optical_center: c2w.isometry() * Point3::origin(),
-                    up_direction: c2w.isometry() * Vector3::y(),
+                    up_direction: c2w.isometry() * -Vector3::y(),
                     forward_direction: c2w.isometry() * Vector3::z(),
                     focal_length: mean_distance * 0.01,
                 }

@@ -225,10 +225,10 @@ impl Pose for CameraToWorld {
 ///
 /// * Origin is the optical center
 /// * Positive z axis is forwards
-/// * Positive y axis is up
+/// * Positive y axis is down
 /// * Positive x axis is right
 ///
-/// Note that this is a left-handed coordinate space.
+/// Note that this is a right-handed coordinate space.
 #[derive(Debug, Clone, Copy, PartialEq, AsMut, AsRef, From, Into)]
 #[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct CameraToCamera(pub IsometryMatrix3<f64>);

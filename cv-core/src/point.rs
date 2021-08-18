@@ -47,7 +47,7 @@ pub trait Projective: Clone + Copy {
 /// A 3d point in the camera's reference frame.
 ///
 /// In the camera's reference frame, the origin is the optical center,
-/// positive X axis is right, positive Y axis is up, and positive Z axis is forwards.
+/// positive X axis is right, positive Y axis is down, and positive Z axis is forwards.
 ///
 /// The unit of distance of a `CameraPoint` is unspecified, but it should be consistent relative
 /// to other points in the reconstruction.

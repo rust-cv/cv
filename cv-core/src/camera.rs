@@ -6,20 +6,16 @@ use nalgebra::UnitVector3;
 pub trait CameraModel {
     /// Extracts a bearing from a pixel location in an image.
     ///
-    /// Note that while the image point's Y axis points downwards (origin in top left),
-    /// the bearing's Y axis points upwards (origin in bottom left).
-    ///
-    /// The bearings X axis points right, Y axis points up, and Z axis points forwards.
+    /// The bearings X axis points right, Y axis points down, and Z axis points forwards.
+    /// The image point uses the same coordiate frame. Its Y is down and its X is right.
     fn calibrate<P>(&self, point: P) -> UnitVector3<f64>
     where
         P: ImagePoint;
 
     /// Extracts the pixel location in the image from the bearing.
     ///
-    /// Note that while the image point's Y axis points downwards (origin in top left),
-    /// the bearing's Y axis points upwards (origin in bottom left).
-    ///
-    /// The bearings X axis points right, Y axis points up, and Z axis points forwards.
+    /// The bearings X axis points right, Y axis points down, and Z axis points forwards.
+    /// The image point uses the same coordiate frame. Its Y is down and its X is right.
     ///
     /// Since this might not be possible (if bearing is behind camera for pinhole camera),
     /// this operation is fallible.

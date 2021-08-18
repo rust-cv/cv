@@ -94,9 +94,7 @@ impl CameraModel for CameraIntrinsics {
     ///     skew: 1.7,
     /// };
     /// let kp = KeyPoint(Point2::new(471.0, 322.0));
-    /// let mut nkp = intrinsics.calibrate(kp).into_inner();
-    /// // The bearing's Y is flipped back to image space from camera space.
-    /// nkp.y = -nkp.y;
+    /// let nkp = intrinsics.calibrate(kp).into_inner();
     /// let calibration_matrix = intrinsics.matrix();
     /// let uncalibrated = (calibration_matrix * (nkp.xyz() / nkp.z));
     /// let uncalibrated = uncalibrated.xy() / uncalibrated.z;
@@ -110,9 +108,7 @@ impl CameraModel for CameraIntrinsics {
         let centered = point.image_point() - self.principal_point;
         let y = centered.y / self.focals.y;
         let x = (centered.x - self.skew * y) / self.focals.x;
-        // Y is flipped to be up because the image coordinates have Y being down but we use
-        // a left-handed coordinate system from here on out.
-        UnitVector3::new_normalize(Point2::new(x, -y).to_homogeneous())
+        UnitVector3::new_normalize(Point2::new(x, y).to_homogeneous())
     }
 
     /// Converts a bearing as [`UnitVector3`] back into pixel coordinates.
@@ -133,9 +129,7 @@ impl CameraModel for CameraIntrinsics {
     /// ```
     fn uncalibrate(&self, projection: UnitVector3<f64>) -> Option<KeyPoint> {
         projection.z.is_sign_positive().then(|| ())?;
-        let mut projection = projection.xy() / projection.z;
-        // Flip Y axis (different in image space vs camera space).
-        projection.y = -projection.y;
+        let projection = projection.xy() / projection.z;
         let y = projection.y * self.focals.y;
         let x = projection.x * self.focals.x + self.skew * projection.y;
         let centered = Point2::new(x, y);
@@ -199,9 +193,7 @@ impl CameraModel for CameraIntrinsicsK1Distortion {
         let x = (centered.x - self.simple_intrinsics.skew * y) / self.simple_intrinsics.focals.x;
         let distorted = Vector2::new(x, y);
         let r2 = distorted.norm_squared();
-        let mut undistorted = Point2::from(distorted / (1.0 + self.k1 * r2));
-        // Flip Y axis (different in image space vs camera space).
-        undistorted.y = -undistorted.y;
+        let undistorted = Point2::from(distorted / (1.0 + self.k1 * r2));
         UnitVector3::new_normalize(undistorted.to_homogeneous())
     }
 
@@ -227,11 +219,8 @@ impl CameraModel for CameraIntrinsicsK1Distortion {
     /// ```
     fn uncalibrate(&self, projection: UnitVector3<f64>) -> Option<KeyPoint> {
         projection.z.is_sign_positive().then(|| ())?;
-        let mut undistorted = projection.xy() / projection.z;
-        // Flip Y axis (different in image space vs camera space).
-        undistorted.y = -undistorted.y;
-        // This was not easy to compute, but you can set up a quadratic to solve
-        // for r^2 with the undistorted keypoint. This is the result.
+        let undistorted = projection.xy() / projection.z;
+        // You can set up a quadratic to solve for r^2 with the undistorted keypoint. This is the result.
         let u2 = undistorted.norm_squared();
         // This is actually r^2 * k1.
         let r2_mul_k1 = -(2.0 * self.k1 * u2 + Float::sqrt(1.0 - 4.0 * self.k1 * u2) - 1.0)
