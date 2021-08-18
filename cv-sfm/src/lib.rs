@@ -16,20 +16,21 @@ use cv_core::{
     TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera, WorldToWorld,
 };
 use cv_optimize::{
-    single_view_nelder_mead, spherical_to_cartesian, three_view_nelder_mead, two_view_nelder_mead,
-    SingleViewOptimizer, StructurelessThreeViewOptimizer, StructurelessTwoViewOptimizer,
+    single_view_nelder_mead, spherical_to_cartesian, three_view_nelder_mead,
+    three_view_simple_optimize, two_view_nelder_mead, SingleViewOptimizer,
+    StructurelessThreeViewOptimizer, StructurelessTwoViewOptimizer,
 };
 use cv_pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix};
 use float_ord::FloatOrd;
 use hamming_lsh::HammingHasher;
-use hgg::{Hgg, HggLite};
+use hgg::HggLite;
 use image::DynamicImage;
 use itertools::{izip, Itertools};
 use log::*;
 use maplit::hashmap;
 use rand::{seq::SliceRandom, Rng};
 use slotmap::{new_key_type, DenseSlotMap};
-use space::{Knn, KnnInsert, KnnMap, Metric};
+use space::{Knn, KnnInsert, KnnMap};
 use std::{
     cell::RefCell,
     cmp::{self, Reverse},
@@ -151,8 +152,6 @@ pub struct Reconstruction {
     pub landmarks: DenseSlotMap<LandmarkKey, Landmark>,
     /// Constraints imposed during pose optimization
     pub constraints: DenseSlotMap<ConstraintKey, ThreeViewConstraint>,
-    /// Views that need to have landmarks merged after optimization
-    pub merge_views: Vec<ViewKey>,
 }
 
 /// Contains the results of a bundle adjust
@@ -435,9 +434,6 @@ impl VSlamData {
                 views: canonical_view_order([center_view, first_view, second_view]),
                 poses: [first_pose.isometry(), second_pose.isometry()],
             });
-        self.reconstructions[reconstruction]
-            .merge_views
-            .extend_from_slice(&[center_view, first_view, second_view]);
         reconstruction
     }
 
@@ -1865,8 +1861,8 @@ where
                 .isometry()
         });
         // Compute the relative poses in respect to the first pose.
-        let mut first_pose = CameraToCamera(poses[1] * poses[0].inverse());
-        let mut second_pose = CameraToCamera(poses[2] * poses[0].inverse());
+        let first_pose = CameraToCamera(poses[1] * poses[0].inverse());
+        let second_pose = CameraToCamera(poses[2] * poses[0].inverse());
 
         let original_scale = first_pose.isometry().translation.vector.norm()
             + second_pose.isometry().translation.vector.norm();
@@ -1919,32 +1915,14 @@ where
             opti_matches.len()
         );
 
-        // Restrict the threshold for outliers to the robust maximum cosine distance since this pose is already optimized.
-        let loss_cutoff = self.settings.optimization_loss_cutoff;
-        info!("optimizing poses with loss cutoff {}", loss_cutoff);
-
-        let solver = three_view_nelder_mead(first_pose, second_pose)
-            .sd_tolerance(self.settings.optimization_std_dev_threshold);
-        let constraint = StructurelessThreeViewOptimizer::new(
-            opti_matches.iter().copied(),
-            self.triangulator.clone(),
-        )
-        .loss_cutoff(loss_cutoff);
-
-        // The initial parameter is empty becasue nelder mead is passed its own initial parameter directly.
-        let opti_result = Executor::new(constraint, solver, Matrix6x2::zeros())
-            .add_observer(OptimizationObserver, ObserverMode::Always)
-            .max_iters(self.settings.optimization_three_view_constraint_patience as u64)
-            .run()
-            .expect("three-view optimization failed");
-
-        info!(
-            "extracted three-view poses with mean capped cosine distance of {} in {} iterations with reason: {}",
-            opti_result.state.best_cost, opti_result.state.iter + 1, opti_result.state.termination_reason,
+        let [mut first_pose, mut second_pose] = three_view_simple_optimize(
+            [first_pose, second_pose],
+            &self.triangulator,
+            &opti_matches,
+            self.settings.optimization_loss_cutoff,
+            0.01,
+            1000,
         );
-
-        first_pose = Pose::from_se3(opti_result.state.best_param.column(0).into());
-        second_pose = Pose::from_se3(opti_result.state.best_param.column(1).into());
 
         let final_scale = first_pose.isometry().translation.vector.norm()
             + second_pose.isometry().translation.vector.norm();
@@ -1983,9 +1961,6 @@ where
         });
 
         if self.record_view_constraints(reconstruction, view) {
-            self.data.reconstructions[reconstruction]
-                .merge_views
-                .push(view);
             Some(view)
         } else {
             self.data.remove_view(reconstruction, view);
@@ -2078,12 +2053,6 @@ where
         self.data.reconstructions[src_reconstruction]
             .views
             .remove(src_view);
-
-        // Since we are past the point of no return, also add the destination view to the merge_views
-        // list so that it has its landmarks merged properly.
-        self.data.reconstructions[dest_reconstruction]
-            .merge_views
-            .push(dest_view);
 
         // Create the transformation from the source to the destination reconstruction.
         let world_transform = WorldToWorld::from_camera_poses(src_pose, dest_pose);
@@ -2239,10 +2208,6 @@ where
                 .or_else(opeek(|| info!("failed to bundle adjust reconstruction")))?;
             // Filter observations after running bundle-adjust.
             self.filter_non_robust_observations(reconstruction)?;
-            // Merge landmarks.
-            for view in mem::take(&mut self.data.reconstructions[reconstruction].merge_views) {
-                self.merge_view_landmarks(reconstruction, view);
-            }
         }
         if self.data.reconstructions[reconstruction].views.len() == 10 {
             self.regenerate_reconstruction(reconstruction)?;
@@ -2370,7 +2335,8 @@ where
             .collect_vec();
         // If we can't get enough of those, pad it out with more three-view covisibilities until
         // we reach `settings.optimization_maximum_three_view_constraints` or run out.
-        let padded_three_view_covisibilities = unique_three_view_covisibilities
+        // Compute the `ThreeViewConstraint` for each robust three view covisibility.
+        unique_three_view_covisibilities
             .iter()
             .copied()
             .chain(
@@ -2382,15 +2348,10 @@ where
                             .any(|&&(uviews, _)| views == uviews)
                     }),
             )
-            .take(self.settings.optimization_maximum_three_view_constraints)
-            .collect_vec();
-
-        // Compute the `ThreeViewConstraint` for each robust three view covisibility.
-        padded_three_view_covisibilities
-            .into_iter()
             .filter_map(move |(views, landmarks)| {
                 self.optimize_three_view(reconstruction, *views, landmarks.clone())
             })
+            .take(self.settings.optimization_maximum_three_view_constraints)
             .collect()
     }
 
@@ -2454,20 +2415,13 @@ where
                 // TODO: This might leave the graph disconnected
                 // if a set of views only connect to each other and not the surrounding graph.
                 // This needs to be fixed eventually.
-                if self.record_view_constraints(reconstruction, view) {
-                    self.data.reconstructions[reconstruction]
-                        .merge_views
-                        .push(view);
-                } else {
+                if !self.record_view_constraints(reconstruction, view) {
                     self.data.remove_view(reconstruction, view);
                 }
             }
             self.bundle_adjust_reconstruction(reconstruction)
                 .or_else(opeek(|| info!("failed to bundle adjust reconstruction")))?;
             self.filter_non_robust_observations(reconstruction)?;
-            for view in mem::take(&mut self.data.reconstructions[reconstruction].merge_views) {
-                self.merge_view_landmarks(reconstruction, view);
-            }
         }
         Some(reconstruction)
     }
@@ -2620,7 +2574,8 @@ where
     }
 
     /// Merges two landmarks unconditionally. Returns the new landmark ID.
-    fn merge_landmarks(
+    /// The point should be the [`WorldPoint`] of the landmark.
+    pub fn merge_landmarks(
         &mut self,
         reconstruction: ReconstructionKey,
         landmark_a: LandmarkKey,
@@ -2694,147 +2649,6 @@ where
                 .is_none());
         }
         Some(landmark_a)
-    }
-
-    pub fn merge_view_landmarks(&mut self, reconstruction: ReconstructionKey, view: ViewKey) {
-        // Define the cosine distance as a metric.
-        struct CosineDistance;
-        impl Metric<UnitVector3<f64>> for CosineDistance {
-            type Unit = u64;
-
-            fn distance(&self, a: &UnitVector3<f64>, b: &UnitVector3<f64>) -> Self::Unit {
-                // The reason the max is taken is because if the two vectors are EXACTLY equal to each other,
-                // then it actually seems to produce a negative value, which is undesirable.
-                let dis = 1.0 - a.dot(b);
-                let dis = if dis.is_sign_negative() { 0.0 } else { dis };
-                assert!(
-                    dis.is_finite() && dis.is_sign_positive(),
-                    "a: {}, b: {}",
-                    a.into_inner(),
-                    b.into_inner()
-                );
-                dis.to_bits()
-            }
-        }
-
-        info!("merging landmarks into view");
-        // Keep track of the num merged landmarks.
-        let mut num_merged = 0usize;
-        let mut num_removed = 0usize;
-        // Get the view's pose.
-        let pose = self.data.view(reconstruction, view).pose;
-        // Transform all the points into the specified view's camera space and then add their bearings to an HGG.
-        let mut bearings_to_landmarks: Hgg<CosineDistance, UnitVector3<f64>, LandmarkKey> =
-            Hgg::new(CosineDistance);
-        // Get the set of landmarks in this view.
-        let current_view_landmarks: HashSet<LandmarkKey> = self
-            .data
-            .view(reconstruction, view)
-            .landmarks
-            .iter()
-            .copied()
-            .collect();
-        // Only take landmarks that arent in the current view.
-        for landmark in self.data.reconstructions[reconstruction]
-            .landmarks
-            .keys()
-            .filter(|landmark| !current_view_landmarks.contains(landmark))
-        {
-            // Try to triangulate the landmark.
-            if let Some(world_point) = self.triangulate_landmark_robust(reconstruction, landmark) {
-                // Transform the point into the camera's reference frame.
-                let camera_point = pose.transform(world_point);
-                // Extract the bearing of the camera point and add it to the HGG.
-                bearings_to_landmarks.insert(camera_point.bearing(), landmark);
-            }
-        }
-        // Go through every landmark in this view that has at least 2 observations.
-        for (feature, landmark) in self
-            .data
-            .view(reconstruction, view)
-            .landmarks
-            .iter()
-            .copied()
-            .enumerate()
-            .filter(|&(_, landmark)| {
-                self.data
-                    .landmark(reconstruction, landmark)
-                    .observations
-                    .len()
-                    >= 2
-            })
-            .collect_vec()
-        {
-            // Find the nearest points in cosine distance.
-            let knn = bearings_to_landmarks.knn(
-                &self
-                    .data
-                    .observation_keypoint(reconstruction, view, feature),
-                self.settings.merge_nearest_neighbors,
-            );
-            for nn in knn {
-                // Get the landmark.
-                let old_landmark = *bearings_to_landmarks.get_value(nn.index).unwrap();
-                // Make sure the landmark still exists (and wasnt merged into a previous landmark).
-                // Also make sure the landmark still has at least 2 observations (they can get removed).
-                if !self.data.reconstructions[reconstruction]
-                    .landmarks
-                    .contains_key(old_landmark)
-                    || self
-                        .data
-                        .landmark(reconstruction, old_landmark)
-                        .observations
-                        .len()
-                        == 1
-                {
-                    continue;
-                }
-                // In this case, we want to check all of the observations of this landmark to see if they are also less than the threshold.
-                if let Some(point) = self
-                    .triangulate_landmark_with_appended_observations_and_verify_with_threshold(
-                        reconstruction,
-                        old_landmark,
-                        self.settings.merge_maximum_cosine_distance,
-                        self.data
-                            .landmark_observations(reconstruction, landmark)
-                            .map(|(view, feature)| {
-                                (
-                                    self.data.view(reconstruction, view).pose,
-                                    self.data
-                                        .observation_keypoint(reconstruction, view, feature),
-                                )
-                            }),
-                    )
-                {
-                    // Merge the landmarks.
-                    if self
-                        .merge_landmarks(reconstruction, landmark, old_landmark, point)
-                        .is_none()
-                    {
-                        num_removed += 1;
-                        // If it fails to merge the landmarks, check if the landmark only has 1 observation.
-                        if self
-                            .data
-                            .landmark(reconstruction, landmark)
-                            .observations
-                            .len()
-                            == 1
-                        {
-                            // Since it only has one observation, the landmark is eliminated,
-                            // and it can simply be ignored now.
-                            break;
-                        }
-                    } else {
-                        // Keep track of the successful merge.
-                        num_merged += 1;
-                    }
-                }
-            }
-        }
-        info!(
-            "merged {} landmarks and removed {} landmarks",
-            num_merged, num_removed
-        );
     }
 
     pub fn triangulate_landmark(
