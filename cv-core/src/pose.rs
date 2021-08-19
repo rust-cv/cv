@@ -1,8 +1,7 @@
 use crate::{CameraPoint, FeatureMatch, FeatureWorldMatch, Projective, Skew3, WorldPoint};
 use derive_more::{AsMut, AsRef, From, Into};
 use nalgebra::{
-    IsometryMatrix3, Matrix4, Matrix4x6, Matrix6x4, Rotation3, UnitVector3, Vector3, Vector4,
-    Vector6,
+    IsometryMatrix3, Matrix4, Matrix4x6, Matrix6x4, Rotation3, Vector3, Vector4, Vector6,
 };
 use sample_consensus::Model;
 
