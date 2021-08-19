@@ -55,6 +55,8 @@ pub mod estimate {
     pub use eight_point::EightPoint;
     #[cfg(feature = "lambda-twist")]
     pub use lambda_twist::LambdaTwist;
+    #[cfg(feature = "nister-stewenius")]
+    pub use nister_stewenius::NisterStewenius;
 }
 
 /// Feature detection and description algorithms

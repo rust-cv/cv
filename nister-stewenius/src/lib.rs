@@ -1,5 +1,17 @@
 #![no_std]
 
+use arrayvec::ArrayVec;
+use cv_core::{
+    nalgebra::{
+        self,
+        dimension::{U10, U20, U4, U5, U9},
+        DimName, Matrix3, OMatrix, OVector, UnitVector3, Vector3, Vector4,
+    },
+    CameraToCamera, FeatureMatch,
+};
+use cv_pinhole::EssentialMatrix;
+use sample_consensus::Estimator;
+
 const BASIS_XXX: usize = 0;
 const BASIS_XXY: usize = 1;
 const BASIS_XYY: usize = 2;
@@ -21,21 +33,14 @@ const BASIS_Y: usize = 17;
 const BASIS_Z: usize = 18;
 const BASIS_1: usize = 19;
 
-use cv_core::nalgebra::{
-    self,
-    dimension::{U10, U20, U4, U5, U9},
-    DimName, Matrix3, OMatrix, OVector, UnitVector3, Vector4,
-};
-use cv_pinhole::EssentialMatrix;
-
-const EIGEN_CONVERGENCE: f64 = 1e-6;
-const EIGEN_ITERATIONS: usize = 50;
-const EIGEN_THRESHOLD: f64 = 1e-6;
-const SVD_CONVERGENCE: f64 = 1e-6;
-const SVD_ITERATIONS: usize = 50;
+const EIGEN_CONVERGENCE: f64 = 1e-12;
+const EIGEN_ITERATIONS: usize = 1000;
+const EIGEN_THRESHOLD: f64 = 1e-12;
+const SVD_CONVERGENCE: f64 = 1e-12;
+const SVD_ITERATIONS: usize = 1000;
 /// The threshold which the singular value must be below for it
 /// to be considered the null-space.
-const SVD_NULL_THRESHOLD: f64 = 1e-6;
+const SVD_NULL_THRESHOLD: f64 = 1e-12;
 
 type PolyBasisVec = OVector<f64, U20>;
 type NullspaceMat = OMatrix<f64, U9, U4>;
@@ -240,7 +245,7 @@ fn essentials_from_action_ebasis(
 
 /// Takes in two sets of normalized key points.
 /// Returns all essential matrix solutions.
-pub fn five_points_relative_pose(
+fn five_points_relative_pose(
     a: &[UnitVector3<f64>; 5],
     b: &[UnitVector3<f64>; 5],
 ) -> impl Iterator<Item = EssentialMatrix> {
@@ -279,6 +284,56 @@ pub fn five_points_relative_pose(
     at[(9, 6)] = -1.0;
 
     essentials_from_action_ebasis(at, e_basis)
+}
+
+/// Implements the 5-point algorithm from the paper "Recent developments on direct relative orientation".
+pub struct NisterStewenius {
+    pub epsilon: f64,
+    pub iterations: usize,
+}
+
+impl NisterStewenius {
+    pub fn new() -> Self {
+        Self {
+            epsilon: 1e-12,
+            iterations: 1000,
+        }
+    }
+}
+
+impl Default for NisterStewenius {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Estimator<FeatureMatch> for NisterStewenius {
+    type Model = CameraToCamera;
+
+    type ModelIter = ArrayVec<CameraToCamera, 40>;
+
+    const MIN_SAMPLES: usize = 5;
+
+    fn estimate<I>(&self, data: I) -> Self::ModelIter
+    where
+        I: Iterator<Item = FeatureMatch> + Clone,
+    {
+        let mut a = [UnitVector3::new_unchecked(Vector3::y()); 5];
+        let mut b = [UnitVector3::new_unchecked(Vector3::y()); 5];
+        let mut count = 0;
+        for ((a, b), m) in a.iter_mut().zip(b.iter_mut()).zip(data) {
+            *a = m.0;
+            *b = m.1;
+            count += 1;
+        }
+        assert!(count == 5);
+        five_points_relative_pose(&a, &b)
+            .filter_map(|essential| {
+                essential.possible_unscaled_poses(self.epsilon, self.iterations)
+            })
+            .flat_map(core::array::IntoIter::new)
+            .collect()
+    }
 }
 
 #[cfg(test)]

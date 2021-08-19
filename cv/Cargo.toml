@@ -18,6 +18,7 @@ default = [
     "cv-geom",
     "cv-sfm",
     "eight-point",
+    "nister-stewenius",
     "lambda-twist",
     "akaze",
     "imgshow",
@@ -54,6 +55,7 @@ cv-pinhole = { optional = true, version = "0.6.0", path = "../cv-pinhole" }
 cv-geom = { optional = true, version = "0.7.0", path = "../cv-geom" }
 cv-sfm = { optional = true, version = "0.1.0", path = "../cv-sfm" }
 eight-point = { optional = true, version = "0.8.0", path = "../eight-point" }
+nister-stewenius = { optional = true, version = "0.1.0", path = "../nister-stewenius" }
 lambda-twist = { optional = true, version = "0.7.0", path = "../lambda-twist" }
 akaze = { optional = true, version = "0.7.0", path = "../akaze" }
 imgshow = { optional = true, version = "0.1.0", path = "../imgshow" }

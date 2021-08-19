@@ -61,8 +61,8 @@ impl EightPoint {
 impl Default for EightPoint {
     fn default() -> Self {
         Self {
-            epsilon: 1e-9,
-            iterations: 100,
+            epsilon: 1e-12,
+            iterations: 1000,
         }
     }
 }

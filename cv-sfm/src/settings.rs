@@ -59,12 +59,6 @@ pub struct VSlamSettings {
         serde(default = "default_single_view_consensus_threshold")
     )]
     pub single_view_consensus_threshold: f64,
-    /// The final loss cutoff value for single view optimization.
-    #[cfg_attr(
-        feature = "serde-serialize",
-        serde(default = "default_single_view_final_loss_cutoff")
-    )]
-    pub single_view_final_loss_cutoff: f64,
     /// The maximum number of matches to use in optimization.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -119,13 +113,6 @@ pub struct VSlamSettings {
         serde(default = "default_two_view_consensus_threshold")
     )]
     pub two_view_consensus_threshold: f64,
-    /// The maximum amount of loss before a point in optimization is treated as an outlier
-    /// and its loss is capped to prevent its influence.
-    #[cfg_attr(
-        feature = "serde-serialize",
-        serde(default = "default_two_view_loss_cutoff")
-    )]
-    pub two_view_loss_cutoff: f64,
     /// The maximum cosine distance allowed for two-view matches.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -198,12 +185,6 @@ pub struct VSlamSettings {
         serde(default = "default_three_view_std_dev_threshold")
     )]
     pub three_view_std_dev_threshold: f64,
-    /// The maximum cosine distance before the loss is capped during optimization, treating a point as an outlier.
-    #[cfg_attr(
-        feature = "serde-serialize",
-        serde(default = "default_three_view_loss_cutoff")
-    )]
-    pub three_view_loss_cutoff: f64,
     /// The maximum iterations to run three-view optimization and filtering
     #[cfg_attr(
         feature = "serde-serialize",
@@ -287,12 +268,6 @@ pub struct VSlamSettings {
         serde(default = "default_optimization_std_dev_threshold")
     )]
     pub optimization_std_dev_threshold: f64,
-    /// The cosine distance at which the loss is cut off (presumably an outlier, or too innacurate for our purposes).
-    #[cfg_attr(
-        feature = "serde-serialize",
-        serde(default = "default_optimization_loss_cutoff")
-    )]
-    pub optimization_loss_cutoff: f64,
     /// The number of optimization iterations.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -332,7 +307,6 @@ impl Default for VSlamSettings {
                 default_robust_observation_incidence_minimum_cosine_distance(),
             regenerate_iterations: default_regenerate_iterations(),
             single_view_consensus_threshold: default_single_view_consensus_threshold(),
-            single_view_final_loss_cutoff: default_single_view_final_loss_cutoff(),
             single_view_optimization_num_matches: default_single_view_optimization_num_matches(),
             single_view_filter_loop_iterations: default_single_view_filter_loop_iterations(),
             single_view_patience: default_single_view_patience(),
@@ -342,7 +316,6 @@ impl Default for VSlamSettings {
             single_view_minimum_robust_landmarks: default_single_view_minimum_robust_landmarks(),
             single_view_match_better_by: default_single_view_match_better_by(),
             two_view_consensus_threshold: default_two_view_consensus_threshold(),
-            two_view_loss_cutoff: default_two_view_loss_cutoff(),
             two_view_maximum_cosine_distance: default_two_view_maximum_cosine_distance(),
             two_view_inlier_minimum_threshold: default_two_view_inlier_minimum_threshold(),
             two_view_minimum_robust_matches: default_two_view_minimum_robust_matches(),
@@ -356,7 +329,6 @@ impl Default for VSlamSettings {
             three_view_relative_scale_incidence_minimum_cosine_distance:
                 default_three_view_relative_scale_incidence_minimum_cosine_distance(),
             three_view_std_dev_threshold: default_three_view_std_dev_threshold(),
-            three_view_loss_cutoff: default_three_view_loss_cutoff(),
             three_view_filter_loop_iterations: default_three_view_filter_loop_iterations(),
             three_view_optimization_landmarks: default_three_view_optimization_landmarks(),
             three_view_inlier_ratio_threshold: default_three_view_inlier_ratio_threshold(),
@@ -375,7 +347,6 @@ impl Default for VSlamSettings {
                 default_optimization_maximum_three_view_constraints(),
             optimization_minimum_new_constraints: default_optimization_minimum_new_constraints(),
             optimization_std_dev_threshold: default_optimization_std_dev_threshold(),
-            optimization_loss_cutoff: default_optimization_loss_cutoff(),
             optimization_iterations: default_optimization_iterations(),
             optimization_landmarks: default_optimization_landmarks(),
             optimization_robust_covisibility_minimum_landmarks:
@@ -421,10 +392,6 @@ fn default_single_view_consensus_threshold() -> f64 {
     1e-5
 }
 
-fn default_single_view_final_loss_cutoff() -> f64 {
-    1e-5
-}
-
 fn default_single_view_optimization_num_matches() -> usize {
     1 << 11
 }
@@ -458,11 +425,7 @@ fn default_single_view_match_better_by() -> u32 {
 }
 
 fn default_two_view_consensus_threshold() -> f64 {
-    1e-3
-}
-
-fn default_two_view_loss_cutoff() -> f64 {
-    1e-5
+    1e-7
 }
 
 fn default_two_view_maximum_cosine_distance() -> f64 {
@@ -513,16 +476,12 @@ fn default_three_view_std_dev_threshold() -> f64 {
     1e-16
 }
 
-fn default_three_view_loss_cutoff() -> f64 {
-    1e-5
-}
-
 fn default_three_view_filter_loop_iterations() -> usize {
     1 << 3
 }
 
 fn default_three_view_optimization_landmarks() -> usize {
-    1 << 8
+    1 << 10
 }
 
 fn default_three_view_inlier_ratio_threshold() -> f64 {
@@ -567,10 +526,6 @@ fn default_optimization_minimum_new_constraints() -> usize {
 
 fn default_optimization_std_dev_threshold() -> f64 {
     1e-16
-}
-
-fn default_optimization_loss_cutoff() -> f64 {
-    1e-5
 }
 
 fn default_optimization_iterations() -> usize {

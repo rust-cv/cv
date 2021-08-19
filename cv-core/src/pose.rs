@@ -1,7 +1,8 @@
 use crate::{CameraPoint, FeatureMatch, FeatureWorldMatch, Projective, Skew3, WorldPoint};
 use derive_more::{AsMut, AsRef, From, Into};
 use nalgebra::{
-    IsometryMatrix3, Matrix4, Matrix4x6, Matrix6x4, Rotation3, Vector3, Vector4, Vector6,
+    IsometryMatrix3, Matrix4, Matrix4x6, Matrix6x4, Rotation3, UnitVector3, Vector3, Vector4,
+    Vector6,
 };
 use sample_consensus::Model;
 
@@ -247,10 +248,29 @@ impl Pose for CameraToCamera {
 impl Model<FeatureMatch> for CameraToCamera {
     fn residual(&self, data: &FeatureMatch) -> f64 {
         let &FeatureMatch(a, b) = data;
-        let a_in_b = self.isometry() * a;
+        let a = self.isometry() * a;
         let normalized_translation = self.isometry().translation.vector.normalize();
-        let plane_norm = b.cross(&normalized_translation).normalize();
-        let res = a_in_b.dot(&plane_norm).abs();
+        // Correct a and b to intersect at the point which minimizes L1 distance as per
+        // "Closed-Form Optimal Two-View Triangulation Based on Angular Errors" algorithm
+        // 12 and 13.
+        let cross_a = a.cross(&normalized_translation);
+        let cross_a_norm = cross_a.norm();
+        let na = cross_a / cross_a_norm;
+        let cross_b = b.cross(&normalized_translation);
+        let cross_b_norm = cross_b.norm();
+        let nb = cross_b / cross_b_norm;
+        let res = if cross_a_norm < cross_b_norm {
+            // Algorithm 12.
+            let new_a = UnitVector3::new_normalize(a.into_inner() - (a.dot(&nb) * nb));
+            // Take the cosine distance between the corrected and original bearing.
+            1.0 - new_a.dot(&a)
+        } else {
+            // Algorithm 13.
+            let new_b = UnitVector3::new_normalize(b.into_inner() - (b.dot(&na) * na));
+            // Take the cosine distance between the corrected and original bearing.
+            1.0 - new_b.dot(&b)
+        };
+
         if res.is_nan() {
             1.0
         } else {

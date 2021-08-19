@@ -347,22 +347,6 @@ impl VSlamData {
             .map(|(&view, &feature)| (view, feature))
     }
 
-    /// Retrieves only the robust (view, feature) iterator from a landmark.
-    ///
-    /// The `threshold` is the maximum cosine distance permitted of an observation.
-    pub fn landmark_robust_observations(
-        &self,
-        reconstruction: ReconstructionKey,
-        landmark: LandmarkKey,
-        point: WorldPoint,
-        threshold: f64,
-    ) -> impl Iterator<Item = (ViewKey, usize)> + Clone + '_ {
-        self.landmark_observations(reconstruction, landmark)
-            .filter(move |&(view, feature)| {
-                self.is_observation_good(reconstruction, view, feature, point, threshold)
-            })
-    }
-
     /// Add a [`Reconstruction`] from three initial frames and matches between their features.
     #[allow(clippy::too_many_arguments)]
     pub fn add_reconstruction(
@@ -997,8 +981,7 @@ where
                             *first_pose,
                             c,
                             f,
-                            self.settings
-                                .three_view_relative_scale_maximum_cosine_distance,
+                            1.0,
                             self.settings
                                 .robust_observation_incidence_minimum_cosine_distance,
                         )?
@@ -1009,8 +992,7 @@ where
                             *second_pose,
                             c,
                             s,
-                            self.settings
-                                .three_view_relative_scale_maximum_cosine_distance,
+                            1.0,
                             self.settings
                                 .robust_observation_incidence_minimum_cosine_distance,
                         )?
@@ -1027,7 +1009,8 @@ where
                 < self.settings.three_view_minimum_relative_scales
             {
                 info!(
-                    "need at least 32 relative scales, but found {}; rejecting three-view match",
+                    "need at least {} relative scales, but found {}; rejecting three-view match",
+                    self.settings.three_view_minimum_relative_scales,
                     common_filtered_relative_scales_squared.len()
                 );
                 continue;
@@ -1048,11 +1031,21 @@ where
             // Initially, this just includes everything to avoid
             let opti_matches: Vec<[UnitVector3<f64>; 3]> = common
                 .iter()
-                .map(|&(c, f, s)| {
+                .filter_map(|&(c, f, s)| {
                     let c = self.data.frame(center).keypoint(c);
                     let f = self.data.frame(*first).keypoint(f);
                     let s = self.data.frame(*second).keypoint(s);
-                    [c, f, s]
+                    self.is_tri_landmark_robust(
+                        first_pose,
+                        second_pose,
+                        c,
+                        f,
+                        s,
+                        1e-7,
+                        self.settings
+                            .robust_observation_incidence_minimum_cosine_distance,
+                    )
+                    .then(|| [c, f, s])
                 })
                 .take(self.settings.three_view_optimization_landmarks)
                 .collect::<Vec<_>>();
@@ -1070,13 +1063,13 @@ where
                 continue;
             }
 
-            let [first_pose, second_pose] = three_view_simple_optimize(
-                [first_pose, second_pose],
-                &self.triangulator,
-                &opti_matches,
-                0.01,
-                1000,
-            );
+            // let [first_pose, second_pose] = three_view_simple_optimize(
+            //     [first_pose, second_pose],
+            //     &self.triangulator,
+            //     &opti_matches,
+            //     0.01,
+            //     10000,
+            // );
 
             // Create a map from the center features to the first matches.
             let first_map: HashMap<usize, usize> =
@@ -1346,8 +1339,8 @@ where
             a,
             b,
             pose,
-            original_matches.iter().copied(),
-            self.settings.two_view_maximum_cosine_distance,
+            matches.iter().copied(),
+            1.0,
             self.settings
                 .robust_observation_incidence_minimum_cosine_distance,
         );
@@ -1528,20 +1521,11 @@ where
             .map(|(landmark, feature)| (feature, landmark))
             .collect();
 
-        let num_robust_final_matches = final_matches
-            .values()
-            .filter(|&&landmark| {
-                self.triangulate_landmark_robust(reconstruction_key, landmark)
-                    .is_some()
-            })
-            .count();
-
         let inlier_ratio = final_matches.len() as f64 / original_matches_len as f64;
         info!(
-            "matches remaining after all filtering stages: {}; inlier ratio {}, robust matches {}",
+            "matches remaining after all filtering stages: {}; inlier ratio {}",
             final_matches.len(),
-            inlier_ratio,
-            num_robust_final_matches
+            inlier_ratio
         );
 
         if inlier_ratio < self.settings.single_view_inlier_minimum_threshold {
@@ -1551,9 +1535,9 @@ where
             return None;
         }
 
-        if num_robust_final_matches < self.settings.single_view_minimum_robust_landmarks {
+        if final_matches.len() < self.settings.single_view_minimum_robust_landmarks {
             info!(
-                "number of robust matches was less than the threshold for acceptance ({}); rejecting single-view match", self.settings.single_view_minimum_robust_landmarks
+                "number of matches was less than the threshold for acceptance ({}); rejecting single-view match", self.settings.single_view_minimum_robust_landmarks
             );
             return None;
         }
@@ -2519,39 +2503,21 @@ where
         }
     }
 
-    /// Return observations that are robust of a landmark.
-    pub fn landmark_robust_observations(
-        &self,
-        reconstruction: ReconstructionKey,
-        landmark: LandmarkKey,
-    ) -> impl Iterator<Item = (ViewKey, usize)> + Clone + '_ {
-        self.triangulate_landmark(reconstruction, landmark)
-            .map(|point| {
-                self.data.landmark_robust_observations(
-                    reconstruction,
-                    landmark,
-                    point,
-                    self.settings.robust_maximum_cosine_distance,
-                )
-            })
-            .into_iter()
-            .flatten()
-    }
-
     /// Triangulates a landmark only if it is robust and only using robust observations.
     pub fn triangulate_landmark_robust(
         &self,
         reconstruction: ReconstructionKey,
         landmark: LandmarkKey,
     ) -> Option<WorldPoint> {
-        // Retrieve the robust observations.
-        let robust_observations = self
-            .landmark_robust_observations(reconstruction, landmark)
+        // Retrieve the observations.
+        let observations = self
+            .data
+            .landmark_observations(reconstruction, landmark)
             .collect_vec();
         // Ensure we have the minimum robust observations.
-        (robust_observations.len() >= self.settings.robust_minimum_observations).then(|| ())?;
-        // Ensure at least two robust observations have an incidence angle between them exceeding the minimum.
-        robust_observations
+        (observations.len() >= self.settings.robust_minimum_observations).then(|| ())?;
+        // Ensure at least two observations have an incidence angle between them exceeding the minimum.
+        observations
             .iter()
             .map(|&(view, feature)| {
                 let pose = self.data.pose(reconstruction, view).inverse();
@@ -2568,8 +2534,8 @@ where
                         .robust_observation_incidence_minimum_cosine_distance
             })
             .then(|| ())?;
-        // Lastly, triangulate the point.
-        self.triangulate_observations(reconstruction, robust_observations.iter().copied())
+        // Lastly, triangulate the point, failing if that fails.
+        self.triangulate_observations(reconstruction, observations.iter().copied())
     }
 
     pub fn triangulate_landmark_with_appended_observations(
