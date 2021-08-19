@@ -6,7 +6,6 @@ mod settings;
 pub use export::*;
 pub use settings::*;
 
-use argmin::core::{ArgminKV, ArgminOp, Error, Executor, IterState, Observe, ObserverMode};
 use average::Mean;
 use bitarray::{BitArray, Hamming};
 use cv_core::{
@@ -15,7 +14,7 @@ use cv_core::{
     CameraModel, CameraPoint, CameraToCamera, FeatureMatch, FeatureWorldMatch, Pose, Projective,
     TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera, WorldToWorld,
 };
-use cv_optimize::{single_view_nelder_mead, three_view_simple_optimize, SingleViewOptimizer};
+use cv_optimize::{single_view_simple_optimize, three_view_simple_optimize};
 use cv_pinhole::CameraIntrinsicsK1Distortion;
 use float_ord::FloatOrd;
 use hamming_lsh::HammingHasher;
@@ -46,21 +45,6 @@ new_key_type! {
     pub struct LandmarkKey;
     pub struct ConstraintKey;
     pub struct ReconstructionKey;
-}
-
-struct OptimizationObserver;
-
-impl<T: ArgminOp> Observe<T> for OptimizationObserver
-where
-    T::Param: std::fmt::Debug,
-{
-    fn observe_iter(&mut self, state: &IterState<T>, _kv: &ArgminKV) -> Result<(), Error> {
-        debug!(
-            "on iteration {} out of {} with total evaluations {} and current cost {}, params {:?}",
-            state.iter, state.max_iters, state.cost_func_count, state.cost, state.param
-        );
-        Ok(())
-    }
 }
 
 fn canonical_view_order(mut views: [ViewKey; 3]) -> [ViewKey; 3] {
@@ -1090,8 +1074,8 @@ where
                 [first_pose, second_pose],
                 &self.triangulator,
                 &opti_matches,
-                0.1,
-                100,
+                0.01,
+                1000,
             );
 
             // Create a map from the center features to the first matches.
@@ -1521,43 +1505,13 @@ where
         );
 
         // Estimate the pose and retrieve the inliers.
-        let mut pose = self
+        let pose = self
             .single_view_consensus
             .borrow_mut()
             .model(&self.world_to_camera_estimator, matches_3d.iter().copied())
             .or_else(opeek(|| info!("failed to find view pose via consensus")))?;
 
-        // We need to compute the rate that we must restrict the output at to reach the target
-        // robust_maximum_cosine_distance by the end of our filter loop.
-        let restriction_rate = (self.settings.single_view_final_loss_cutoff
-            / self.settings.single_view_consensus_threshold)
-            .powf((self.settings.single_view_filter_loop_iterations as f64).recip());
-
-        for ix in 0..self.settings.single_view_filter_loop_iterations {
-            // This gradually restricts the threshold for outliers on each iteration.
-            let restriction = restriction_rate.powi(ix as i32 + 1);
-            let loss_cutoff = self.settings.single_view_consensus_threshold * restriction;
-            info!("optimizing pose with loss cutoff {}", loss_cutoff);
-
-            // Create solver and constraint for single-view optimizer.
-            let solver = single_view_nelder_mead(pose)
-                .sd_tolerance(self.settings.single_view_std_dev_threshold);
-            let constraint = SingleViewOptimizer::new(matches_3d.clone()).loss_cutoff(loss_cutoff);
-
-            // The initial parameter is empty becasue nelder mead is passed its own initial parameter directly.
-            let opti_result = Executor::new(constraint, solver, Vector6::zeros())
-                .add_observer(OptimizationObserver, ObserverMode::Always)
-                .max_iters(self.settings.single_view_patience as u64)
-                .run()
-                .expect("single-view optimization failed");
-
-            info!(
-                "extracted single-view pose with mean capped cosine distance of {} in {} iterations with reason: {}",
-                opti_result.state.best_cost, opti_result.state.iter + 1, opti_result.state.termination_reason,
-            );
-
-            pose = Pose::from_se3(opti_result.state.best_param);
-        }
+        let pose = single_view_simple_optimize(pose, &matches_3d, 0.1, 100);
 
         let original_matches_len = original_matches.len();
         let final_matches: HashMap<usize, LandmarkKey> = original_matches

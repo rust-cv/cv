@@ -15,7 +15,6 @@ eight-point = { version = "0.8.0", path = "../eight-point" }
 lambda-twist = { version = "0.7.0", path = "../lambda-twist" }
 cv-optimize = { version = "0.1.0", path = "../cv-optimize" }
 akaze = { version = "0.7.0", path = "../akaze" }
-argmin = { version = "0.4.6", default-features = false, features = ["nalgebral"] }
 space = { version = "0.17.0", default-features = false }
 maplit = { version = "1.0.2", default-features = false }
 log = { version = "0.4.14", default-features = false }

@@ -1,17 +1,13 @@
-mod many_view_optimizer;
 mod single_view_optimizer;
 mod three_view_optimizer;
-mod two_view_optimizer;
 
-pub use many_view_optimizer::*;
 pub use single_view_optimizer::*;
 pub use three_view_optimizer::*;
-pub use two_view_optimizer::*;
 
 use cv_core::nalgebra::{IsometryMatrix3, Point3, Rotation3, UnitVector3, Vector3};
 use std::ops::Add;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
 struct Se3TangentSpace {
     translation: Vector3<f64>,
     rotation: Vector3<f64>,
