@@ -10,17 +10,13 @@ use argmin::core::{ArgminKV, ArgminOp, Error, Executor, IterState, Observe, Obse
 use average::Mean;
 use bitarray::{BitArray, Hamming};
 use cv_core::{
-    nalgebra::{IsometryMatrix3, Matrix6x2, Point3, UnitVector3, Vector3, Vector5, Vector6},
+    nalgebra::{IsometryMatrix3, Point3, UnitVector3, Vector3, Vector6},
     sample_consensus::{Consensus, Estimator},
     CameraModel, CameraPoint, CameraToCamera, FeatureMatch, FeatureWorldMatch, Pose, Projective,
     TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera, WorldToWorld,
 };
-use cv_optimize::{
-    single_view_nelder_mead, spherical_to_cartesian, three_view_nelder_mead,
-    three_view_simple_optimize, two_view_nelder_mead, SingleViewOptimizer,
-    StructurelessThreeViewOptimizer, StructurelessTwoViewOptimizer,
-};
-use cv_pinhole::{CameraIntrinsicsK1Distortion, EssentialMatrix};
+use cv_optimize::{single_view_nelder_mead, three_view_simple_optimize, SingleViewOptimizer};
+use cv_pinhole::CameraIntrinsicsK1Distortion;
 use float_ord::FloatOrd;
 use hamming_lsh::HammingHasher;
 use hgg::HggLite;
@@ -695,9 +691,9 @@ pub struct VSlam<C1, C2, PE, EE, T, R> {
     /// The consensus algorithm for two-view matches.
     pub two_view_consensus: RefCell<C2>,
     /// The PnP estimator
-    pub pose_estimator: PE,
+    pub world_to_camera_estimator: PE,
     /// The essential matrix estimator
-    pub essential_estimator: EE,
+    pub camera_to_camera_estimator: EE,
     /// The triangulation algorithm
     pub triangulator: T,
     /// The random number generator
@@ -709,7 +705,7 @@ where
     C1: Consensus<PE, FeatureWorldMatch>,
     C2: Consensus<EE, FeatureMatch>,
     PE: Estimator<FeatureWorldMatch, Model = WorldToCamera>,
-    EE: Estimator<FeatureMatch, Model = EssentialMatrix>,
+    EE: Estimator<FeatureMatch, Model = CameraToCamera>,
     T: TriangulatorObservations + Clone,
     R: Rng,
 {
@@ -720,8 +716,8 @@ where
         settings: VSlamSettings,
         single_view_consensus: C1,
         two_view_consensus: C2,
-        pose_estimator: PE,
-        essential_estimator: EE,
+        world_to_camera_estimator: PE,
+        camera_to_camera_estimator: EE,
         triangulator: T,
         rng: R,
     ) -> Self {
@@ -730,8 +726,8 @@ where
             settings,
             single_view_consensus: RefCell::new(single_view_consensus),
             two_view_consensus: RefCell::new(two_view_consensus),
-            pose_estimator,
-            essential_estimator,
+            world_to_camera_estimator,
+            camera_to_camera_estimator,
             triangulator,
             rng: RefCell::new(rng),
         }
@@ -1061,8 +1057,8 @@ where
                 .sqrt();
 
             // Scale the second pose using the scale.
-            let mut first_pose = *first_pose;
-            let mut second_pose = second_pose.scale(median_scale);
+            let first_pose = *first_pose;
+            let second_pose = second_pose.scale(median_scale);
 
             // Get the matches to use for optimization.
             // Initially, this just includes everything to avoid
@@ -1078,19 +1074,10 @@ where
                 .collect::<Vec<_>>();
 
             info!(
-                "performing Nelder-Mead optimization on both poses using {} matches out of {}",
+                "performing optimization on poses using {} robust three-way matches out of {}",
                 opti_matches.len(),
                 common.len()
             );
-
-            let loss_cutoff = self.settings.three_view_loss_cutoff;
-            info!("optimizing poses with loss cutoff {}", loss_cutoff);
-
-            info!(
-                    "performing Nelder-Mead optimization on poses using {} robust three-way matches out of {}",
-                    opti_matches.len(),
-                    common.len()
-                );
             if opti_matches.len() < 32 {
                 info!(
                     "need {} robust three-way matches; rejecting three-view match",
@@ -1099,28 +1086,13 @@ where
                 continue;
             }
 
-            let solver = three_view_nelder_mead(first_pose, second_pose)
-                .sd_tolerance(self.settings.three_view_std_dev_threshold);
-            let constraint = StructurelessThreeViewOptimizer::new(
-                opti_matches.iter().copied(),
-                self.triangulator.clone(),
-            )
-            .loss_cutoff(loss_cutoff);
-
-            // The initial parameter is empty becasue nelder mead is passed its own initial parameter directly.
-            let opti_result = Executor::new(constraint, solver, Matrix6x2::zeros())
-                .add_observer(OptimizationObserver, ObserverMode::Always)
-                .max_iters(self.settings.three_view_patience as u64)
-                .run()
-                .expect("three-view optimization failed");
-
-            info!(
-                    "extracted three-view poses with mean capped cosine distance of {} in {} iterations with reason: {}",
-                    opti_result.state.best_cost, opti_result.state.iter + 1, opti_result.state.termination_reason,
-                );
-
-            first_pose = Pose::from_se3(opti_result.state.best_param.column(0).into());
-            second_pose = Pose::from_se3(opti_result.state.best_param.column(1).into());
+            let [first_pose, second_pose] = three_view_simple_optimize(
+                [first_pose, second_pose],
+                &self.triangulator,
+                &opti_matches,
+                0.1,
+                100,
+            );
 
             // Create a map from the center features to the first matches.
             let first_map: HashMap<usize, usize> =
@@ -1365,11 +1337,11 @@ where
         );
 
         // Estimate the essential matrix and retrieve the inliers
-        let (essential, inliers) = self
+        let (pose, inliers) = self
             .two_view_consensus
             .borrow_mut()
             .model_inliers(
-                &self.essential_estimator,
+                &self.camera_to_camera_estimator,
                 original_matches
                     .iter()
                     .copied()
@@ -1384,84 +1356,6 @@ where
 
         // Reconstitute only the inlier matches into a matches vector.
         let matches: Vec<[usize; 2]> = inliers.into_iter().map(|ix| original_matches[ix]).collect();
-
-        info!(
-            "solve pose from essential matrix using {} inlier matches",
-            matches.len()
-        );
-
-        // Solve the pose from the four possible poses using the given data.
-        let pose = essential
-            .pose_solver()
-            .solve_unscaled(matches.iter().copied().map(match_ix_kps))
-            .or_else(opeek(|| {
-                info!("failed to solve camera pose from essential matrix")
-            }))?;
-
-        // Retain sufficient matches.
-        let matches = self.camera_to_camera_match_points(
-            a,
-            b,
-            pose,
-            original_matches.iter().copied(),
-            self.settings.two_view_maximum_cosine_distance,
-            0.0,
-        );
-
-        // Set the loss cutoff to the regular maximum cosine distance.
-        let loss_cutoff = self.settings.two_view_loss_cutoff;
-        info!("optimizing pose with loss cutoff {}", loss_cutoff);
-
-        // Create solver and constraint for two-view optimizer.
-        let solver =
-            two_view_nelder_mead(pose).sd_tolerance(self.settings.two_view_std_dev_threshold);
-        let opti_matches = matches
-            .iter()
-            .copied()
-            .map(match_ix_kps)
-            .take(self.settings.two_view_optimization_maximum_matches)
-            .collect_vec();
-        let constraint = StructurelessTwoViewOptimizer::new(
-            opti_matches.iter().copied(),
-            self.triangulator.clone(),
-        )
-        .loss_cutoff(loss_cutoff);
-
-        // The initial parameter is empty becasue nelder mead is passed its own initial parameter directly.
-        let opti_result = Executor::new(constraint, solver, Vector5::zeros())
-            .add_observer(OptimizationObserver, ObserverMode::Always)
-            .max_iters(self.settings.two_view_patience as u64)
-            .run()
-            .expect("two-view optimization failed");
-
-        info!(
-                        "extracted two-view pose with mean capped cosine distance of {} in {} iterations with reason: {}",
-                        opti_result.state.best_cost, opti_result.state.iter + 1, opti_result.state.termination_reason,
-                    );
-
-        let translation = spherical_to_cartesian(opti_result.state.best_param.xy());
-
-        let pose = Pose::from_se3(
-            [
-                translation.x,
-                translation.y,
-                translation.z,
-                opti_result.state.best_param[2],
-                opti_result.state.best_param[3],
-                opti_result.state.best_param[4],
-            ]
-            .into(),
-        );
-
-        // Retain sufficient matches.
-        let matches = self.camera_to_camera_match_points(
-            a,
-            b,
-            pose,
-            original_matches.iter().copied(),
-            self.settings.two_view_maximum_cosine_distance,
-            0.0,
-        );
 
         // Compute the number of robust matches (to ensure the views are looking from sufficiently distant positions).
         let robust_matches = self.camera_to_camera_match_points(
@@ -1630,7 +1524,7 @@ where
         let mut pose = self
             .single_view_consensus
             .borrow_mut()
-            .model(&self.pose_estimator, matches_3d.iter().copied())
+            .model(&self.world_to_camera_estimator, matches_3d.iter().copied())
             .or_else(opeek(|| info!("failed to find view pose via consensus")))?;
 
         // We need to compute the rate that we must restrict the output at to reach the target
@@ -1911,7 +1805,7 @@ where
         );
 
         info!(
-            "performing Nelder-Mead optimization on three-view constraint using {} landmarks",
+            "performing optimization on three-view constraint using {} landmarks",
             opti_matches.len()
         );
 
@@ -1919,8 +1813,8 @@ where
             [first_pose, second_pose],
             &self.triangulator,
             &opti_matches,
-            0.01,
-            1000,
+            0.1,
+            100,
         );
 
         let final_scale = first_pose.isometry().translation.vector.norm()

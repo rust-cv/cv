@@ -418,7 +418,7 @@ fn default_regenerate_iterations() -> usize {
 }
 
 fn default_single_view_consensus_threshold() -> f64 {
-    0.1
+    1e-5
 }
 
 fn default_single_view_final_loss_cutoff() -> f64 {
@@ -458,7 +458,7 @@ fn default_single_view_match_better_by() -> u32 {
 }
 
 fn default_two_view_consensus_threshold() -> f64 {
-    0.1
+    1e-3
 }
 
 fn default_two_view_loss_cutoff() -> f64 {

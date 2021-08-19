@@ -1,9 +1,10 @@
 #![no_std]
 
+use arrayvec::ArrayVec;
 use cv_core::{
     nalgebra::{self, Matrix3, OMatrix, OVector, U8, U9},
     sample_consensus::Estimator,
-    FeatureMatch,
+    CameraToCamera, FeatureMatch,
 };
 use cv_pinhole::EssentialMatrix;
 
@@ -38,23 +39,8 @@ impl EightPoint {
     pub fn new() -> Self {
         Default::default()
     }
-}
 
-impl Default for EightPoint {
-    fn default() -> Self {
-        Self {
-            epsilon: 1e-9,
-            iterations: 100,
-        }
-    }
-}
-
-impl Estimator<FeatureMatch> for EightPoint {
-    type Model = EssentialMatrix;
-    type ModelIter = Option<EssentialMatrix>;
-    const MIN_SAMPLES: usize = 8;
-
-    fn estimate<I>(&self, data: I) -> Self::ModelIter
+    pub fn from_matches<I>(&self, data: I) -> Option<EssentialMatrix>
     where
         I: Iterator<Item = FeatureMatch> + Clone,
     {
@@ -69,5 +55,30 @@ impl Estimator<FeatureMatch> for EightPoint {
             .map(|(ix, _)| eigens.eigenvectors.column(ix).into_owned())?;
         let mat = Matrix3::from_iterator(eigenvector.iter().copied());
         Some(EssentialMatrix(mat))
+    }
+}
+
+impl Default for EightPoint {
+    fn default() -> Self {
+        Self {
+            epsilon: 1e-9,
+            iterations: 100,
+        }
+    }
+}
+
+impl Estimator<FeatureMatch> for EightPoint {
+    type Model = CameraToCamera;
+    type ModelIter = ArrayVec<CameraToCamera, 4>;
+    const MIN_SAMPLES: usize = 8;
+
+    fn estimate<I>(&self, data: I) -> Self::ModelIter
+    where
+        I: Iterator<Item = FeatureMatch> + Clone,
+    {
+        self.from_matches(data)
+            .and_then(|essential| essential.possible_unscaled_poses(self.epsilon, self.iterations))
+            .map(Into::into)
+            .unwrap_or_default()
     }
 }

@@ -102,8 +102,7 @@ fn main() {
         Arrsac::new(
             settings.single_view_consensus_threshold,
             Xoshiro256PlusPlus::seed_from_u64(0),
-        )
-        .max_candidate_hypotheses(256),
+        ),
         Arrsac::new(
             settings.two_view_consensus_threshold,
             Xoshiro256PlusPlus::seed_from_u64(0),

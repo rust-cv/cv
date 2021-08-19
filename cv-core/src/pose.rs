@@ -1,7 +1,8 @@
-use crate::{CameraPoint, FeatureWorldMatch, Projective, Skew3, WorldPoint};
+use crate::{CameraPoint, FeatureMatch, FeatureWorldMatch, Projective, Skew3, WorldPoint};
 use derive_more::{AsMut, AsRef, From, Into};
 use nalgebra::{
-    IsometryMatrix3, Matrix4, Matrix4x6, Matrix6x4, Rotation3, Vector3, Vector4, Vector6,
+    IsometryMatrix3, Matrix4, Matrix4x6, Matrix6x4, Rotation3, UnitVector3, Vector3, Vector4,
+    Vector6,
 };
 use sample_consensus::Model;
 
@@ -241,6 +242,21 @@ impl Pose for CameraToCamera {
     #[inline(always)]
     fn isometry(self) -> IsometryMatrix3<f64> {
         self.into()
+    }
+}
+
+impl Model<FeatureMatch> for CameraToCamera {
+    fn residual(&self, data: &FeatureMatch) -> f64 {
+        let &FeatureMatch(a, b) = data;
+        let a_in_b = self.isometry() * a;
+        let normalized_translation = self.isometry().translation.vector.normalize();
+        let plane_norm = b.cross(&normalized_translation).normalize();
+        let res = a_in_b.dot(&plane_norm).abs();
+        if res.is_nan() {
+            1.0
+        } else {
+            res
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 use cv_core::{
     nalgebra::{IsometryMatrix3, Point3, Rotation3, UnitVector3, Vector3},
-    sample_consensus::{Estimator, Model},
+    sample_consensus::Model,
     CameraPoint, CameraToCamera, FeatureMatch, Pose, Projective,
 };
 
@@ -20,52 +20,17 @@ fn randomized() {
 
 fn run_round() -> bool {
     let mut success = true;
-    let (real_pose, aps, bps) = some_test_data();
+    let (_, aps, bps) = some_test_data();
     let matches = aps.iter().zip(&bps).map(|(&a, &b)| FeatureMatch(a, b));
     let eight_point = eight_point::EightPoint::new();
     let essential = eight_point
-        .estimate(matches.clone())
+        .from_matches(matches.clone())
         .expect("didn't get any essential matrix");
     for m in matches.clone() {
         if essential.residual(&m).abs() > RESIDUAL_THRESHOLD {
             success = false;
             eprintln!("failed residual check: {}", essential.residual(&m).abs());
         }
-    }
-
-    // Get the possible poses for the essential matrix created from `pose`.
-    let estimate_pose = match essential.pose_solver().solve_unscaled(matches) {
-        Some(pose) => pose,
-        None => {
-            return false;
-        }
-    };
-
-    let rot_axis_residual = 1.0
-        - estimate_pose
-            .0
-            .rotation
-            .axis()
-            .unwrap()
-            .dot(&real_pose.0.rotation.axis().unwrap());
-    let rot_angle_residual =
-        (estimate_pose.0.rotation.angle() - real_pose.0.rotation.angle()).abs();
-    let translation_residual = 1.0
-        - real_pose
-            .0
-            .translation
-            .vector
-            .normalize()
-            .dot(&estimate_pose.0.translation.vector.normalize());
-    success &= rot_axis_residual < RESIDUAL_THRESHOLD;
-    success &= rot_angle_residual < RESIDUAL_THRESHOLD;
-    success &= translation_residual < RESIDUAL_THRESHOLD;
-    if !success {
-        eprintln!("rot angle residual({})", rot_angle_residual);
-        eprintln!("rot axis residual({})", rot_axis_residual);
-        eprintln!("translation residual({})", translation_residual);
-        eprintln!("real pose: {:?}", real_pose);
-        eprintln!("estimate pose: {:?}", estimate_pose);
     }
     success
 }
