@@ -3,6 +3,8 @@ use nalgebra::UnitVector3;
 
 /// This trait is for algorithms which allow you to triangulate a point from two or more observances.
 /// Each observance is a [`WorldToCamera`] and a bearing.
+///
+/// Returned points will always be checked successfully for chirality.
 pub trait TriangulatorObservations {
     /// This function takes a series of [`WorldToCamera`] and bearings that (supposedly) correspond to the same 3d point.
     /// It returns the triangulated [`WorldPoint`] if successful.
@@ -36,6 +38,8 @@ pub trait TriangulatorObservations {
 
 /// This trait allows you to take one relative pose from camera `A` to camera `B` and two bearings `a` and `b` from
 /// their respective cameras to triangulate a point from the perspective of camera `A`.
+///
+/// Returned points will always be checked successfully for chirality.
 pub trait TriangulatorRelative {
     fn triangulate_relative(
         &self,

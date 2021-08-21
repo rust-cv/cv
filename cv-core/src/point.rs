@@ -10,19 +10,24 @@ pub trait Projective: Clone + Copy {
     ///
     /// The homonegeous vector is guaranteed to have xyz normalized.
     /// The distance of the point is encoded as the reciprocal of the `w` component.
+    /// The `w` component is guaranteed to be positive or zero.
     /// A `w` component of `0` implies the point is at infinity.
     fn homogeneous(self) -> Vector4<f64>;
 
     /// Create the projective using a homogeneous vector.
     ///
     /// This will normalize the xyz components of the provided vector and adjust `w` accordingly.
-    fn from_homogeneous(point: Vector4<f64>) -> Self {
+    fn from_homogeneous(mut point: Vector4<f64>) -> Self {
+        if point.w.is_sign_negative() {
+            point = -point;
+        }
         Self::from_homogeneous_unchecked(point.unscale(point.xyz().norm()))
     }
 
     /// It is not recommended to call this directly, unless you have a good reason.
     ///
     /// The xyz components MUST be of unit length (normalized), and `w` must be adjusted accordingly.
+    /// See [`Projective::homogeneous`] for more details.
     fn from_homogeneous_unchecked(point: Vector4<f64>) -> Self;
 
     /// Retrieve the euclidean 3d point by normalizing the homogeneous coordinate.

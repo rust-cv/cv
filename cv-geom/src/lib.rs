@@ -29,12 +29,14 @@
 #![no_std]
 
 use cv_core::{
-    nalgebra::{zero, IsometryMatrix3, Matrix3x4, Matrix4, RowVector4, UnitVector3, Vector3},
-    CameraPoint, CameraToCamera, Pose, Projective, Skew3, TriangulatorObservations,
-    TriangulatorRelative, WorldPoint, WorldToCamera,
+    nalgebra::{zero, Matrix3x4, Matrix4, RowVector4, UnitVector3, Vector3},
+    CameraPoint, CameraToCamera, Pose, Projective, TriangulatorObservations, TriangulatorRelative,
+    WorldPoint, WorldToCamera,
 };
 
-/// This solves triangulation problems by simply minimizing the squared reprojection error of all observances.
+/// This solves triangulation problems by minimizing the squared reprojection error of all observances.
+///
+/// This is sometimes called optimal triangulation.
 ///
 /// This is a quick triangulator to execute and is fairly robust.
 ///
@@ -95,13 +97,14 @@ impl Default for MinSquaresTriangulator {
 impl TriangulatorObservations for MinSquaresTriangulator {
     fn triangulate_observations(
         &self,
-        pairs: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)> + Clone,
+        mut pairs: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)> + Clone,
     ) -> Option<WorldPoint> {
-        let mut a: Matrix4<f64> = zero();
-        let mut count = 0;
+        if pairs.clone().count() < 2 {
+            return None;
+        }
 
-        for (pose, bearing) in pairs {
-            count += 1;
+        let mut a: Matrix4<f64> = zero();
+        for (pose, bearing) in pairs.clone() {
             let bearing = bearing.into_inner();
             // Get the pose as a 3x4 matrix.
             let rot = pose.0.rotation.matrix();
@@ -117,22 +120,28 @@ impl TriangulatorObservations for MinSquaresTriangulator {
             a += term.transpose() * term;
         }
 
-        if count < 2 {
-            return None;
-        }
-
         let se = a.try_symmetric_eigen(self.epsilon, self.max_iterations)?;
 
-        // Make sure `w` stays positive. If it isn't, the xyz component technically
-        // doesn't point into the correct direction (dividing by `w` would flip vector).
-        // Since we depend on the xyz components pointing in the correct direction, keep `w` positive.
+        // Find the smallest eigenvalue where our point will lie in the null space homogeneous vector.
         se.eigenvalues
             .iter()
             .enumerate()
             .min_by_key(|&(_, &n)| float_ord::FloatOrd(n))
             .map(|(ix, _)| se.eigenvectors.column(ix).into_owned())
             .map(|v| if v.w.is_sign_negative() { -v } else { v })
-            .map(Projective::from_homogeneous)
+            .map(WorldPoint::from_homogeneous)
+            .filter(|point| {
+                // Ensure the point contains no NaN or infinity.
+                point.homogeneous().iter().all(|n| n.is_finite())
+            })
+            .filter(|point| {
+                // Ensure the cheirality constraint.
+                pairs.all(|(pose, bearing)| {
+                    let pose = pose.inverse().isometry();
+                    let bearing = pose * bearing;
+                    bearing.dot(&point.bearing()).is_sign_positive()
+                })
+            })
     }
 }
 
@@ -203,17 +212,25 @@ impl TriangulatorRelative for RelativeDltTriangulator {
         let svd = design.try_svd(false, true, self.epsilon, self.max_iterations)?;
 
         // Extract the null-space vector from V* corresponding to the smallest
-        // singular value and then normalize it back from heterogeneous coordinates.
-        // Make sure `w` stays positive. If it isn't, the xyz component technically
-        // doesn't point into the correct direction (dividing by `w` would flip vector).
-        // Since we depend on the xyz components pointing in the correct direction, keep `w` positive.
+        // singular value, which is the homogeneous coordiate of the output.
         svd.singular_values
             .iter()
             .enumerate()
             .min_by_key(|&(_, &n)| float_ord::FloatOrd(n))
             .map(|(ix, _)| svd.v_t.unwrap().row(ix).transpose().into_owned())
-            .map(|v| if v.w.is_sign_negative() { -v } else { v })
-            .map(Projective::from_homogeneous)
+            .map(CameraPoint::from_homogeneous)
+            .filter(|point| {
+                // Ensure the point contains no NaN or infinity.
+                point.homogeneous().iter().all(|n| n.is_finite())
+            })
+            .filter(|point| {
+                // Ensure the cheirality constraint.
+                point.bearing().dot(&a).is_sign_positive()
+                    && point
+                        .bearing()
+                        .dot(&(relative_pose.isometry().inverse() * b))
+                        .is_sign_positive()
+            })
     }
 }
 
@@ -247,7 +264,7 @@ pub struct MeanMeanTriangulator;
 impl TriangulatorObservations for MeanMeanTriangulator {
     fn triangulate_observations(
         &self,
-        pairs: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)> + Clone,
+        mut pairs: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)> + Clone,
     ) -> Option<WorldPoint> {
         let total = pairs.clone().count() as f64;
         let (sum_center, sum_bearings) = pairs.clone().fold(
@@ -260,9 +277,10 @@ impl TriangulatorObservations for MeanMeanTriangulator {
             },
         );
         let average_center = sum_center / total as f64;
-        let average_bearing = sum_bearings / total as f64;
+        let average_bearing = sum_bearings.normalize();
 
         let average_projection_distance = pairs
+            .clone()
             .map(|(pose, bearing)| {
                 let pose = pose.inverse().isometry();
                 let bearing = pose * bearing;
@@ -276,11 +294,22 @@ impl TriangulatorObservations for MeanMeanTriangulator {
             .sum::<f64>()
             / total;
 
-        let point = average_projection_distance * average_bearing + average_center;
-        if point.iter().any(|n| !n.is_finite()) {
-            return None;
-        }
-        Some(WorldPoint::from_point(point.into()))
+        let w = average_projection_distance.recip();
+        Some(WorldPoint::from_homogeneous(
+            (average_bearing + average_center * w).push(w),
+        ))
+        .filter(|point| {
+            // Ensure the point contains no NaN or infinity.
+            point.homogeneous().iter().all(|n| n.is_finite())
+        })
+        .filter(|point| {
+            // Ensure the cheirality constraint.
+            pairs.all(|(pose, bearing)| {
+                let pose = pose.inverse().isometry();
+                let bearing = pose * bearing;
+                bearing.dot(&point.bearing()).is_sign_positive()
+            })
+        })
     }
 }
 
@@ -359,12 +388,13 @@ impl TriangulatorRelative for AngularL1Triangulator {
         };
 
         let z = b.cross(&a);
-        Some(CameraPoint::from_point(
-            (z.dot(&translation.cross(&a)) / z.norm_squared() * b.into_inner()).into(),
+        Some(CameraPoint::from_homogeneous(
+            b.into_inner()
+                .push(z.norm_squared() / z.dot(&translation.cross(&a))),
         ))
         .filter(|point| {
-            // Ensure the point contains no NaN.
-            point.homogeneous().iter().all(|n| !n.is_nan())
+            // Ensure the point contains no NaN or infinity.
+            point.homogeneous().iter().all(|n| n.is_finite())
         })
         .filter(|point| {
             // Ensure the cheirality constraint.
@@ -434,12 +464,13 @@ impl TriangulatorRelative for AngularLInfinityTriangulator {
         let b = UnitVector3::new_normalize(b.into_inner() - (b.dot(&n) * n));
 
         let z = b.cross(&a);
-        Some(CameraPoint::from_point(
-            (z.dot(&translation.cross(&a)) / z.norm_squared() * b.into_inner()).into(),
+        Some(CameraPoint::from_homogeneous(
+            b.into_inner()
+                .push(z.norm_squared() / z.dot(&translation.cross(&a))),
         ))
         .filter(|point| {
-            // Ensure the point contains no NaN.
-            point.homogeneous().iter().all(|n| !n.is_nan())
+            // Ensure the point contains no NaN or infinity.
+            point.homogeneous().iter().all(|n| n.is_finite())
         })
         .filter(|point| {
             // Ensure the cheirality constraint.
