@@ -8,7 +8,7 @@ pub trait TriangulatorObservations {
     /// It returns the triangulated [`WorldPoint`] if successful.
     fn triangulate_observations(
         &self,
-        pairs: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)>,
+        pairs: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)> + Clone,
     ) -> Option<WorldPoint>;
 
     /// This function takes one bearing (`center_bearing`) coming from the camera whos reference frame we will
@@ -19,7 +19,7 @@ pub trait TriangulatorObservations {
     fn triangulate_observations_to_camera(
         &self,
         center_bearing: UnitVector3<f64>,
-        pairs: impl Iterator<Item = (CameraToCamera, UnitVector3<f64>)>,
+        pairs: impl Iterator<Item = (CameraToCamera, UnitVector3<f64>)> + Clone,
     ) -> Option<CameraPoint> {
         use core::iter::once;
 

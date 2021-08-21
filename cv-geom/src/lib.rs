@@ -29,9 +29,9 @@
 #![no_std]
 
 use cv_core::{
-    nalgebra::{zero, Matrix3x4, Matrix4, RowVector4, UnitVector3},
-    CameraPoint, CameraToCamera, Pose, Projective, TriangulatorObservations, TriangulatorRelative,
-    WorldPoint, WorldToCamera,
+    nalgebra::{zero, IsometryMatrix3, Matrix3x4, Matrix4, RowVector4, UnitVector3, Vector3},
+    CameraPoint, CameraToCamera, Pose, Projective, Skew3, TriangulatorObservations,
+    TriangulatorRelative, WorldPoint, WorldToCamera,
 };
 
 /// This solves triangulation problems by simply minimizing the squared reprojection error of all observances.
@@ -51,7 +51,7 @@ use cv_core::{
 /// let distance = (point.point().unwrap().coords - triangulated.point().unwrap().coords).norm();
 /// assert!(distance < 1e-6);
 /// ```
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
 pub struct MinSquaresTriangulator {
     epsilon: f64,
     max_iterations: usize,
@@ -86,8 +86,8 @@ impl MinSquaresTriangulator {
 impl Default for MinSquaresTriangulator {
     fn default() -> Self {
         Self {
-            epsilon: 1e-9,
-            max_iterations: 100,
+            epsilon: 1e-12,
+            max_iterations: 1000,
         }
     }
 }
@@ -95,7 +95,7 @@ impl Default for MinSquaresTriangulator {
 impl TriangulatorObservations for MinSquaresTriangulator {
     fn triangulate_observations(
         &self,
-        pairs: impl IntoIterator<Item = (WorldToCamera, UnitVector3<f64>)>,
+        pairs: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)> + Clone,
     ) -> Option<WorldPoint> {
         let mut a: Matrix4<f64> = zero();
         let mut count = 0;
@@ -137,7 +137,7 @@ impl TriangulatorObservations for MinSquaresTriangulator {
 }
 
 /// Based on algorithm 12 from "Multiple View Geometry in Computer Vision, Second Edition"
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
 pub struct RelativeDltTriangulator {
     epsilon: f64,
     max_iterations: usize,
@@ -172,8 +172,8 @@ impl RelativeDltTriangulator {
 impl Default for RelativeDltTriangulator {
     fn default() -> Self {
         Self {
-            epsilon: 1e-9,
-            max_iterations: 100,
+            epsilon: 1e-12,
+            max_iterations: 1000,
         }
     }
 }
@@ -214,5 +214,236 @@ impl TriangulatorRelative for RelativeDltTriangulator {
             .map(|(ix, _)| svd.v_t.unwrap().row(ix).transpose().into_owned())
             .map(|v| if v.w.is_sign_negative() { -v } else { v })
             .map(Projective::from_homogeneous)
+    }
+}
+
+/// I don't recommend using this triangulator.
+///
+/// This triangulator creates a skew line that starts at the average position of cameras
+/// and points down the average bearing. It then finds the average closest point
+/// on the average bearing to each other bearing. This point is the point that is returned.
+///
+/// # Example
+/// ```
+/// use cv_geom::MeanMeanTriangulator;
+/// use cv_core::{nalgebra::{Vector3, Rotation3}, CameraToCamera, Pose, Projective, CameraPoint, TriangulatorRelative};
+/// // Create a pose.
+/// let pose = CameraToCamera::from_parts(Vector3::new(0.1, 0.1, 0.1), Rotation3::from_scaled_axis(Vector3::new(0.1, 0.1, 0.1)));
+/// // Create a point in front of both cameras and between both cameras.
+/// let real_point = CameraPoint::from_point(Vector3::new(0.3, 0.1, 2.0).into());
+/// // Turn the points into bearings in each camera and try to triangulate the point again.
+/// let triangulated_point = MeanMeanTriangulator.triangulate_relative(
+///     pose,
+///     real_point.bearing(),
+///     pose.transform(real_point).bearing()
+/// ).unwrap().point().unwrap();
+/// // Verify that the point is approximately equal.
+/// let real_point = real_point.point().unwrap();
+/// assert!((real_point - triangulated_point).norm() < 1e-2, "real_point: {}, triangulated_point: {}", real_point, triangulated_point);
+/// ```
+#[derive(Copy, Clone, Debug, Default)]
+pub struct MeanMeanTriangulator;
+
+impl TriangulatorObservations for MeanMeanTriangulator {
+    fn triangulate_observations(
+        &self,
+        pairs: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)> + Clone,
+    ) -> Option<WorldPoint> {
+        let total = pairs.clone().count() as f64;
+        let (sum_center, sum_bearings) = pairs.clone().fold(
+            (Vector3::zeros(), Vector3::zeros()),
+            |(sum_center, sum_bearings), (pose, bearing)| {
+                let pose = pose.inverse().isometry();
+                let bearing = pose * bearing;
+                let position = pose.translation.vector;
+                (sum_center + position, sum_bearings + bearing.into_inner())
+            },
+        );
+        let average_center = sum_center / total as f64;
+        let average_bearing = sum_bearings / total as f64;
+
+        let average_projection_distance = pairs
+            .map(|(pose, bearing)| {
+                let pose = pose.inverse().isometry();
+                let bearing = pose * bearing;
+                let position = pose.translation.vector;
+                let trans = average_center - position;
+
+                let q = average_bearing.cross(&bearing);
+                q.scale(q.norm_squared().recip())
+                    .dot(&(bearing.cross(&trans)))
+            })
+            .sum::<f64>()
+            / total;
+
+        let point = average_projection_distance * average_bearing + average_center;
+        if point.iter().any(|n| !n.is_finite()) {
+            return None;
+        }
+        Some(WorldPoint::from_point(point.into()))
+    }
+}
+
+/// let point = CameraPoint::from_point(Point3::new(0.3, 0.1, 2.0));
+/// let pose = CameraToCamera::from_parts(Vector3::new(0.1, 0.1, 0.1), Rotation3::new(Vector3::new(0.1, 0.1, 0.1)));
+/// From the paper "Closed-Form Optimal Two-View Triangulation Based on Angular Errors"
+/// in section 5: "Closed-Form L1 Triangulation".
+///
+/// It triangulates by minimizing the L1 angular distance
+///
+/// # Example
+/// ```
+/// use cv_geom::AngularL1Triangulator;
+/// use cv_core::{nalgebra::{Vector3, Rotation3}, CameraToCamera, Pose, Projective, CameraPoint, TriangulatorRelative};
+/// // Create a pose.
+/// let pose = CameraToCamera::from_parts(Vector3::new(0.1, 0.1, 0.1), Rotation3::from_scaled_axis(Vector3::new(0.1, 0.1, 0.1)));
+/// // Create a point in front of both cameras and between both cameras.
+/// let real_point = CameraPoint::from_point(Vector3::new(0.3, 0.1, 2.0).into());
+/// // Turn the points into bearings in each camera and try to triangulate the point again.
+/// let triangulated_point = AngularL1Triangulator.triangulate_relative(
+///     pose,
+///     real_point.bearing(),
+///     pose.transform(real_point).bearing()
+/// ).unwrap().point().unwrap();
+/// // Verify that the point is approximately equal.
+/// let real_point = real_point.point().unwrap();
+/// assert!((real_point - triangulated_point).norm() < 1e-6, "real_point: {}, triangulated_point: {}", real_point, triangulated_point);
+/// ```
+#[derive(Copy, Clone, Debug, Default)]
+pub struct AngularL1Triangulator;
+
+impl TriangulatorRelative for AngularL1Triangulator {
+    fn triangulate_relative(
+        &self,
+        original_relative_pose: CameraToCamera,
+        a: UnitVector3<f64>,
+        b: UnitVector3<f64>,
+    ) -> Option<CameraPoint> {
+        // The algorithm in the paper triangulates the point from the perspective of the second camera,
+        // so this line flips and shadows everything to ensure that the triangulation happens in the first camera.
+        // Technically, everything could have been reversed below, but it would be tedious and it would
+        // not reflect the paper.
+        let relative_pose = original_relative_pose.inverse();
+        let (a, b) = (b, a);
+
+        // Transform a into the perspective of the second camera.
+        let a = relative_pose.isometry() * a;
+        let translation = relative_pose.isometry().translation.vector;
+        let normalized_translation = translation.normalize();
+        // Correct a and b to intersect at the point which minimizes L1 distance as per
+        // "Closed-Form Optimal Two-View Triangulation Based on Angular Errors" algorithm
+        // 12 and 13.
+        let cross_a = a.cross(&normalized_translation);
+        let cross_a_norm = cross_a.norm();
+        let na = cross_a / cross_a_norm;
+        let cross_b = b.cross(&normalized_translation);
+        let cross_b_norm = cross_b.norm();
+        let nb = cross_b / cross_b_norm;
+        // Shadow the old a and b, as they have been corrected.
+        let (a, b) = if cross_a_norm < cross_b_norm {
+            // Algorithm 12.
+            // This effectively computes the sine of the angle between the plane formed between b
+            // and translation and the bearing formed by a. It then multiplies this by the normal vector
+            // of the plane (nb) to get the normal corrective factor that is applied to a.
+            let new_a = UnitVector3::new_normalize(a.into_inner() - (a.dot(&nb) * nb));
+            // Take the cosine distance between the corrected and original bearing.
+            (new_a, b)
+        } else {
+            // Algorithm 13.
+            // This effectively computes the sine of the angle between the plane formed between a
+            // and translation and the bearing formed by b. It then multiplies this by the normal vector
+            // of the plane (na) to get the normal corrective factor that is applied to b.
+            let new_b = UnitVector3::new_normalize(b.into_inner() - (b.dot(&na) * na));
+            // Take the cosine distance between the corrected and original bearing.
+            (a, new_b)
+        };
+
+        let z = b.cross(&a);
+        Some(CameraPoint::from_point(
+            (z.dot(&translation.cross(&a)) / z.norm_squared() * b.into_inner()).into(),
+        ))
+        .filter(|point| {
+            // Ensure the point contains no NaN.
+            point.homogeneous().iter().all(|n| !n.is_nan())
+        })
+        .filter(|point| {
+            // Ensure the cheirality constraint.
+            point.bearing().dot(&a).is_sign_positive() && point.bearing().dot(&b).is_sign_positive()
+        })
+    }
+}
+
+/// From the paper "Closed-Form Optimal Two-View Triangulation Based on Angular Errors"
+/// in section 7: "Closed-Form L∞ Triangulation".
+///
+/// It triangulates by minimizing the L∞ angular distance, which is the max of both angles
+///
+/// # Example
+/// ```
+/// use cv_geom::AngularLInfinityTriangulator;
+/// use cv_core::{nalgebra::{Vector3, Rotation3}, CameraToCamera, Pose, Projective, CameraPoint, TriangulatorRelative};
+/// // Create a pose.
+/// let pose = CameraToCamera::from_parts(Vector3::new(0.1, 0.1, 0.1), Rotation3::from_scaled_axis(Vector3::new(0.1, 0.1, 0.1)));
+/// // Create a point in front of both cameras and between both cameras.
+/// let real_point = CameraPoint::from_point(Vector3::new(0.3, 0.1, 2.0).into());
+/// // Turn the points into bearings in each camera and try to triangulate the point again.
+/// let triangulated_point = AngularLInfinityTriangulator.triangulate_relative(
+///     pose,
+///     real_point.bearing(),
+///     pose.transform(real_point).bearing()
+/// ).unwrap().point().unwrap();
+/// // Verify that the point is approximately equal.
+/// let real_point = real_point.point().unwrap();
+/// assert!((real_point - triangulated_point).norm() < 1e-6, "real_point: {}, triangulated_point: {}", real_point, triangulated_point);
+/// ```
+#[derive(Copy, Clone, Debug, Default)]
+pub struct AngularLInfinityTriangulator;
+
+impl TriangulatorRelative for AngularLInfinityTriangulator {
+    fn triangulate_relative(
+        &self,
+        original_relative_pose: CameraToCamera,
+        a: UnitVector3<f64>,
+        b: UnitVector3<f64>,
+    ) -> Option<CameraPoint> {
+        // The algorithm in the paper triangulates the point from the perspective of the second camera,
+        // so this line flips and shadows everything to ensure that the triangulation happens in the first camera.
+        // Technically, everything could have been reversed below, but it would be tedious and it would
+        // not reflect the paper.
+        let relative_pose = original_relative_pose.inverse();
+        let (a, b) = (b, a);
+
+        // Transform a into the perspective of the second camera.
+        let a = relative_pose.isometry() * a;
+        let translation = relative_pose.isometry().translation.vector;
+        let normalized_translation = translation.normalize();
+        // Correct a and b to intersect at the point which minimizes L1 distance as per
+        // "Closed-Form Optimal Two-View Triangulation Based on Angular Errors" algorithm
+        // 12 and 13.
+        let na = (a.into_inner() + b.into_inner()).cross(&normalized_translation);
+        let na_mag_squared = na.norm_squared();
+        let nb = (a.into_inner() - b.into_inner()).cross(&normalized_translation);
+        let nb_mag_squared = nb.norm_squared();
+        let n = if na_mag_squared > nb_mag_squared {
+            na / na_mag_squared.sqrt()
+        } else {
+            nb / nb_mag_squared.sqrt()
+        };
+        // Shadow the old a and b, as they have been corrected.
+        let a = UnitVector3::new_normalize(a.into_inner() - (a.dot(&n) * n));
+        let b = UnitVector3::new_normalize(b.into_inner() - (b.dot(&n) * n));
+
+        let z = b.cross(&a);
+        Some(CameraPoint::from_point(
+            (z.dot(&translation.cross(&a)) / z.norm_squared() * b.into_inner()).into(),
+        ))
+        .filter(|point| {
+            // Ensure the point contains no NaN.
+            point.homogeneous().iter().all(|n| !n.is_nan())
+        })
+        .filter(|point| {
+            // Ensure the cheirality constraint.
+            point.bearing().dot(&a).is_sign_positive() && point.bearing().dot(&b).is_sign_positive()
+        })
     }
 }

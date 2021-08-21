@@ -22,6 +22,12 @@ impl Skew3 {
         self.into()
     }
 
+    /// Converts the Skew3 into a Rotation3 matrix quickly, but only works when the rotation
+    /// is very small.
+    pub fn rotation_small(self) -> Rotation3<f64> {
+        Rotation3::from_matrix(&(Matrix3::identity() + self.hat()))
+    }
+
     /// This converts a matrix in skew-symmetric form into a Skew3.
     ///
     /// Warning: Does no check to ensure matrix is actually skew-symmetric.
@@ -100,7 +106,7 @@ impl From<Skew3> for Rotation3<f64> {
         // This check is done to avoid the degenerate case where the angle is near zero.
         let theta2 = w.0.norm_squared();
         if theta2 <= f64::epsilon() {
-            Rotation3::from_matrix(&(Matrix3::identity() + w.hat()))
+            w.rotation_small()
         } else {
             let theta = theta2.sqrt();
             let axis = Unit::new_unchecked(w.0 / theta);

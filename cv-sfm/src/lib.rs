@@ -1063,13 +1063,13 @@ where
                 continue;
             }
 
-            // let [first_pose, second_pose] = three_view_simple_optimize(
-            //     [first_pose, second_pose],
-            //     &self.triangulator,
-            //     &opti_matches,
-            //     0.01,
-            //     10000,
-            // );
+            let [first_pose, second_pose] = three_view_simple_optimize(
+                [first_pose, second_pose],
+                &self.triangulator,
+                &opti_matches,
+                0.00001,
+                100000,
+            );
 
             // Create a map from the center features to the first matches.
             let first_map: HashMap<usize, usize> =
@@ -2542,7 +2542,7 @@ where
         &self,
         reconstruction: ReconstructionKey,
         landmark: LandmarkKey,
-        observations: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)>,
+        observations: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)> + Clone,
     ) -> Option<WorldPoint> {
         self.triangulator.triangulate_observations(
             self.data
@@ -2607,7 +2607,7 @@ where
     pub fn triangulate_observations(
         &self,
         reconstruction: ReconstructionKey,
-        observations: impl Iterator<Item = (ViewKey, usize)>,
+        observations: impl Iterator<Item = (ViewKey, usize)> + Clone,
     ) -> Option<WorldPoint> {
         self.triangulator
             .triangulate_observations(observations.map(|(view, feature)| {
