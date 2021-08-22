@@ -1028,7 +1028,8 @@ where
             let second_pose = second_pose.scale(median_scale);
 
             // Get the matches to use for optimization.
-            // Initially, this just includes everything to avoid
+            // This uses the two-view maximum cosine distance to avoid restricting the
+            // set of inliers too greatly.
             let opti_matches: Vec<[UnitVector3<f64>; 3]> = common
                 .iter()
                 .filter_map(|&(c, f, s)| {
@@ -1041,7 +1042,7 @@ where
                         c,
                         f,
                         s,
-                        1e-7,
+                        self.settings.two_view_maximum_cosine_distance,
                         self.settings
                             .robust_observation_incidence_minimum_cosine_distance,
                     )
@@ -1067,8 +1068,8 @@ where
                 [first_pose, second_pose],
                 &self.triangulator,
                 &opti_matches,
-                0.00001,
-                100000,
+                0.01,
+                1000,
             );
 
             // Create a map from the center features to the first matches.
@@ -1280,9 +1281,7 @@ where
         satisfies_cosine_distance && satisfies_incidence_angle
     }
 
-    /// This estimates and optimizes the [`CameraToCamera`] between frames `a` and `b` using the essential matrix estimator.
-    ///
-    /// It then attempts to add one of the [``]
+    /// This estimates and optimizes the [`CameraToCamera`] between frames `a` and `b`.
     ///
     /// This method resolves to an undefined scale, and thus is only appropriate for initialization.
     fn init_two_view(&self, a: FrameKey, b: FrameKey) -> Option<(CameraToCamera, Vec<[usize; 2]>)> {
@@ -1309,11 +1308,11 @@ where
         original_matches.shuffle(&mut *self.rng.borrow_mut());
 
         info!(
-            "perform sample consensus to estimate essential matrix and filter outliers on {} matches",
+            "perform sample consensus to estimate pose and filter outliers on {} matches",
             original_matches.len()
         );
 
-        // Estimate the essential matrix and retrieve the inliers
+        // Estimate the pose and retrieve the inliers
         let (pose, inliers) = self
             .two_view_consensus
             .borrow_mut()
@@ -1328,7 +1327,7 @@ where
                     .copied(),
             )
             .or_else(opeek(|| {
-                info!("failed to find essential matrix via consensus")
+                info!("failed to find two-view pose via consensus")
             }))?;
 
         // Reconstitute only the inlier matches into a matches vector.
@@ -1498,11 +1497,20 @@ where
         );
 
         // Estimate the pose and retrieve the inliers.
-        let pose = self
+        let (pose, inliers) = self
             .single_view_consensus
             .borrow_mut()
-            .model(&self.world_to_camera_estimator, matches_3d.iter().copied())
+            .model_inliers(&self.world_to_camera_estimator, matches_3d.iter().copied())
             .or_else(opeek(|| info!("failed to find view pose via consensus")))?;
+
+        // Only keep inliers for optimization phase.
+        let before_match_len = matches_3d.len();
+        let matches_3d = inliers.into_iter().map(|ix| matches_3d[ix]).collect_vec();
+        info!(
+            "found {} inliers among {} matches",
+            matches_3d.len(),
+            before_match_len
+        );
 
         let pose = single_view_simple_optimize(pose, &matches_3d, 0.1, 100);
 

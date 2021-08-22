@@ -61,6 +61,9 @@ fn observation_gradient(point: Point3<f64>, bearing: UnitVector3<f64>) -> Se3Tan
     // The reason we do this is so that small distances on this scale are roughly proportional to radians.
     // This is because the first order taylor approximation of `sin(x)` is `x` at `0`.
     // Since we are working with small deltas in the tangent space (SE3), this is an acceptable approximation.
+    // Additionally, this is similar to the reprojection error for pinhole cameras, but because it
+    // uses the unit sphere instead of the virtual image plane, it is able to generalize to
+    // high FoV (including >180 degree) cameras.
     // TODO: Use loss_cutoff to create a trust region for each sample.
     let scaled = point.coords / projection_distance;
     let delta = scaled - bearing;

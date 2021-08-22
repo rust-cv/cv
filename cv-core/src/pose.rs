@@ -252,13 +252,22 @@ impl Model<FeatureMatch> for CameraToCamera {
         let normalized_translation = self.isometry().translation.vector.normalize();
         // Correct a and b to intersect at the point which minimizes L1 distance as per
         // "Closed-Form Optimal Two-View Triangulation Based on Angular Errors" algorithm
-        // 12 and 13.
+        // 12 and 13. The L1 distance minimized is the two angles between the two
+        // epipolar planes and the two bearings.
+
+        // Compute the cross product of `a` and the unit translation. The magnitude increases as
+        // they become more perpendicular. The unit vector `na` describes the normal of the plane
+        // formed by `a` and the translation.
         let cross_a = a.cross(&normalized_translation);
         let cross_a_norm = cross_a.norm();
         let na = cross_a / cross_a_norm;
+        // Compute the cross product of `b` and the unit translation. The magnitude increases as
+        // they become more perpendicular. The unit vector `nb` describes the normal of the plane
+        // formed by `b` and the translation.
         let cross_b = b.cross(&normalized_translation);
         let cross_b_norm = cross_b.norm();
         let nb = cross_b / cross_b_norm;
+
         let res = if cross_a_norm < cross_b_norm {
             // Algorithm 12.
             let new_a = UnitVector3::new_normalize(a.into_inner() - (a.dot(&nb) * nb));
@@ -272,7 +281,7 @@ impl Model<FeatureMatch> for CameraToCamera {
         };
 
         if res.is_nan() {
-            1.0
+            2.0
         } else {
             res
         }
