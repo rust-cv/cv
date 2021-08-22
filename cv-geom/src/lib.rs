@@ -37,7 +37,7 @@ use cv_core::{
 /// This is a very quick triangulator to execute, but it is not particularly suitable for optimization.
 /// It can be used for optimization when you have very low error to begin with.
 /// It is suitable for quickly generating 3d point outputs, such as for display purposes.
-/// It is not suitable for accurately computing points at infinity in projective space either.
+/// It is not suitable for accurately computing points at infinity in projective space.
 /// It is not suitable for camera models with very high FoV.
 ///
 /// Reffered to as the Linear-Eigen method by Hartley and Sturm in the paper
