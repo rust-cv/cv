@@ -300,7 +300,7 @@ impl CameraSpecification {
 /// let nkpb = point_b.bearing();
 ///
 /// // Create a triangulator.
-/// let triangulator = cv_geom::MinSquaresTriangulator::new();
+/// let triangulator = cv_geom::LinearEigenTriangulator::new();
 ///
 /// // Since the normalized keypoints were computed exactly, there should be no reprojection error.
 /// let errors = cv_pinhole::pose_reprojection_error(pose, FeatureMatch(nkpa, nkpb), triangulator).unwrap();
@@ -352,7 +352,7 @@ pub fn pose_reprojection_error(
 /// let nkpb = point_b.bearing();
 ///
 /// // Create a triangulator.
-/// let triangulator = cv_geom::MinSquaresTriangulator::new();
+/// let triangulator = cv_geom::LinearEigenTriangulator::new();
 ///
 /// // Since the normalized keypoints were computed exactly, there should be no reprojection error.
 /// let average_error = cv_pinhole::average_pose_reprojection_error(pose, FeatureMatch(nkpa, nkpb), triangulator).unwrap();

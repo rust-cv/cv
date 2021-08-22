@@ -34,33 +34,43 @@ use cv_core::{
     WorldPoint, WorldToCamera,
 };
 
-/// This solves triangulation problems by minimizing the squared reprojection error of all observances.
+/// This is a quick triangulator to execute and is not particularly suitable for optimization, but
+/// is suitable for quickly generating 3d outputs. It is not suitable for accurately computing points at
+/// infinity in projective space either.
 ///
-/// This is sometimes called optimal triangulation.
+/// Reffered to as the Linear-Eigen method by Hartley and Sturm in the paper
+/// ["Triangulation"](https://users.cecs.anu.edu.au/~hartley/Papers/triangulation/triangulation.pdf).
 ///
-/// This is a quick triangulator to execute and is fairly robust.
+/// This method works by observing that each of the components outputted by the transformation of the
+/// [`WorldToCamera`] matrix are in `<x, y, z>` in world-space and `<xz, yz>` in image space.
+/// The goal is to minimize `||<xz, yz>||``, the squared reprojection error.
+/// By substituting the linear equation for `z` into this equation, you get a series of 4 linear
+/// equations that minimize the squared reprojection error. A symmetric eigen decomposition is utilized
+/// to get the result. Because symmetric eigen decomposition is fast, the matrix is only 4x4,
+/// and the method is totally linear, this can scale effortlessly to many points and is incredibly fast to
+/// solve. However, it has serious drawbacks in terms of accuracy.
 ///
 /// ```
 /// use cv_core::nalgebra::{Vector3, Point3, Rotation3};
 /// use cv_core::{TriangulatorRelative, CameraToCamera, CameraPoint, Pose, Projective};
-/// use cv_geom::MinSquaresTriangulator;
+/// use cv_geom::LinearEigenTriangulator;
 ///
 /// let point = CameraPoint::from_point(Point3::new(0.3, 0.1, 2.0));
 /// let pose = CameraToCamera::from_parts(Vector3::new(0.1, 0.1, 0.1), Rotation3::new(Vector3::new(0.1, 0.1, 0.1)));
 /// let bearing_a = point.bearing();
 /// let bearing_b = pose.transform(point).bearing();
-/// let triangulated = MinSquaresTriangulator::new().triangulate_relative(pose, bearing_a, bearing_b).unwrap();
+/// let triangulated = LinearEigenTriangulator::new().triangulate_relative(pose, bearing_a, bearing_b).unwrap();
 /// let distance = (point.point().unwrap().coords - triangulated.point().unwrap().coords).norm();
 /// assert!(distance < 1e-6);
 /// ```
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
-pub struct MinSquaresTriangulator {
+pub struct LinearEigenTriangulator {
     epsilon: f64,
     max_iterations: usize,
 }
 
-impl MinSquaresTriangulator {
-    /// Creates a `MinSquaresTriangulator` with default values.
+impl LinearEigenTriangulator {
+    /// Creates a `LinearEigenTriangulator` with default values.
     ///
     /// Same as calling [`Default::default`].
     pub fn new() -> Self {
@@ -85,7 +95,7 @@ impl MinSquaresTriangulator {
     }
 }
 
-impl Default for MinSquaresTriangulator {
+impl Default for LinearEigenTriangulator {
     fn default() -> Self {
         Self {
             epsilon: 1e-12,
@@ -94,7 +104,7 @@ impl Default for MinSquaresTriangulator {
     }
 }
 
-impl TriangulatorObservations for MinSquaresTriangulator {
+impl TriangulatorObservations for LinearEigenTriangulator {
     fn triangulate_observations(
         &self,
         mut pairs: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)> + Clone,

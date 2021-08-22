@@ -2,7 +2,7 @@ use cv::{
     camera::pinhole::{CameraIntrinsics, CameraIntrinsicsK1Distortion},
     consensus::Arrsac,
     estimate::{EightPoint, LambdaTwist},
-    geom::MinSquaresTriangulator,
+    geom::LinearEigenTriangulator,
     nalgebra::{Point2, Vector2},
     sfm::{VSlam, VSlamSettings},
 };
@@ -111,7 +111,7 @@ fn main() {
         .max_candidate_hypotheses(8192),
         LambdaTwist::new(),
         EightPoint::new(),
-        MinSquaresTriangulator::new(),
+        LinearEigenTriangulator::new(),
         Xoshiro256PlusPlus::seed_from_u64(0),
     );
 
