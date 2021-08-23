@@ -51,11 +51,11 @@ impl Add for Se3TangentSpace {
 // `a` must be transformed into the reference frame of the camera being optimized.
 // Translation must come from the isometry of the pose from the original reference frame
 // of `a` into the reference frame of the camera being optimized.
-fn epipolar_rotation_gradient(
+fn epipolar_gradient(
     translation: Vector3<f64>,
     a: UnitVector3<f64>,
     b: UnitVector3<f64>,
-) -> Vector3<f64> {
+) -> Se3TangentSpace {
     let normalized_translation = translation.normalize();
     // Correct a and b to intersect at the point which minimizes L1 distance as per
     // "Closed-Form Optimal Two-View Triangulation Based on Angular Errors" algorithm
@@ -74,9 +74,12 @@ fn epipolar_rotation_gradient(
         let new_a = UnitVector3::new_normalize(a.into_inner() - (a.dot(&nb) * nb));
 
         // a can be rotated towards its new bearing.
-        a.cross(&new_a)
+        Se3TangentSpace {
+            translation: -b.cross(&a) * (a.cross(&translation).dot(&b)),
+            rotation: a.cross(&new_a),
+        }
     } else {
-        Vector3::zeros()
+        Se3TangentSpace::identity()
     }
 }
 

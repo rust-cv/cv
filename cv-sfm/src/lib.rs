@@ -1064,13 +1064,8 @@ where
                 continue;
             }
 
-            let [first_pose, second_pose] = three_view_simple_optimize(
-                [first_pose, second_pose],
-                &self.triangulator,
-                &opti_matches,
-                0.001,
-                100000,
-            );
+            let [first_pose, second_pose] =
+                three_view_simple_optimize([first_pose, second_pose], &opti_matches, 0.001, 100000);
 
             let opti_matches: Vec<[UnitVector3<f64>; 3]> = common
                 .iter()
@@ -1106,13 +1101,8 @@ where
                 continue;
             }
 
-            let [first_pose, second_pose] = three_view_simple_optimize(
-                [first_pose, second_pose],
-                &self.triangulator,
-                &opti_matches,
-                0.01,
-                10000,
-            );
+            let [first_pose, second_pose] =
+                three_view_simple_optimize([first_pose, second_pose], &opti_matches, 0.01, 10000);
 
             // Create a map from the center features to the first matches.
             let first_map: HashMap<usize, usize> =
@@ -1824,13 +1814,8 @@ where
             opti_matches.len()
         );
 
-        let [mut first_pose, mut second_pose] = three_view_simple_optimize(
-            [first_pose, second_pose],
-            &self.triangulator,
-            &opti_matches,
-            0.01,
-            1000,
-        );
+        let [mut first_pose, mut second_pose] =
+            three_view_simple_optimize([first_pose, second_pose], &opti_matches, 0.01, 1000);
 
         let final_scale = first_pose.isometry().translation.vector.norm()
             + second_pose.isometry().translation.vector.norm();
