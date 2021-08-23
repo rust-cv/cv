@@ -48,7 +48,39 @@ impl Add for Se3TangentSpace {
     }
 }
 
-fn observation_gradient(point: Point3<f64>, bearing: UnitVector3<f64>) -> Se3TangentSpace {
+// `a` must be transformed into the reference frame of the camera being optimized.
+// Translation must come from the isometry of the pose from the original reference frame
+// of `a` into the reference frame of the camera being optimized.
+fn epipolar_rotation_gradient(
+    translation: Vector3<f64>,
+    a: UnitVector3<f64>,
+    b: UnitVector3<f64>,
+) -> Vector3<f64> {
+    let normalized_translation = translation.normalize();
+    // Correct a and b to intersect at the point which minimizes L1 distance as per
+    // "Closed-Form Optimal Two-View Triangulation Based on Angular Errors" algorithm
+    // 12 and 13.
+    let cross_a = a.cross(&normalized_translation);
+    let cross_a_norm = cross_a.norm();
+    let cross_b = b.cross(&normalized_translation);
+    let cross_b_norm = cross_b.norm();
+    let nb = cross_b / cross_b_norm;
+    // Shadow the old a and b, as they have been corrected.
+    if cross_a_norm < cross_b_norm {
+        // Algorithm 12.
+        // This effectively computes the sine of the angle between the plane formed between b
+        // and translation and the bearing formed by a. It then multiplies this by the normal vector
+        // of the plane (nb) to get the normal corrective factor that is applied to a.
+        let new_a = UnitVector3::new_normalize(a.into_inner() - (a.dot(&nb) * nb));
+
+        // a can be rotated towards its new bearing.
+        a.cross(&new_a)
+    } else {
+        Vector3::zeros()
+    }
+}
+
+fn point_translation_gradient(point: Point3<f64>, bearing: UnitVector3<f64>) -> Vector3<f64> {
     let bearing = bearing.into_inner();
     // Find the distance on the observation bearing that the point projects to.
     let projection_distance = point.coords.dot(&bearing);
@@ -56,24 +88,5 @@ fn observation_gradient(point: Point3<f64>, bearing: UnitVector3<f64>) -> Se3Tan
     // transform the point itself into the projection of the point onto the bearing.
     // This is counter to the direction we want to move the camera, because the translation is
     // of the world in respect to the camera rather than the camera in respect to the world.
-    let translation = projection_distance * bearing - point.coords;
-    // Scale the point so that it would project onto the bearing at unit distance.
-    // The reason we do this is so that small distances on this scale are roughly proportional to radians.
-    // This is because the first order taylor approximation of `sin(x)` is `x` at `0`.
-    // Since we are working with small deltas in the tangent space (SE3), this is an acceptable approximation.
-    // Additionally, this is similar to the reprojection error for pinhole cameras, but because it
-    // uses the unit sphere instead of the virtual image plane, it is able to generalize to
-    // high FoV (including >180 degree) cameras.
-    // TODO: Use loss_cutoff to create a trust region for each sample.
-    let scaled = point.coords / projection_distance;
-    let delta = scaled - bearing;
-    // The delta's norm is now roughly in units of radians, and it points in the direction in the tangent space
-    // that we wish to rotate. To compute the so(3) representation of this rotation, we need only take the cross
-    // product with the bearing, and this will give us the axis on which we should rotate, with its length
-    // roughly proportional to the number of radians.
-    let rotation = bearing.cross(&delta);
-    Se3TangentSpace {
-        translation,
-        rotation,
-    }
+    projection_distance * bearing - point.coords
 }

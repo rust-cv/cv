@@ -1042,7 +1042,49 @@ where
                         c,
                         f,
                         s,
-                        self.settings.two_view_maximum_cosine_distance,
+                        1.0,
+                        self.settings
+                            .robust_observation_incidence_minimum_cosine_distance,
+                    )
+                    .then(|| [c, f, s])
+                })
+                .take(self.settings.three_view_optimization_landmarks)
+                .collect::<Vec<_>>();
+
+            info!(
+                "performing optimization on poses using {} two-view-robust three-way matches out of {}",
+                opti_matches.len(),
+                common.len()
+            );
+            if opti_matches.len() < 32 {
+                info!(
+                    "need {} robust three-way matches; rejecting three-view match",
+                    32
+                );
+                continue;
+            }
+
+            let [first_pose, second_pose] = three_view_simple_optimize(
+                [first_pose, second_pose],
+                &self.triangulator,
+                &opti_matches,
+                0.001,
+                100000,
+            );
+
+            let opti_matches: Vec<[UnitVector3<f64>; 3]> = common
+                .iter()
+                .filter_map(|&(c, f, s)| {
+                    let c = self.data.frame(center).keypoint(c);
+                    let f = self.data.frame(*first).keypoint(f);
+                    let s = self.data.frame(*second).keypoint(s);
+                    self.is_tri_landmark_robust(
+                        first_pose,
+                        second_pose,
+                        c,
+                        f,
+                        s,
+                        self.settings.robust_maximum_cosine_distance,
                         self.settings
                             .robust_observation_incidence_minimum_cosine_distance,
                     )
@@ -1069,7 +1111,7 @@ where
                 &self.triangulator,
                 &opti_matches,
                 0.01,
-                1000,
+                10000,
             );
 
             // Create a map from the center features to the first matches.
@@ -1479,7 +1521,6 @@ where
                     self.triangulate_landmark_robust(reconstruction_key, landmark)?,
                 ))
             })
-            .take(self.settings.single_view_optimization_num_matches)
             .collect();
 
         if matches_3d.len() < self.settings.single_view_minimum_landmarks {
@@ -1505,14 +1546,42 @@ where
 
         // Only keep inliers for optimization phase.
         let before_match_len = matches_3d.len();
-        let matches_3d = inliers.into_iter().map(|ix| matches_3d[ix]).collect_vec();
+        let matches_3d = inliers
+            .into_iter()
+            .map(|ix| matches_3d[ix])
+            .take(self.settings.single_view_optimization_num_matches)
+            .collect_vec();
         info!(
-            "found {} inliers among {} matches",
+            "found {} inliers among {} matches; optimizing",
             matches_3d.len(),
             before_match_len
         );
 
-        let pose = single_view_simple_optimize(pose, &matches_3d, 0.1, 100);
+        let pose = single_view_simple_optimize(pose, &matches_3d, 0.01, 10000);
+
+        let matches_3d = original_matches
+            .iter()
+            .filter_map(|&(landmark, feature)| {
+                let keypoint = new_frame.keypoint(feature);
+                Some(FeatureWorldMatch(
+                    new_frame.keypoint(feature),
+                    self.triangulate_landmark_with_appended_observations_and_verify(
+                        reconstruction_key,
+                        landmark,
+                        std::iter::once((pose, keypoint)),
+                    )?,
+                ))
+            })
+            .take(self.settings.single_view_optimization_num_matches)
+            .collect_vec();
+
+        info!(
+            "found {} robust matches among {} original matches; optimizing again",
+            matches_3d.len(),
+            original_matches.len()
+        );
+
+        let pose = single_view_simple_optimize(pose, &matches_3d, 0.01, 10000);
 
         let original_matches_len = original_matches.len();
         let final_matches: HashMap<usize, LandmarkKey> = original_matches
@@ -1759,8 +1828,8 @@ where
             [first_pose, second_pose],
             &self.triangulator,
             &opti_matches,
-            0.1,
-            100,
+            0.01,
+            1000,
         );
 
         let final_scale = first_pose.isometry().translation.vector.norm()

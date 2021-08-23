@@ -386,7 +386,6 @@ impl TriangulatorRelative for AngularL1Triangulator {
             // and translation and the bearing formed by a. It then multiplies this by the normal vector
             // of the plane (nb) to get the normal corrective factor that is applied to a.
             let new_a = UnitVector3::new_normalize(a.into_inner() - (a.dot(&nb) * nb));
-            // Take the cosine distance between the corrected and original bearing.
             (new_a, b)
         } else {
             // Algorithm 13.
@@ -394,7 +393,6 @@ impl TriangulatorRelative for AngularL1Triangulator {
             // and translation and the bearing formed by b. It then multiplies this by the normal vector
             // of the plane (na) to get the normal corrective factor that is applied to b.
             let new_b = UnitVector3::new_normalize(b.into_inner() - (b.dot(&na) * na));
-            // Take the cosine distance between the corrected and original bearing.
             (a, new_b)
         };
 

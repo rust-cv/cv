@@ -1,4 +1,4 @@
-use crate::{observation_gradient, Se3TangentSpace};
+use crate::{epipolar_rotation_gradient, point_translation_gradient, Se3TangentSpace};
 use cv_core::{nalgebra::UnitVector3, CameraToCamera, Pose, Projective, TriangulatorObservations};
 
 fn landmark_deltas(
@@ -6,6 +6,12 @@ fn landmark_deltas(
     observations: [UnitVector3<f64>; 3],
     triangulator: &impl TriangulatorObservations,
 ) -> Option<[Se3TangentSpace; 3]> {
+    let ctof = poses[0].isometry();
+    let ftoc = ctof.inverse();
+    let ctos = poses[1].isometry();
+    let stoc = ctos.inverse();
+    let ftos = ctos * ftoc;
+    let stof = ftos.inverse();
     let center_point = triangulator
         .triangulate_observations_to_camera(
             observations[0],
@@ -15,14 +21,44 @@ fn landmark_deltas(
     let first_point = poses[0].isometry().transform_point(&center_point);
     let second_point = poses[1].isometry().transform_point(&center_point);
 
-    Some(
-        [
-            (center_point, observations[0]),
-            (first_point, observations[1]),
-            (second_point, observations[2]),
-        ]
-        .map(|(point, bearing)| observation_gradient(point, bearing)),
-    )
+    Some([
+        Se3TangentSpace {
+            translation: point_translation_gradient(center_point, observations[0]),
+            rotation: epipolar_rotation_gradient(
+                ftoc.translation.vector,
+                ftoc * observations[1],
+                observations[0],
+            ) + epipolar_rotation_gradient(
+                stoc.translation.vector,
+                stoc * observations[2],
+                observations[0],
+            ),
+        },
+        Se3TangentSpace {
+            translation: point_translation_gradient(first_point, observations[1]),
+            rotation: epipolar_rotation_gradient(
+                ctof.translation.vector,
+                ctof * observations[0],
+                observations[1],
+            ) + epipolar_rotation_gradient(
+                stof.translation.vector,
+                stof * observations[2],
+                observations[1],
+            ),
+        },
+        Se3TangentSpace {
+            translation: point_translation_gradient(second_point, observations[2]),
+            rotation: epipolar_rotation_gradient(
+                ctos.translation.vector,
+                ctos * observations[0],
+                observations[2],
+            ) + epipolar_rotation_gradient(
+                ftos.translation.vector,
+                ftos * observations[1],
+                observations[2],
+            ),
+        },
+    ])
 }
 
 pub fn three_view_simple_optimize(
