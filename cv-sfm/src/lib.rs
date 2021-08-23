@@ -71,7 +71,7 @@ pub struct Frame {
     /// The views this frame produced.
     pub view: Option<(ReconstructionKey, ViewKey)>,
     /// The LSH of this frame.
-    pub lsh: BitArray<128>,
+    pub lsh: BitArray<512>,
 }
 
 impl Frame {
@@ -196,9 +196,9 @@ pub struct VSlamData {
     /// Contains all the frames
     frames: DenseSlotMap<FrameKey, Frame>,
     /// Contains the LSH hasher.
-    hasher: HammingHasher<64, 128>,
+    hasher: HammingHasher<64, 512>,
     /// The HGG to search descriptors for keypoint `(Reconstruction::view, Frame::features)` instances
-    lsh_to_frame: HggLite<Hamming, BitArray<128>, FrameKey>,
+    lsh_to_frame: HggLite<Hamming, BitArray<512>, FrameKey>,
 }
 
 impl Default for VSlamData {
