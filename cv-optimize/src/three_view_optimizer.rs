@@ -54,7 +54,7 @@ pub fn three_view_simple_optimize(
         for &observations in landmarks {
             let deltas = landmark_deltas(poses, observations);
             for (net, &delta) in net_deltas.iter_mut().zip(deltas.iter()) {
-                *net = *net + delta;
+                *net += delta;
             }
         }
         let scale = optimization_rate / landmarks.len() as f64;

@@ -1,12 +1,14 @@
+use crate::{epipolar_gradient, Se3TangentSpace};
 use cv_core::{FeatureWorldMatch, Pose, Projective, WorldToCamera};
-use nalgebra::Vector3;
 
-use crate::point_translation_gradient;
-
-fn landmark_delta(pose: WorldToCamera, landmark: FeatureWorldMatch) -> Option<Vector3<f64>> {
+fn landmark_delta(pose: WorldToCamera, landmark: FeatureWorldMatch) -> Se3TangentSpace {
     let FeatureWorldMatch(bearing, world_point) = landmark;
-    let camera_point = pose.transform(world_point).point()?;
-    Some(point_translation_gradient(camera_point, bearing))
+    let camera_point = pose.transform(world_point);
+    epipolar_gradient(
+        pose.isometry().translation.vector,
+        camera_point.bearing(),
+        bearing,
+    )
 }
 
 pub fn single_view_simple_optimize(
@@ -16,15 +18,12 @@ pub fn single_view_simple_optimize(
     iterations: usize,
 ) -> WorldToCamera {
     for _ in 0..iterations {
-        let mut net_translation = Vector3::zeros();
+        let mut net_delta = Se3TangentSpace::identity();
         for &landmark in landmarks {
-            if let Some(delta) = landmark_delta(pose, landmark) {
-                net_translation += delta;
-            }
+            net_delta += landmark_delta(pose, landmark);
         }
         let scale = optimization_rate / landmarks.len() as f64;
-        pose.0
-            .append_translation_mut(&(scale * net_translation).into());
+        pose.0 = net_delta.scale(scale).isometry() * pose.0;
     }
     pose
 }

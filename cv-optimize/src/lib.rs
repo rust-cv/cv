@@ -4,8 +4,8 @@ mod three_view_optimizer;
 pub use single_view_optimizer::*;
 pub use three_view_optimizer::*;
 
-use cv_core::nalgebra::{IsometryMatrix3, Point3, Rotation3, UnitVector3, Vector3};
-use std::ops::Add;
+use cv_core::nalgebra::{IsometryMatrix3, Rotation3, UnitVector3, Vector3};
+use std::ops::{Add, AddAssign};
 
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
 struct Se3TangentSpace {
@@ -48,6 +48,13 @@ impl Add for Se3TangentSpace {
     }
 }
 
+impl AddAssign for Se3TangentSpace {
+    fn add_assign(&mut self, rhs: Self) {
+        self.translation += rhs.translation;
+        self.rotation += rhs.rotation;
+    }
+}
+
 // `a` must be transformed into the reference frame of the camera being optimized.
 // Translation must come from the isometry of the pose from the original reference frame
 // of `a` into the reference frame of the camera being optimized.
@@ -66,30 +73,19 @@ fn epipolar_gradient(
     let cross_b_norm = cross_b.norm();
     let nb = cross_b / cross_b_norm;
     // Shadow the old a and b, as they have been corrected.
-    if cross_a_norm < cross_b_norm {
-        // Algorithm 12.
-        // This effectively computes the sine of the angle between the plane formed between b
-        // and translation and the bearing formed by a. It then multiplies this by the normal vector
-        // of the plane (nb) to get the normal corrective factor that is applied to a.
-        let new_a = UnitVector3::new_normalize(a.into_inner() - (a.dot(&nb) * nb));
+    // if cross_a_norm < cross_b_norm {
+    // Algorithm 12.
+    // This effectively computes the sine of the angle between the plane formed between b
+    // and translation and the bearing formed by a. It then multiplies this by the normal vector
+    // of the plane (nb) to get the normal corrective factor that is applied to a.
+    let new_a = UnitVector3::new_normalize(a.into_inner() - (a.dot(&nb) * nb));
 
-        // a can be rotated towards its new bearing.
-        Se3TangentSpace {
-            translation: -b.cross(&a) * (a.cross(&translation).dot(&b)),
-            rotation: a.cross(&new_a),
-        }
-    } else {
-        Se3TangentSpace::identity()
+    // a can be rotated towards its new bearing.
+    Se3TangentSpace {
+        translation: -b.cross(&a) * (a.cross(&translation).dot(&b)),
+        rotation: a.cross(&new_a),
     }
-}
-
-fn point_translation_gradient(point: Point3<f64>, bearing: UnitVector3<f64>) -> Vector3<f64> {
-    let bearing = bearing.into_inner();
-    // Find the distance on the observation bearing that the point projects to.
-    let projection_distance = point.coords.dot(&bearing);
-    // To compute the translation of the camera, we simply look at the translation needed to
-    // transform the point itself into the projection of the point onto the bearing.
-    // This is counter to the direction we want to move the camera, because the translation is
-    // of the world in respect to the camera rather than the camera in respect to the world.
-    projection_distance * bearing - point.coords
+    // } else {
+    //     Se3TangentSpace::identity()
+    // }
 }
