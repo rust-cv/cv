@@ -63,29 +63,9 @@ fn epipolar_gradient(
     a: UnitVector3<f64>,
     b: UnitVector3<f64>,
 ) -> Se3TangentSpace {
-    let normalized_translation = translation.normalize();
-    // Correct a and b to intersect at the point which minimizes L1 distance as per
-    // "Closed-Form Optimal Two-View Triangulation Based on Angular Errors" algorithm
-    // 12 and 13.
-    let cross_a = a.cross(&normalized_translation);
-    let cross_a_norm = cross_a.norm();
-    let cross_b = b.cross(&normalized_translation);
-    let cross_b_norm = cross_b.norm();
-    let nb = cross_b / cross_b_norm;
-    // Shadow the old a and b, as they have been corrected.
-    // if cross_a_norm < cross_b_norm {
-    // Algorithm 12.
-    // This effectively computes the sine of the angle between the plane formed between b
-    // and translation and the bearing formed by a. It then multiplies this by the normal vector
-    // of the plane (nb) to get the normal corrective factor that is applied to a.
-    let new_a = UnitVector3::new_normalize(a.into_inner() - (a.dot(&nb) * nb));
-
-    // a can be rotated towards its new bearing.
+    let nb = b.cross(&translation).normalize();
     Se3TangentSpace {
         translation: -b.cross(&a) * (a.cross(&translation).dot(&b)),
-        rotation: a.cross(&new_a),
+        rotation: a.dot(&nb) * nb.cross(&a).normalize(),
     }
-    // } else {
-    //     Se3TangentSpace::identity()
-    // }
 }
