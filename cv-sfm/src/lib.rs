@@ -1542,8 +1542,9 @@ where
             .take(self.settings.single_view_optimization_num_matches)
             .collect_vec();
         info!(
-            "found {} inliers among {} matches; optimizing",
+            "found {} inliers (capped at {}) among {} matches; optimizing",
             matches_3d.len(),
+            self.settings.single_view_optimization_num_matches,
             before_match_len
         );
 
@@ -1566,8 +1567,9 @@ where
             .collect_vec();
 
         info!(
-            "found {} robust matches among {} original matches; optimizing again",
+            "found {} robust matches (capped at {}) among {} original matches; optimizing again",
             matches_3d.len(),
+            self.settings.single_view_optimization_num_matches,
             original_matches.len()
         );
 
