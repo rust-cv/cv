@@ -30,8 +30,8 @@
 
 use cv_core::{
     nalgebra::{zero, Matrix3x4, Matrix4, RowVector4, UnitVector3, Vector3},
-    CameraPoint, CameraToCamera, Pose, Projective, TriangulatorObservations, TriangulatorRelative,
-    WorldPoint, WorldToCamera,
+    CameraPoint, CameraToCamera, Pose, Projective, Se3TangentSpace, TriangulatorObservations,
+    TriangulatorRelative, WorldPoint, WorldToCamera,
 };
 
 /// This is a very quick triangulator to execute, but it is not particularly suitable for optimization.
@@ -485,5 +485,20 @@ impl TriangulatorRelative for AngularLInfinityTriangulator {
             // Ensure the cheirality constraint.
             point.bearing().dot(&a).is_sign_positive() && point.bearing().dot(&b).is_sign_positive()
         })
+    }
+}
+
+// The tangent space acts on the pose that transforms `a` into the same reference frame as `b`.
+// The `translation` is the translation extracted from that pose.
+#[inline(always)]
+pub fn epipolar_gradient(
+    translation: Vector3<f64>,
+    a: UnitVector3<f64>,
+    b: UnitVector3<f64>,
+) -> Se3TangentSpace {
+    let nb = b.cross(&translation).normalize();
+    Se3TangentSpace {
+        translation: -b.cross(&a) * (a.cross(&translation).dot(&b)),
+        rotation: a.dot(&nb) * nb.cross(&a).normalize(),
     }
 }

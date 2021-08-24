@@ -1,5 +1,5 @@
-use crate::{epipolar_gradient, Se3TangentSpace};
-use cv_core::{FeatureWorldMatch, Pose, Projective, WorldToCamera};
+use cv_geom::epipolar_gradient;
+use cv_core::{FeatureWorldMatch, Pose, Projective, Se3TangentSpace, WorldToCamera};
 
 fn landmark_delta(pose: WorldToCamera, landmark: FeatureWorldMatch) -> Se3TangentSpace {
     let FeatureWorldMatch(bearing, world_point) = landmark;

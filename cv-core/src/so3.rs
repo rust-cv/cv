@@ -1,9 +1,74 @@
+use core::ops::{Add, AddAssign};
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
-use nalgebra::{Matrix3, Matrix4, Rotation3, Unit, Vector3};
+use nalgebra::{IsometryMatrix3, Matrix3, Matrix4, Rotation3, Unit, Vector3};
 use num_traits::Float;
-
 #[cfg(feature = "serde-serialize")]
 use serde::{Deserialize, Serialize};
+
+/// Contains a small gradient translation and rotation that will be appended to
+/// the reference frame of some pose.
+///
+/// This is a member of the lie algebra se(3).
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
+pub struct Se3TangentSpace {
+    pub translation: Vector3<f64>,
+    pub rotation: Vector3<f64>,
+}
+
+impl Se3TangentSpace {
+    #[inline(always)]
+    pub fn identity() -> Self {
+        Self {
+            translation: Vector3::zeros(),
+            rotation: Vector3::zeros(),
+        }
+    }
+
+    /// Inverts the transformation, which is very cheap.
+    #[must_use]
+    #[inline(always)]
+    pub fn inverse(self) -> Self {
+        Self {
+            translation: -self.translation,
+            rotation: -self.rotation,
+        }
+    }
+
+    /// Gets the isometry that represents this tangent space transformation.
+    #[must_use]
+    #[inline(always)]
+    pub fn isometry(self) -> IsometryMatrix3<f64> {
+        let rotation = Rotation3::from_scaled_axis(self.rotation);
+        IsometryMatrix3::from_parts((rotation * self.translation).into(), rotation)
+    }
+
+    /// Scales both the rotation and the translation.
+    #[must_use]
+    #[inline(always)]
+    pub fn scale(mut self, scale: f64) -> Self {
+        self.translation *= scale;
+        self.rotation *= scale;
+        self
+    }
+}
+
+impl Add for Se3TangentSpace {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self {
+        Self {
+            translation: self.translation + rhs.translation,
+            rotation: self.rotation + rhs.rotation,
+        }
+    }
+}
+
+impl AddAssign for Se3TangentSpace {
+    fn add_assign(&mut self, rhs: Self) {
+        self.translation += rhs.translation;
+        self.rotation += rhs.rotation;
+    }
+}
 
 /// Contains a member of the lie algebra so(3), a representation of the tangent space
 /// of 3d rotation. This is also known as the lie algebra of the 3d rotation group SO(3).

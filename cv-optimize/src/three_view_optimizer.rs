@@ -1,5 +1,5 @@
-use crate::{epipolar_gradient, Se3TangentSpace};
-use cv_core::{nalgebra::UnitVector3, CameraToCamera, Pose};
+use cv_core::{nalgebra::UnitVector3, CameraToCamera, Pose, Se3TangentSpace};
+use cv_geom::epipolar_gradient;
 
 fn landmark_deltas(
     poses: [CameraToCamera; 2],
