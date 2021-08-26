@@ -1,8 +1,7 @@
 use crate::{CameraPoint, FeatureMatch, FeatureWorldMatch, Projective, Skew3, WorldPoint};
 use derive_more::{AsMut, AsRef, From, Into};
 use nalgebra::{
-    IsometryMatrix3, Matrix4, Matrix4x6, Matrix6x4, Rotation3, UnitVector3, Vector3, Vector4,
-    Vector6,
+    IsometryMatrix3, Matrix4, Matrix4x6, Matrix6x4, Rotation3, Vector3, Vector4, Vector6,
 };
 use sample_consensus::Model;
 
@@ -293,12 +292,10 @@ impl Model<FeatureMatch> for CameraToCamera {
         let &FeatureMatch(a, b) = data;
         let a = self.isometry() * a;
         let translation = self.isometry().translation.vector;
-        let nb = b.cross(&translation).normalize();
-        let corrected_a = (a.into_inner() - (a.dot(&nb) * nb)).normalize();
-        let residual = 1.0 - corrected_a.dot(&a);
+        let residual = a.dot(&b.cross(&translation).normalize()).abs();
         // Check chierality as well.
-        if residual.is_nan() || corrected_a.dot(&b).is_sign_negative() {
-            2.0
+        if residual.is_nan() || a.dot(&b).is_sign_negative() {
+            1.0
         } else {
             residual
         }

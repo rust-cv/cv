@@ -14,9 +14,13 @@ pub fn relative_pose_gradient(
     a: UnitVector3<f64>,
     b: UnitVector3<f64>,
 ) -> Se3TangentSpace {
-    let nb = b.cross(&translation).normalize();
-    let rotation = a.dot(&nb) * nb.cross(&a).normalize();
-    Se3TangentSpace::new(a.cross(&b) * (a.cross(&translation).dot(&b)), rotation)
+    let a_cross_t = a.cross(&translation);
+    Se3TangentSpace::new(
+        a.cross(&b) * (a_cross_t.dot(&b)),
+        a_cross_t
+            .normalize()
+            .cross(&b.cross(&translation).normalize()),
+    )
 }
 
 /// Produces a gradient that translates a point towards the bearing projecting from the camera.
@@ -40,20 +44,16 @@ pub fn point_gradient(translation: Vector3<f64>, b: UnitVector3<f64>) -> Vector3
 pub fn world_pose_gradient(translation: Vector3<f64>, b: UnitVector3<f64>) -> Se3TangentSpace {
     let projected_point = (translation).dot(&b) * b.into_inner();
     let translation_gradient = projected_point - translation;
-    // let rotation_gradient =
-    //     translation_gradient.norm() / projected_point.norm() * translation.cross(&b).normalize();
-    Se3TangentSpace::new(translation_gradient, Vector3::zeros())
+    Se3TangentSpace::new(translation_gradient, translation.normalize().cross(&b))
 }
 
 // Produces the absolute value of the sine of the angle between the two epipolar planes.
 #[inline(always)]
 pub fn loss(translation: Vector3<f64>, a: UnitVector3<f64>, b: UnitVector3<f64>) -> f64 {
-    let nb = b.cross(&translation).normalize();
-    let corrected_a = (a.into_inner() - (a.dot(&nb) * nb)).normalize();
-    let residual = 1.0 - corrected_a.dot(&a);
+    let residual = a.dot(&b.cross(&translation).normalize()).abs();
     // Check chierality as well.
-    if residual.is_nan() || corrected_a.dot(&b).is_sign_negative() {
-        2.0
+    if residual.is_nan() || a.dot(&b).is_sign_negative() {
+        1.0
     } else {
         residual
     }

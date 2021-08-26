@@ -2270,20 +2270,18 @@ where
         bearing: UnitVector3<f64>,
         others: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)>,
     ) -> bool {
-        let mut num_agree = 0usize;
-        let mut total = 0usize;
-
         for (other_pose, other_bearing) in others {
             let transform = other_pose.isometry() * pose.isometry().inverse();
-            num_agree += (epipolar::loss(
+            if epipolar::loss(
                 transform.translation.vector,
                 transform * bearing,
                 other_bearing,
-            ) < self.settings.robust_maximum_cosine_distance) as usize;
-            total += 1;
+            ) > self.settings.robust_maximum_cosine_distance
+            {
+                return false;
+            }
         }
-
-        num_agree > total / 2
+        true
     }
 
     pub fn filter_non_robust_observations(
@@ -2295,8 +2293,7 @@ where
             .data
             .reconstruction(reconstruction)
             .landmarks
-            .iter()
-            .map(|(lmix, _)| lmix)
+            .keys()
             .collect();
 
         // Log the data before filtering.
@@ -2313,72 +2310,48 @@ where
         info!("started with {} robust landmarks", initial_num_landmarks);
 
         for landmark in landmarks {
-            if let Some(point) = self.triangulate_landmark(reconstruction, landmark) {
-                let observations: Vec<(ViewKey, usize)> = self
-                    .data
-                    .landmark_observations(reconstruction, landmark)
-                    .collect();
+            let observations: Vec<(ViewKey, usize)> = self
+                .data
+                .landmark_observations(reconstruction, landmark)
+                .collect();
 
-                for (view, feature) in observations {
-                    if 1.0
-                        - self
-                            .data
-                            .view(reconstruction, view)
-                            .pose
-                            .transform(point)
-                            .bearing()
-                            .dot(&self.data.observation_bearing(reconstruction, view, feature))
-                        > self.settings.robust_maximum_cosine_distance
-                    {
-                        // If the observation is bad, we must remove it from the landmark and the view.
-                        self.data.split_observation(reconstruction, view, feature);
-                    }
+            if observations.len() == 1 {
+                continue;
+            }
+
+            for &(view, feature) in observations.iter() {
+                let num_agree = observations
+                    .iter()
+                    .filter(|&&(other_view, other_feature)| {
+                        if other_view == view {
+                            return true;
+                        }
+                        let transform = self.data.view(reconstruction, other_view).pose.isometry()
+                            * self
+                                .data
+                                .view(reconstruction, view)
+                                .pose
+                                .isometry()
+                                .inverse();
+                        epipolar::loss(
+                            transform.translation.vector,
+                            transform
+                                * self.data.observation_bearing(reconstruction, view, feature),
+                            self.data.observation_bearing(
+                                reconstruction,
+                                other_view,
+                                other_feature,
+                            ),
+                        ) < self.settings.robust_maximum_cosine_distance
+                    })
+                    .count();
+                // Disagreeing with one observation is fine, unless there are less than 4 observations.
+                if num_agree != observations.len() {
+                    // If the observation is bad, we must remove it from the landmark and the view.
+                    self.data.split_observation(reconstruction, view, feature);
                 }
-            } else {
-                self.split_landmark(reconstruction, landmark);
             }
         }
-
-        // for landmark in landmarks {
-        //     let observations: Vec<(ViewKey, usize)> = self
-        //         .data
-        //         .landmark_observations(reconstruction, landmark)
-        //         .collect();
-
-        //     if observations.len() == 1 {
-        //         continue;
-        //     }
-
-        //     for &(view, feature) in observations.iter() {
-        //         let num_agree = observations
-        //             .iter()
-        //             .filter(|&&(other_view, other_feature)| {
-        //                 let transform = self.data.view(reconstruction, other_view).pose.isometry()
-        //                     * self
-        //                         .data
-        //                         .view(reconstruction, view)
-        //                         .pose
-        //                         .isometry()
-        //                         .inverse();
-        //                 epipolar::loss(
-        //                     transform.translation.vector,
-        //                     transform
-        //                         * self.data.observation_bearing(reconstruction, view, feature),
-        //                     self.data.observation_bearing(
-        //                         reconstruction,
-        //                         other_view,
-        //                         other_feature,
-        //                     ),
-        //                 ) < self.settings.robust_maximum_cosine_distance
-        //             })
-        //             .count();
-        //         // The observation must agree with more than half of the observations.
-        //         if num_agree <= (observations.len() - 1) / 2 {
-        //             // If the observation is bad, we must remove it from the landmark and the view.
-        //             self.data.split_observation(reconstruction, view, feature);
-        //         }
-        //     }
-        // }
 
         // Log the data after filtering.
         let final_num_landmarks: usize = self
