@@ -56,7 +56,7 @@ fn canonical_view_order(mut views: [ViewKey; 3]) -> [ViewKey; 3] {
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct Feature {
-    pub keypoint: UnitVector3<f64>,
+    pub bearing: UnitVector3<f64>,
     pub color: [u8; 3],
 }
 
@@ -67,7 +67,7 @@ pub struct Frame {
     pub feed: FeedKey,
     /// This frame's index in the feed.
     pub feed_frame: usize,
-    /// A KnnMap from feature descriptors to keypoint and color data.
+    /// A KnnMap from feature descriptors to feature data.
     pub descriptor_features: HggLite<Hamming, BitArray<64>, Feature>,
     /// The views this frame produced.
     pub view: Option<(ReconstructionKey, ViewKey)>,
@@ -81,7 +81,7 @@ impl Frame {
     }
 
     pub fn bearing(&self, ix: usize) -> UnitVector3<f64> {
-        self.feature(ix).keypoint
+        self.feature(ix).bearing
     }
 
     pub fn descriptor(&self, ix: usize) -> &BitArray<64> {
@@ -198,7 +198,7 @@ pub struct VSlamData {
     frames: DenseSlotMap<FrameKey, Frame>,
     /// Contains the LSH hasher.
     hasher: HammingHasher<64, 512>,
-    /// The HGG to search descriptors for keypoint `(Reconstruction::view, Frame::features)` instances
+    /// The HGG to search for similar frames
     lsh_to_frame: HggLite<Hamming, BitArray<512>, FrameKey>,
 }
 
@@ -227,7 +227,7 @@ impl VSlamData {
         &mut self.frames[frame]
     }
 
-    pub fn keypoint(&self, frame: FrameKey, feature: usize) -> UnitVector3<f64> {
+    pub fn bearing(&self, frame: FrameKey, feature: usize) -> UnitVector3<f64> {
         self.frames[frame].bearing(feature)
     }
 
@@ -291,7 +291,7 @@ impl VSlamData {
         view: ViewKey,
         feature: usize,
     ) -> UnitVector3<f64> {
-        self.keypoint(self.view(reconstruction, view).frame, feature)
+        self.bearing(self.view(reconstruction, view).frame, feature)
     }
 
     pub fn landmark(&self, reconstruction: ReconstructionKey, landmark: LandmarkKey) -> &Landmark {
@@ -1230,7 +1230,7 @@ where
     fn init_two_view(&self, a: FrameKey, b: FrameKey) -> Option<(CameraToCamera, Vec<[usize; 2]>)> {
         let a = self.data.frame(a);
         let b = self.data.frame(b);
-        // A helper to convert an index match to a keypoint match given frame a and b.
+        // A helper to convert an index match to a bearing match given frame a and b.
         let match_ix_kps = |[feature_a, feature_b]: [usize; 2]| {
             FeatureMatch(a.bearing(feature_a), b.bearing(feature_b))
         };
@@ -1892,7 +1892,7 @@ where
             descriptors,
             colors
         )
-        .map(|(keypoint, descriptor, color)| (descriptor, Feature { keypoint, color }))
+        .map(|(bearing, descriptor, color)| (descriptor, Feature { bearing, color }))
         .collect()
     }
 
@@ -2235,6 +2235,25 @@ where
         }
     }
 
+    fn raw_observation_mean_epipolar_loss(
+        &self,
+        pose: WorldToCamera,
+        bearing: UnitVector3<f64>,
+        others: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)>,
+    ) -> f64 {
+        others
+            .map(|(other_pose, other_bearing)| {
+                let transform = other_pose.isometry() * pose.isometry().inverse();
+                epipolar::loss(
+                    transform.translation.vector,
+                    transform * bearing,
+                    other_bearing,
+                )
+            })
+            .collect::<Mean>()
+            .mean()
+    }
+
     fn observation_mean_epipolar_loss(
         &self,
         reconstruction: ReconstructionKey,
@@ -2246,22 +2265,21 @@ where
             .observation_landmark(reconstruction, view, feature);
         let pose = self.data.view(reconstruction, view).pose;
         let bearing = self.data.observation_bearing(reconstruction, view, feature);
-        let mut total_loss = 0.0;
-        let mut total = 0usize;
 
-        for (other_pose, other_bearing) in
-            self.data.landmark_pose_bearings(reconstruction, landmark)
-        {
-            let transform = other_pose.isometry() * pose.isometry().inverse();
-            total_loss += epipolar::loss(
-                transform.translation.vector,
-                transform * bearing,
-                other_bearing,
-            );
-            total += 1;
-        }
+        // Get only the observations which aren't this one which are part of the landmark.
+        let other_observations = self
+            .data
+            .landmark_observations(reconstruction, landmark)
+            .filter(|&(other_view, _)| other_view != view)
+            .map(|(other_view, other_feature)| {
+                (
+                    self.data.view(reconstruction, other_view).pose,
+                    self.data
+                        .observation_bearing(reconstruction, other_view, other_feature),
+                )
+            });
 
-        total_loss / (total - 1) as f64
+        self.raw_observation_mean_epipolar_loss(pose, bearing, other_observations)
     }
 
     fn is_observation_consistent(
@@ -2270,18 +2288,8 @@ where
         bearing: UnitVector3<f64>,
         others: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)>,
     ) -> bool {
-        for (other_pose, other_bearing) in others {
-            let transform = other_pose.isometry() * pose.isometry().inverse();
-            if epipolar::loss(
-                transform.translation.vector,
-                transform * bearing,
-                other_bearing,
-            ) > self.settings.robust_maximum_cosine_distance
-            {
-                return false;
-            }
-        }
-        true
+        self.raw_observation_mean_epipolar_loss(pose, bearing, others)
+            < self.settings.robust_maximum_cosine_distance
     }
 
     pub fn filter_non_robust_observations(
@@ -2320,33 +2328,10 @@ where
             }
 
             for &(view, feature) in observations.iter() {
-                let num_agree = observations
-                    .iter()
-                    .filter(|&&(other_view, other_feature)| {
-                        if other_view == view {
-                            return true;
-                        }
-                        let transform = self.data.view(reconstruction, other_view).pose.isometry()
-                            * self
-                                .data
-                                .view(reconstruction, view)
-                                .pose
-                                .isometry()
-                                .inverse();
-                        epipolar::loss(
-                            transform.translation.vector,
-                            transform
-                                * self.data.observation_bearing(reconstruction, view, feature),
-                            self.data.observation_bearing(
-                                reconstruction,
-                                other_view,
-                                other_feature,
-                            ),
-                        ) < self.settings.robust_maximum_cosine_distance
-                    })
-                    .count();
                 // Disagreeing with one observation is fine, unless there are less than 4 observations.
-                if num_agree != observations.len() {
+                if self.observation_mean_epipolar_loss(reconstruction, view, feature)
+                    > self.settings.robust_maximum_cosine_distance
+                {
                     // If the observation is bad, we must remove it from the landmark and the view.
                     self.data.split_observation(reconstruction, view, feature);
                 }

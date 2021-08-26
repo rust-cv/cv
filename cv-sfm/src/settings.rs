@@ -354,7 +354,7 @@ fn default_akaze_threshold() -> f64 {
 
 fn default_robust_maximum_cosine_distance() -> f64 {
     // Sine distance
-    1e-3
+    5e-4
 }
 
 fn default_minimum_robust_landmarks() -> usize {
@@ -420,12 +420,12 @@ fn default_single_view_match_better_by() -> u32 {
 
 fn default_two_view_consensus_threshold() -> f64 {
     // Sine distance
-    1e-3
+    5e-4
 }
 
 fn default_two_view_maximum_cosine_distance() -> f64 {
     // Sine distance
-    1e-3
+    5e-4
 }
 
 fn default_two_view_inlier_minimum_threshold() -> f64 {
