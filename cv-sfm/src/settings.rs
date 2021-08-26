@@ -161,12 +161,6 @@ pub struct VSlamSettings {
         serde(default = "default_three_view_patience")
     )]
     pub three_view_patience: usize,
-    /// The cosine distance threshold for three-view relative-scale estimation.
-    #[cfg_attr(
-        feature = "serde-serialize",
-        serde(default = "default_three_view_relative_scale_maximum_cosine_distance")
-    )]
-    pub three_view_relative_scale_maximum_cosine_distance: f64,
     /// The minimum incidence cosine distance for three-view relative-scale estimation.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -324,8 +318,6 @@ impl Default for VSlamSettings {
             two_view_optimization_maximum_matches: default_two_view_optimization_maximum_matches(),
             two_view_patience: default_two_view_patience(),
             three_view_patience: default_three_view_patience(),
-            three_view_relative_scale_maximum_cosine_distance:
-                default_three_view_relative_scale_maximum_cosine_distance(),
             three_view_relative_scale_incidence_minimum_cosine_distance:
                 default_three_view_relative_scale_incidence_minimum_cosine_distance(),
             three_view_std_dev_threshold: default_three_view_std_dev_threshold(),
@@ -381,7 +373,7 @@ fn default_merge_nearest_neighbors() -> usize {
 }
 
 fn default_robust_observation_incidence_minimum_cosine_distance() -> f64 {
-    1e-3
+    1e-4
 }
 
 fn default_regenerate_iterations() -> usize {
@@ -389,6 +381,7 @@ fn default_regenerate_iterations() -> usize {
 }
 
 fn default_single_view_consensus_threshold() -> f64 {
+    // Cosine distance
     5e-7
 }
 
@@ -458,10 +451,6 @@ fn default_two_view_patience() -> usize {
 
 fn default_three_view_patience() -> usize {
     1 << 16
-}
-
-fn default_three_view_relative_scale_maximum_cosine_distance() -> f64 {
-    1e-5
 }
 
 fn default_three_view_relative_scale_incidence_minimum_cosine_distance() -> f64 {

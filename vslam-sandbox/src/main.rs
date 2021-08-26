@@ -2,7 +2,7 @@ use cv::{
     camera::pinhole::{CameraIntrinsics, CameraIntrinsicsK1Distortion},
     consensus::Arrsac,
     estimate::{EightPoint, LambdaTwist},
-    geom::LinearEigenTriangulator,
+    geom::triangulation::LinearEigenTriangulator,
     nalgebra::{Point2, Vector2},
     sfm::{VSlam, VSlamSettings},
 };

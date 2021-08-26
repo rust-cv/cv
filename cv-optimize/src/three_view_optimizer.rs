@@ -1,5 +1,5 @@
 use cv_core::{nalgebra::UnitVector3, CameraToCamera, Pose, Se3TangentSpace};
-use cv_geom::epipolar_gradient;
+use cv_geom::epipolar;
 
 fn landmark_deltas(
     poses: [CameraToCamera; 2],
@@ -13,29 +13,29 @@ fn landmark_deltas(
     let stof = ftos.inverse();
 
     [
-        epipolar_gradient(
+        epipolar::relative_pose_gradient(
             ftoc.translation.vector,
             ftoc * observations[1],
             observations[0],
-        ) + epipolar_gradient(
+        ) + epipolar::relative_pose_gradient(
             stoc.translation.vector,
             stoc * observations[2],
             observations[0],
         ),
-        epipolar_gradient(
+        epipolar::relative_pose_gradient(
             ctof.translation.vector,
             ctof * observations[0],
             observations[1],
-        ) + epipolar_gradient(
+        ) + epipolar::relative_pose_gradient(
             stof.translation.vector,
             stof * observations[2],
             observations[1],
         ),
-        epipolar_gradient(
+        epipolar::relative_pose_gradient(
             ctos.translation.vector,
             ctos * observations[0],
             observations[2],
-        ) + epipolar_gradient(
+        ) + epipolar::relative_pose_gradient(
             ftos.translation.vector,
             ftos * observations[1],
             observations[2],
@@ -49,6 +49,7 @@ pub fn three_view_simple_optimize(
     optimization_rate: f64,
     iterations: usize,
 ) -> [CameraToCamera; 2] {
+    let scale = optimization_rate / landmarks.len() as f64;
     for _ in 0..iterations {
         let mut net_deltas = [Se3TangentSpace::identity(); 3];
         for &observations in landmarks {
@@ -57,7 +58,6 @@ pub fn three_view_simple_optimize(
                 *net += delta;
             }
         }
-        let scale = optimization_rate / landmarks.len() as f64;
         for (pose, &net_delta) in poses.iter_mut().zip(net_deltas[1..].iter()) {
             *pose = CameraToCamera(
                 net_delta.scale(scale).isometry()

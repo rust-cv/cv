@@ -1,4 +1,7 @@
-use core::ops::{Add, AddAssign};
+use core::{
+    iter::Sum,
+    ops::{Add, AddAssign},
+};
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
 use nalgebra::{IsometryMatrix3, Matrix3, Matrix4, Rotation3, Unit, Vector3};
 use num_traits::Float;
@@ -16,6 +19,20 @@ pub struct Se3TangentSpace {
 }
 
 impl Se3TangentSpace {
+    #[inline(always)]
+    pub fn new(mut translation: Vector3<f64>, mut rotation: Vector3<f64>) -> Self {
+        if translation.iter().any(|n| n.is_nan()) {
+            translation = Vector3::zeros();
+        }
+        if rotation.iter().any(|n| n.is_nan()) {
+            rotation = Vector3::zeros();
+        }
+        Self {
+            translation,
+            rotation,
+        }
+    }
+
     #[inline(always)]
     pub fn identity() -> Self {
         Self {
@@ -67,6 +84,12 @@ impl AddAssign for Se3TangentSpace {
     fn add_assign(&mut self, rhs: Self) {
         self.translation += rhs.translation;
         self.rotation += rhs.rotation;
+    }
+}
+
+impl Sum for Se3TangentSpace {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        iter.fold(Se3TangentSpace::identity(), |a, b| a + b)
     }
 }
 

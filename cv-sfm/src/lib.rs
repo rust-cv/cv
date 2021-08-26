@@ -11,9 +11,10 @@ use bitarray::{BitArray, Hamming};
 use cv_core::{
     nalgebra::{IsometryMatrix3, Point3, UnitVector3, Vector3, Vector6},
     sample_consensus::{Consensus, Estimator},
-    CameraModel, CameraPoint, CameraToCamera, FeatureMatch, FeatureWorldMatch, Pose, Projective,
+    CameraModel, CameraToCamera, FeatureMatch, FeatureWorldMatch, Pose, Projective,
     TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera, WorldToWorld,
 };
+use cv_geom::epipolar;
 use cv_optimize::{single_view_simple_optimize, three_view_simple_optimize};
 use cv_pinhole::CameraIntrinsicsK1Distortion;
 use float_ord::FloatOrd;
@@ -79,7 +80,7 @@ impl Frame {
         self.descriptor_features.get_value(ix).unwrap()
     }
 
-    pub fn keypoint(&self, ix: usize) -> UnitVector3<f64> {
+    pub fn bearing(&self, ix: usize) -> UnitVector3<f64> {
         self.feature(ix).keypoint
     }
 
@@ -227,7 +228,7 @@ impl VSlamData {
     }
 
     pub fn keypoint(&self, frame: FrameKey, feature: usize) -> UnitVector3<f64> {
-        self.frames[frame].keypoint(feature)
+        self.frames[frame].bearing(feature)
     }
 
     pub fn descriptor(&self, frame: FrameKey, feature: usize) -> &BitArray<64> {
@@ -284,43 +285,13 @@ impl VSlamData {
         self.color(self.view(reconstruction, view).frame, feature)
     }
 
-    pub fn observation_keypoint(
+    pub fn observation_bearing(
         &self,
         reconstruction: ReconstructionKey,
         view: ViewKey,
         feature: usize,
     ) -> UnitVector3<f64> {
         self.keypoint(self.view(reconstruction, view).frame, feature)
-    }
-
-    pub fn is_observation_good(
-        &self,
-        reconstruction: ReconstructionKey,
-        view: ViewKey,
-        feature: usize,
-        point: WorldPoint,
-        threshold: f64,
-    ) -> bool {
-        is_observation_good_raw(
-            self.reconstructions[reconstruction].views[view].pose,
-            self.observation_keypoint(reconstruction, view, feature),
-            point,
-            threshold,
-        )
-    }
-
-    pub fn observation_residual(
-        &self,
-        reconstruction: ReconstructionKey,
-        view: ViewKey,
-        feature: usize,
-        point: WorldPoint,
-    ) -> f64 {
-        observation_residual_raw(
-            self.reconstructions[reconstruction].views[view].pose,
-            self.observation_keypoint(reconstruction, view, feature),
-            point,
-        )
     }
 
     pub fn landmark(&self, reconstruction: ReconstructionKey, landmark: LandmarkKey) -> &Landmark {
@@ -345,6 +316,23 @@ impl VSlamData {
             .observations
             .iter()
             .map(|(&view, &feature)| (view, feature))
+    }
+
+    /// Retrieves the (pose, bearing) iterator from a landmark.
+    pub fn landmark_pose_bearings(
+        &self,
+        reconstruction: ReconstructionKey,
+        landmark: LandmarkKey,
+    ) -> impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)> + Clone + '_ {
+        self.landmark(reconstruction, landmark)
+            .observations
+            .iter()
+            .map(move |(&view, &feature)| {
+                (
+                    self.view(reconstruction, view).pose,
+                    self.observation_bearing(reconstruction, view, feature),
+                )
+            })
     }
 
     /// Add a [`Reconstruction`] from three initial frames and matches between their features.
@@ -873,50 +861,6 @@ where
         Some(view)
     }
 
-    /// Triangulates the point of each match, filtering out matches which fail triangulation.
-    ///
-    /// If `final` is true, it will perform a final filtering using the `maximum_cosine_distance`,
-    /// otherwise it will perform a more forgiving filtering using `consensus_threshold`.
-    fn camera_to_camera_match_points(
-        &self,
-        a: &Frame,
-        b: &Frame,
-        pose: CameraToCamera,
-        matches: impl Iterator<Item = [usize; 2]>,
-        residual_threshold: f64,
-        incidence_threshold: f64,
-    ) -> Vec<[usize; 2]> {
-        matches
-            .filter(|m| {
-                let FeatureMatch(a, b) = FeatureMatch(a.keypoint(m[0]), b.keypoint(m[1]));
-                self.is_bi_landmark_robust(pose, a, b, residual_threshold, incidence_threshold)
-            })
-            .collect()
-    }
-
-    /// Checks if two observations from two views with a [`CameraToCamera`] relative pose form a robust landmark.
-    ///
-    /// If succesful, returns the point from the perspective of `A`.
-    fn pair_robust_point(
-        &self,
-        pose: CameraToCamera,
-        a: UnitVector3<f64>,
-        b: UnitVector3<f64>,
-        maximum_cosine_distance: f64,
-        incidence_minimum_cosine_distance: f64,
-    ) -> Option<CameraPoint> {
-        let p = self.triangulator.triangulate_relative(pose, a, b)?;
-        let is_cosine_distance_satisfied = 1.0 - p.bearing().dot(&a) < maximum_cosine_distance
-            && 1.0 - pose.transform(p).bearing().dot(&b) < maximum_cosine_distance;
-        let is_incidence_angle_satisfied =
-            1.0 - (pose.isometry() * a).dot(&b) > incidence_minimum_cosine_distance;
-        if is_cosine_distance_satisfied && is_incidence_angle_satisfied {
-            Some(p)
-        } else {
-            None
-        }
-    }
-
     /// Tries to find a 3-view pair which can initialize a reconstruction.
     ///
     /// This works by trying to perform essential matrix estimation and pose optimization between the `center` frame
@@ -972,30 +916,27 @@ where
             let mut common_filtered_relative_scales_squared = common
                 .iter()
                 .filter_map(|&(c, f, s)| {
-                    let c = self.data.frame(center).keypoint(c);
-                    let f = self.data.frame(*first).keypoint(f);
-                    let s = self.data.frame(*second).keypoint(s);
+                    let c = self.data.frame(center).bearing(c);
+                    let f = self.data.frame(*first).bearing(f);
+                    let s = self.data.frame(*second).bearing(s);
 
+                    let is_robust = 1.0 - (first_pose.isometry() * c).dot(&f)
+                        > self
+                            .settings
+                            .robust_observation_incidence_minimum_cosine_distance
+                        || 1.0 - (second_pose.isometry() * c).dot(&s)
+                            > self
+                                .settings
+                                .robust_observation_incidence_minimum_cosine_distance;
+                    is_robust.then(|| ())?;
                     let fp = self
-                        .pair_robust_point(
-                            *first_pose,
-                            c,
-                            f,
-                            1.0,
-                            self.settings
-                                .robust_observation_incidence_minimum_cosine_distance,
-                        )?
+                        .triangulator
+                        .triangulate_relative(*first_pose, c, f)?
                         .point()?
                         .coords;
                     let sp = self
-                        .pair_robust_point(
-                            *second_pose,
-                            c,
-                            s,
-                            1.0,
-                            self.settings
-                                .robust_observation_incidence_minimum_cosine_distance,
-                        )?
+                        .triangulator
+                        .triangulate_relative(*second_pose, c, s)?
                         .point()?
                         .coords;
                     let ratio = fp.norm_squared() / sp.norm_squared();
@@ -1033,9 +974,9 @@ where
             let opti_matches: Vec<[UnitVector3<f64>; 3]> = common
                 .iter()
                 .filter_map(|&(c, f, s)| {
-                    let c = self.data.frame(center).keypoint(c);
-                    let f = self.data.frame(*first).keypoint(f);
-                    let s = self.data.frame(*second).keypoint(s);
+                    let c = self.data.frame(center).bearing(c);
+                    let f = self.data.frame(*first).bearing(f);
+                    let s = self.data.frame(*second).bearing(s);
                     self.is_tri_landmark_robust(
                         first_pose,
                         second_pose,
@@ -1070,9 +1011,9 @@ where
             let opti_matches: Vec<[UnitVector3<f64>; 3]> = common
                 .iter()
                 .filter_map(|&(c, f, s)| {
-                    let c = self.data.frame(center).keypoint(c);
-                    let f = self.data.frame(*first).keypoint(f);
-                    let s = self.data.frame(*second).keypoint(s);
+                    let c = self.data.frame(center).bearing(c);
+                    let f = self.data.frame(*first).bearing(f);
+                    let s = self.data.frame(*second).bearing(s);
                     self.is_tri_landmark_robust(
                         first_pose,
                         second_pose,
@@ -1112,9 +1053,9 @@ where
                 .iter()
                 .copied()
                 .filter(|&(c, f, s)| {
-                    let c = self.data.frame(center).keypoint(c);
-                    let f = self.data.frame(*first).keypoint(f);
-                    let s = self.data.frame(*second).keypoint(s);
+                    let c = self.data.frame(center).bearing(c);
+                    let f = self.data.frame(*first).bearing(f);
+                    let s = self.data.frame(*second).bearing(s);
                     self.is_tri_landmark_robust(
                         first_pose,
                         second_pose,
@@ -1134,8 +1075,8 @@ where
                     if second_map.contains_key(&c) {
                         return false;
                     }
-                    let c = self.data.frame(center).keypoint(c);
-                    let f = self.data.frame(*first).keypoint(f);
+                    let c = self.data.frame(center).bearing(c);
+                    let f = self.data.frame(*first).bearing(f);
                     self.is_bi_landmark_robust(
                         first_pose,
                         c,
@@ -1153,8 +1094,8 @@ where
                     if first_map.contains_key(&c) {
                         return false;
                     }
-                    let c = self.data.frame(center).keypoint(c);
-                    let s = self.data.frame(*second).keypoint(s);
+                    let c = self.data.frame(center).bearing(c);
+                    let s = self.data.frame(*second).bearing(s);
                     self.is_bi_landmark_robust(
                         second_pose,
                         c,
@@ -1168,9 +1109,9 @@ where
             let num_robust_matches = common
                 .iter()
                 .map(|&(c, f, s)| {
-                    let c = self.data.frame(center).keypoint(c);
-                    let f = self.data.frame(*first).keypoint(f);
-                    let s = self.data.frame(*second).keypoint(s);
+                    let c = self.data.frame(center).bearing(c);
+                    let f = self.data.frame(*first).bearing(f);
+                    let s = self.data.frame(*second).bearing(s);
                     (c, f, s)
                 })
                 .filter(|&(c, f, s)| {
@@ -1231,33 +1172,17 @@ where
         pose: CameraToCamera,
         a: UnitVector3<f64>,
         b: UnitVector3<f64>,
-        residual_threshold: f64,
-        incidence_threshold: f64,
+        maximum_cosine_distance: f64,
+        incidence_minimum_cosine_distance: f64,
     ) -> bool {
-        // The triangulated point in the center camera.
-        let ap = if let Some(ap) = self.triangulator.triangulate_relative(pose, a, b) {
-            ap
-        } else {
-            return false;
-        };
-        // Transform the point to the other camera.
-        let bp = pose.transform(ap);
-        // Compute the residuals for each observation.
-        let ra = 1.0 - ap.bearing().dot(&a);
-        let rb = 1.0 - bp.bearing().dot(&b);
-        // All must satisfy the consensus threshold at worst.
-        let satisfies_cosine_distance = [ra, rb]
-            .iter()
-            .all(|&r| r.is_finite() && r < residual_threshold);
-        // The a bearing in the A camera reference frame.
-        let a_bearing = a;
-        // The b bearing in the A camera reference frame.
-        let b_bearing = pose.inverse().isometry() * b;
-        // Incidence from center to first.
-        let iab = 1.0 - a_bearing.dot(&b_bearing);
-        // At least one pair must have a sufficiently large incidence angle.
-        let satisfies_incidence_angle = iab > incidence_threshold;
-        satisfies_cosine_distance && satisfies_incidence_angle
+        let is_triangulatable = self.triangulator.triangulate_relative(pose, a, b).is_some();
+        let pose = pose.isometry();
+        // Transform a to be in the reference frame of camera B.
+        let a = pose * a;
+        let is_cosine_distance_satisfied =
+            epipolar::loss(pose.translation.vector, a, b) < maximum_cosine_distance;
+        let is_incidence_angle_satisfied = 1.0 - a.dot(&b) > incidence_minimum_cosine_distance;
+        is_cosine_distance_satisfied && is_incidence_angle_satisfied && is_triangulatable
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1268,49 +1193,35 @@ where
         c: UnitVector3<f64>,
         f: UnitVector3<f64>,
         s: UnitVector3<f64>,
-        residual_threshold: f64,
-        incidence_threshold: f64,
+        maximum_cosine_distance: f64,
+        incidence_minimum_cosine_distance: f64,
     ) -> bool {
-        // The triangulated point in the center camera.
-        let cp = if let Some(cp) = self.triangulator.triangulate_observations_to_camera(
-            c,
-            std::array::IntoIter::new([
-                (first_pose.isometry().into(), f),
-                (second_pose.isometry().into(), s),
-            ]),
-        ) {
-            cp
-        } else {
-            return false;
-        };
-        // Transform the point to the other cameras.
-        let fp = first_pose.transform(cp);
-        let sp = second_pose.transform(cp);
-        // Compute the residuals for each observation.
-        let rc = 1.0 - cp.bearing().dot(&c);
-        let rf = 1.0 - fp.bearing().dot(&f);
-        let rs = 1.0 - sp.bearing().dot(&s);
-        // All must satisfy the consensus threshold at worst.
-        let satisfies_cosine_distance = [rc, rf, rs]
-            .iter()
-            .all(|&r| r.is_finite() && r < residual_threshold);
-        // The center bearing in the center camera reference frame.
-        let cc = c;
-        // The first bearing in the center camera reference frame.
-        let cf = first_pose.inverse().isometry() * f;
-        // The second bearing in the center camera reference frame.
-        let cs = second_pose.inverse().isometry() * s;
-        // Incidence from center to first.
-        let icf = 1.0 - cc.dot(&cf);
-        // Incidence from first to second.
-        let ifs = 1.0 - cf.dot(&cs);
-        // Incidence from second to center.
-        let isc = 1.0 - cs.dot(&cc);
-        // At least one pair must have a sufficiently large incidence angle.
-        let satisfies_incidence_angle = [icf, ifs, isc]
-            .iter()
-            .any(|&incidence| incidence > incidence_threshold);
-        satisfies_cosine_distance && satisfies_incidence_angle
+        let is_triangulatable = self
+            .triangulator
+            .triangulate_observations_to_camera(
+                c,
+                core::array::IntoIter::new([(first_pose, f), (second_pose, s)]),
+            )
+            .is_some();
+        // Compute the isometries we need.
+        let c_to_f = first_pose.isometry();
+        let c_to_s = second_pose.isometry();
+        let f_to_s = c_to_s * c_to_f.inverse();
+        // Compute the transformed bearings we need.
+        let c_in_f = c_to_f * c;
+        let c_in_s = c_to_s * c;
+        let f_in_s = f_to_s * f;
+        // Ensure that the epipolar loss (measured in cosine distance) is within the threshold for each observation.
+        let is_cosine_distance_satisfied = epipolar::loss(c_to_f.translation.vector, c_in_f, f)
+            < maximum_cosine_distance
+            && epipolar::loss(c_to_s.translation.vector, c_in_s, s) < maximum_cosine_distance
+            && epipolar::loss(f_to_s.translation.vector, f_in_s, s) < maximum_cosine_distance;
+        // Ensure that at least one pair of bearings is observing from a sufficiently different incidence angle.
+        let is_incidence_angle_satisfied = 1.0 - s.dot(&c_in_s) > incidence_minimum_cosine_distance
+            || 1.0 - s.dot(&f_in_s) > incidence_minimum_cosine_distance
+            || 1.0 - f.dot(&c_in_f) > incidence_minimum_cosine_distance;
+        // If both are satisfied, then it passes.
+        is_cosine_distance_satisfied && is_incidence_angle_satisfied && is_triangulatable
     }
 
     /// This estimates and optimizes the [`CameraToCamera`] between frames `a` and `b`.
@@ -1321,7 +1232,7 @@ where
         let b = self.data.frame(b);
         // A helper to convert an index match to a keypoint match given frame a and b.
         let match_ix_kps = |[feature_a, feature_b]: [usize; 2]| {
-            FeatureMatch(a.keypoint(feature_a), b.keypoint(feature_b))
+            FeatureMatch(a.bearing(feature_a), b.bearing(feature_b))
         };
 
         info!(
@@ -1365,29 +1276,17 @@ where
         // Reconstitute only the inlier matches into a matches vector.
         let matches: Vec<[usize; 2]> = inliers.into_iter().map(|ix| original_matches[ix]).collect();
 
-        // Compute the number of robust matches (to ensure the views are looking from sufficiently distant positions).
-        let robust_matches = self.camera_to_camera_match_points(
-            a,
-            b,
-            pose,
-            matches.iter().copied(),
-            1.0,
-            self.settings
-                .robust_observation_incidence_minimum_cosine_distance,
-        );
-
         let inlier_ratio = matches.len() as f64 / original_matches.len() as f64;
         info!(
-            "estimated pose matches {} and robust matches {}; inlier ratio {}",
+            "two-view inliers {}, inlier ratio {}",
             matches.len(),
-            robust_matches.len(),
             inlier_ratio
         );
 
-        if robust_matches.len() < self.settings.two_view_minimum_robust_matches {
+        if matches.len() < self.settings.two_view_minimum_robust_matches {
             info!(
-                "only found {} robust matches, but needed {}; rejecting two-view match",
-                robust_matches.len(),
+                "only found {} inliers, but needed {}; rejecting two-view match",
+                matches.len(),
                 self.settings.two_view_minimum_robust_matches
             );
             return None;
@@ -1507,7 +1406,7 @@ where
             .iter()
             .filter_map(|&(landmark, feature)| {
                 Some(FeatureWorldMatch(
-                    new_frame.keypoint(feature),
+                    new_frame.bearing(feature),
                     self.triangulate_landmark_robust(reconstruction_key, landmark)?,
                 ))
             })
@@ -1548,19 +1447,22 @@ where
             before_match_len
         );
 
-        let pose = single_view_simple_optimize(pose, &matches_3d, 0.01, 10000);
+        let pose = single_view_simple_optimize(pose, &matches_3d, 0.001, 10000);
 
         let matches_3d = original_matches
             .iter()
             .filter_map(|&(landmark, feature)| {
-                let keypoint = new_frame.keypoint(feature);
+                let bearing = new_frame.bearing(feature);
+                self.is_observation_consistent(
+                    pose,
+                    bearing,
+                    self.data
+                        .landmark_pose_bearings(reconstruction_key, landmark),
+                )
+                .then(|| ())?;
                 Some(FeatureWorldMatch(
-                    new_frame.keypoint(feature),
-                    self.triangulate_landmark_with_appended_observations_and_verify(
-                        reconstruction_key,
-                        landmark,
-                        std::iter::once((pose, keypoint)),
-                    )?,
+                    new_frame.bearing(feature),
+                    self.triangulate_landmark_robust(reconstruction_key, landmark)?,
                 ))
             })
             .take(self.settings.single_view_optimization_num_matches)
@@ -1573,19 +1475,19 @@ where
             original_matches.len()
         );
 
-        let pose = single_view_simple_optimize(pose, &matches_3d, 0.01, 10000);
+        let pose = single_view_simple_optimize(pose, &matches_3d, 0.001, 10000);
 
         let original_matches_len = original_matches.len();
         let final_matches: HashMap<usize, LandmarkKey> = original_matches
             .into_iter()
             .filter(|&(landmark, feature)| {
-                let keypoint = new_frame.keypoint(feature);
-                self.triangulate_landmark_with_appended_observations_and_verify(
-                    reconstruction_key,
-                    landmark,
-                    std::iter::once((pose, keypoint)),
+                let bearing = new_frame.bearing(feature);
+                self.is_observation_consistent(
+                    pose,
+                    bearing,
+                    self.data
+                        .landmark_pose_bearings(reconstruction_key, landmark),
                 )
-                .is_some()
             })
             .map(|(landmark, feature)| (feature, landmark))
             .collect();
@@ -1786,7 +1688,7 @@ where
                 views.map(|view| {
                     self.data
                         .view_frame(reconstruction, view)
-                        .keypoint(self.data.landmark(reconstruction, landmark).observations[&view])
+                        .bearing(self.data.landmark(reconstruction, landmark).observations[&view])
                 })
             })
             .take(self.settings.optimization_landmarks)
@@ -1817,7 +1719,7 @@ where
         );
 
         let [mut first_pose, mut second_pose] =
-            three_view_simple_optimize([first_pose, second_pose], &opti_matches, 0.01, 1000);
+            three_view_simple_optimize([first_pose, second_pose], &opti_matches, 0.001, 10000);
 
         let final_scale = first_pose.isometry().translation.vector.norm()
             + second_pose.isometry().translation.vector.norm();
@@ -2333,6 +2235,57 @@ where
         }
     }
 
+    fn observation_mean_epipolar_loss(
+        &self,
+        reconstruction: ReconstructionKey,
+        view: ViewKey,
+        feature: usize,
+    ) -> f64 {
+        let landmark = self
+            .data
+            .observation_landmark(reconstruction, view, feature);
+        let pose = self.data.view(reconstruction, view).pose;
+        let bearing = self.data.observation_bearing(reconstruction, view, feature);
+        let mut total_loss = 0.0;
+        let mut total = 0usize;
+
+        for (other_pose, other_bearing) in
+            self.data.landmark_pose_bearings(reconstruction, landmark)
+        {
+            let transform = other_pose.isometry() * pose.isometry().inverse();
+            total_loss += epipolar::loss(
+                transform.translation.vector,
+                transform * bearing,
+                other_bearing,
+            );
+            total += 1;
+        }
+
+        total_loss / (total - 1) as f64
+    }
+
+    fn is_observation_consistent(
+        &self,
+        pose: WorldToCamera,
+        bearing: UnitVector3<f64>,
+        others: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)>,
+    ) -> bool {
+        let mut num_agree = 0usize;
+        let mut total = 0usize;
+
+        for (other_pose, other_bearing) in others {
+            let transform = other_pose.isometry() * pose.isometry().inverse();
+            num_agree += (epipolar::loss(
+                transform.translation.vector,
+                transform * bearing,
+                other_bearing,
+            ) < self.settings.robust_maximum_cosine_distance) as usize;
+            total += 1;
+        }
+
+        num_agree > total / 2
+    }
+
     pub fn filter_non_robust_observations(
         &mut self,
         reconstruction: ReconstructionKey,
@@ -2347,7 +2300,7 @@ where
             .collect();
 
         // Log the data before filtering.
-        let initial_num_robust_landmarks: usize = self
+        let initial_num_landmarks: usize = self
             .data
             .reconstruction(reconstruction)
             .landmarks
@@ -2357,10 +2310,7 @@ where
                     .is_some()
             })
             .count();
-        info!(
-            "started with {} robust landmarks",
-            initial_num_robust_landmarks,
-        );
+        info!("started with {} robust landmarks", initial_num_landmarks);
 
         for landmark in landmarks {
             if let Some(point) = self.triangulate_landmark(reconstruction, landmark) {
@@ -2370,13 +2320,16 @@ where
                     .collect();
 
                 for (view, feature) in observations {
-                    if !self.data.is_observation_good(
-                        reconstruction,
-                        view,
-                        feature,
-                        point,
-                        self.settings.robust_maximum_cosine_distance,
-                    ) {
+                    if 1.0
+                        - self
+                            .data
+                            .view(reconstruction, view)
+                            .pose
+                            .transform(point)
+                            .bearing()
+                            .dot(&self.data.observation_bearing(reconstruction, view, feature))
+                        > self.settings.robust_maximum_cosine_distance
+                    {
                         // If the observation is bad, we must remove it from the landmark and the view.
                         self.data.split_observation(reconstruction, view, feature);
                     }
@@ -2386,8 +2339,49 @@ where
             }
         }
 
-        // Log the data before filtering.
-        let final_num_robust_landmarks: usize = self
+        // for landmark in landmarks {
+        //     let observations: Vec<(ViewKey, usize)> = self
+        //         .data
+        //         .landmark_observations(reconstruction, landmark)
+        //         .collect();
+
+        //     if observations.len() == 1 {
+        //         continue;
+        //     }
+
+        //     for &(view, feature) in observations.iter() {
+        //         let num_agree = observations
+        //             .iter()
+        //             .filter(|&&(other_view, other_feature)| {
+        //                 let transform = self.data.view(reconstruction, other_view).pose.isometry()
+        //                     * self
+        //                         .data
+        //                         .view(reconstruction, view)
+        //                         .pose
+        //                         .isometry()
+        //                         .inverse();
+        //                 epipolar::loss(
+        //                     transform.translation.vector,
+        //                     transform
+        //                         * self.data.observation_bearing(reconstruction, view, feature),
+        //                     self.data.observation_bearing(
+        //                         reconstruction,
+        //                         other_view,
+        //                         other_feature,
+        //                     ),
+        //                 ) < self.settings.robust_maximum_cosine_distance
+        //             })
+        //             .count();
+        //         // The observation must agree with more than half of the observations.
+        //         if num_agree <= (observations.len() - 1) / 2 {
+        //             // If the observation is bad, we must remove it from the landmark and the view.
+        //             self.data.split_observation(reconstruction, view, feature);
+        //         }
+        //     }
+        // }
+
+        // Log the data after filtering.
+        let final_num_landmarks: usize = self
             .data
             .reconstruction(reconstruction)
             .landmarks
@@ -2397,14 +2391,13 @@ where
                     .is_some()
             })
             .count();
-        info!("ended with {} robust landmarks", final_num_robust_landmarks,);
+        info!("ended with {} robust landmarks", final_num_landmarks);
 
-        if final_num_robust_landmarks * 4 < initial_num_robust_landmarks {
-            info!("since the number of robust landmarks more than quartered; rejecting reconstruction");
-            self.data.remove_reconstruction(reconstruction);
-            None
-        } else if final_num_robust_landmarks < self.settings.minimum_robust_landmarks {
-            info!("since the number of robust landmarks is less than the minimum required; rejecting reconstruction");
+        if final_num_landmarks < self.settings.minimum_robust_landmarks {
+            info!(
+                "reconstruction has less than {} robust landmarks; rejecting reconstruction",
+                self.settings.minimum_robust_landmarks
+            );
             self.data.remove_reconstruction(reconstruction);
             None
         } else {
@@ -2475,7 +2468,6 @@ where
         reconstruction: ReconstructionKey,
         landmark_a: LandmarkKey,
         landmark_b: LandmarkKey,
-        point: WorldPoint,
     ) -> Option<LandmarkKey> {
         // First, we need to handle the situation where the same view is present in each landmark.
         let mut dups: Vec<(ViewKey, [usize; 2])> = vec![];
@@ -2503,12 +2495,7 @@ where
             let &worst_observation = observations
                 .iter()
                 .max_by_key(|&&observation| {
-                    FloatOrd(self.data.observation_residual(
-                        reconstruction,
-                        view,
-                        observation,
-                        point,
-                    ))
+                    FloatOrd(self.observation_mean_epipolar_loss(reconstruction, view, observation))
                 })
                 .unwrap();
 
@@ -2558,13 +2545,43 @@ where
             .len()
             >= 2
         {
-            self.triangulate_observations(
-                reconstruction,
-                self.data.landmark_observations(reconstruction, landmark),
+            self.triangulate_pose_bearings(
+                self.data.landmark_pose_bearings(reconstruction, landmark),
             )
         } else {
             None
         }
+    }
+
+    /// Triangulates a landmark only if it is robust and only using robust observations.
+    pub fn is_landmark_robust(
+        &self,
+        reconstruction: ReconstructionKey,
+        landmark: LandmarkKey,
+    ) -> bool {
+        // Ensure we have the minimum robust observations.
+        let has_enough_observations = self
+            .data
+            .landmark(reconstruction, landmark)
+            .observations
+            .len()
+            >= self.settings.robust_minimum_observations;
+        // Ensure at least two observations have an incidence angle between them exceeding the minimum.
+        let is_incidence_angle_satisfied = self
+            .data
+            .landmark_observations(reconstruction, landmark)
+            .map(|(view, feature)| {
+                let pose = self.data.pose(reconstruction, view).inverse();
+                pose.isometry() * self.data.observation_bearing(reconstruction, view, feature)
+            })
+            .tuple_combinations()
+            .any(|(bearing_a, bearing_b)| {
+                1.0 - bearing_a.dot(&bearing_b)
+                    > self
+                        .settings
+                        .robust_observation_incidence_minimum_cosine_distance
+            });
+        has_enough_observations && is_incidence_angle_satisfied
     }
 
     /// Triangulates a landmark only if it is robust and only using robust observations.
@@ -2574,113 +2591,18 @@ where
         landmark: LandmarkKey,
     ) -> Option<WorldPoint> {
         // Retrieve the observations.
-        let observations = self
-            .data
-            .landmark_observations(reconstruction, landmark)
-            .collect_vec();
-        // Ensure we have the minimum robust observations.
-        (observations.len() >= self.settings.robust_minimum_observations).then(|| ())?;
-        // Ensure at least two observations have an incidence angle between them exceeding the minimum.
-        observations
-            .iter()
-            .map(|&(view, feature)| {
-                let pose = self.data.pose(reconstruction, view).inverse();
-                pose.isometry()
-                    * self
-                        .data
-                        .observation_keypoint(reconstruction, view, feature)
-            })
-            .tuple_combinations()
-            .any(|(bearing_a, bearing_b)| {
-                1.0 - bearing_a.dot(&bearing_b)
-                    > self
-                        .settings
-                        .robust_observation_incidence_minimum_cosine_distance
-            })
+        self.is_landmark_robust(reconstruction, landmark)
             .then(|| ())?;
         // Lastly, triangulate the point, failing if that fails.
-        self.triangulate_observations(reconstruction, observations.iter().copied())
-    }
-
-    pub fn triangulate_landmark_with_appended_observations(
-        &self,
-        reconstruction: ReconstructionKey,
-        landmark: LandmarkKey,
-        observations: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)> + Clone,
-    ) -> Option<WorldPoint> {
-        self.triangulator.triangulate_observations(
-            self.data
-                .landmark_observations(reconstruction, landmark)
-                .map(|(view, feature)| {
-                    (
-                        self.data.pose(reconstruction, view),
-                        self.data
-                            .observation_keypoint(reconstruction, view, feature),
-                    )
-                })
-                .chain(observations),
-        )
-    }
-
-    pub fn triangulate_landmark_with_appended_observations_and_verify(
-        &self,
-        reconstruction: ReconstructionKey,
-        landmark: LandmarkKey,
-        observations: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)> + Clone,
-    ) -> Option<WorldPoint> {
-        self.triangulate_landmark_with_appended_observations_and_verify_with_threshold(
-            reconstruction,
-            landmark,
-            self.settings.robust_maximum_cosine_distance,
-            observations,
-        )
-    }
-
-    pub fn triangulate_landmark_with_appended_observations_and_verify_with_threshold(
-        &self,
-        reconstruction: ReconstructionKey,
-        landmark: LandmarkKey,
-        threshold: f64,
-        mut observations: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)> + Clone,
-    ) -> Option<WorldPoint> {
-        self.triangulate_landmark_with_appended_observations(
-            reconstruction,
-            landmark,
-            observations.clone(),
-        )
-        .filter(|world_point| {
-            let verify = |pose: WorldToCamera, keypoint: UnitVector3<f64>| {
-                let camera_point = pose.transform(*world_point);
-                let residual = 1.0 - keypoint.dot(&camera_point.bearing());
-                residual.is_finite() && residual < threshold
-            };
-            self.data
-                .landmark_observations(reconstruction, landmark)
-                .all(|(view, feature)| {
-                    let pose = self.data.pose(reconstruction, view);
-                    let keypoint = self
-                        .data
-                        .observation_keypoint(reconstruction, view, feature);
-                    verify(pose, keypoint)
-                })
-                && observations.all(|(pose, keypoint)| verify(pose, keypoint))
-        })
+        self.triangulate_pose_bearings(self.data.landmark_pose_bearings(reconstruction, landmark))
     }
 
     /// Triangulates a landmark with observations added. An observation is a (view, feature) pair.
-    pub fn triangulate_observations(
+    pub fn triangulate_pose_bearings(
         &self,
-        reconstruction: ReconstructionKey,
-        observations: impl Iterator<Item = (ViewKey, usize)> + Clone,
+        observations: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)> + Clone,
     ) -> Option<WorldPoint> {
-        self.triangulator
-            .triangulate_observations(observations.map(|(view, feature)| {
-                (
-                    self.data.pose(reconstruction, view),
-                    self.data
-                        .observation_keypoint(reconstruction, view, feature),
-                )
-            }))
+        self.triangulator.triangulate_observations(observations)
     }
 
     /// Use this gratuitously to help debug.
@@ -2724,26 +2646,6 @@ where
         }
         info!("SANITY CHECK ENDED");
     }
-}
-
-pub fn is_observation_good_raw(
-    pose: WorldToCamera,
-    bearing: UnitVector3<f64>,
-    point: WorldPoint,
-    threshold: f64,
-) -> bool {
-    let residual = observation_residual_raw(pose, bearing, point);
-    // If the observation is finite and has a low enough residual, it is good.
-    residual.is_finite() && residual < threshold
-}
-
-pub fn observation_residual_raw(
-    pose: WorldToCamera,
-    bearing: UnitVector3<f64>,
-    point: WorldPoint,
-) -> f64 {
-    let view_point = pose.transform(point);
-    1.0 - bearing.dot(&view_point.bearing())
 }
 
 fn matching(a_frame: &Frame, b_frame: &Frame, better_by: u32) -> Vec<Option<usize>> {
