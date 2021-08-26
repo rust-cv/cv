@@ -1006,7 +1006,7 @@ where
             }
 
             let [first_pose, second_pose] =
-                three_view_simple_optimize([first_pose, second_pose], &opti_matches, 0.001, 100000);
+                three_view_simple_optimize([first_pose, second_pose], &opti_matches, 0.01, 1000);
 
             let opti_matches: Vec<[UnitVector3<f64>; 3]> = common
                 .iter()
@@ -1043,7 +1043,7 @@ where
             }
 
             let [first_pose, second_pose] =
-                three_view_simple_optimize([first_pose, second_pose], &opti_matches, 0.01, 10000);
+                three_view_simple_optimize([first_pose, second_pose], &opti_matches, 0.01, 1000);
 
             // Create a map from the center features to the first matches.
             let first_map: HashMap<usize, usize> =
@@ -1447,7 +1447,7 @@ where
             before_match_len
         );
 
-        let pose = single_view_simple_optimize(pose, &matches_3d, 0.001, 10000);
+        let pose = single_view_simple_optimize(pose, &matches_3d, 0.0001, 20000);
 
         let matches_3d = original_matches
             .iter()
@@ -1475,7 +1475,7 @@ where
             original_matches.len()
         );
 
-        let pose = single_view_simple_optimize(pose, &matches_3d, 0.001, 10000);
+        let pose = single_view_simple_optimize(pose, &matches_3d, 0.0001, 20000);
 
         let original_matches_len = original_matches.len();
         let final_matches: HashMap<usize, LandmarkKey> = original_matches
@@ -1719,7 +1719,7 @@ where
         );
 
         let [mut first_pose, mut second_pose] =
-            three_view_simple_optimize([first_pose, second_pose], &opti_matches, 0.001, 10000);
+            three_view_simple_optimize([first_pose, second_pose], &opti_matches, 0.01, 1000);
 
         let final_scale = first_pose.isometry().translation.vector.norm()
             + second_pose.isometry().translation.vector.norm();
