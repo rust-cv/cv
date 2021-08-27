@@ -41,12 +41,13 @@ pub struct VSlamSettings {
         serde(default = "default_merge_nearest_neighbors")
     )]
     pub merge_nearest_neighbors: usize,
-    /// The minimum cosine distance between two observations of a landmark for it to be considered robust enough for optimization
+    /// The minimum tripple product absolute value of three observations of a landmark for it to be
+    /// considered robust enough for optimization
     #[cfg_attr(
         feature = "serde-serialize",
-        serde(default = "default_robust_observation_incidence_minimum_cosine_distance")
+        serde(default = "default_robust_observation_incidence_minimum_parallelepiped_volume")
     )]
-    pub robust_observation_incidence_minimum_cosine_distance: f64,
+    pub robust_observation_incidence_minimum_parallelepiped_volume: f64,
     /// The number of iterations to run regeneration.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -161,12 +162,6 @@ pub struct VSlamSettings {
         serde(default = "default_three_view_patience")
     )]
     pub three_view_patience: usize,
-    /// The minimum incidence cosine distance for three-view relative-scale estimation.
-    #[cfg_attr(
-        feature = "serde-serialize",
-        serde(default = "default_three_view_relative_scale_incidence_minimum_cosine_distance")
-    )]
-    pub three_view_relative_scale_incidence_minimum_cosine_distance: f64,
     /// The minimum number of relative scales required for three-view optimization.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -297,8 +292,8 @@ impl Default for VSlamSettings {
             robust_minimum_observations: default_robust_minimum_observations(),
             merge_maximum_cosine_distance: default_merge_maximum_cosine_distance(),
             merge_nearest_neighbors: default_merge_nearest_neighbors(),
-            robust_observation_incidence_minimum_cosine_distance:
-                default_robust_observation_incidence_minimum_cosine_distance(),
+            robust_observation_incidence_minimum_parallelepiped_volume:
+                default_robust_observation_incidence_minimum_parallelepiped_volume(),
             regenerate_iterations: default_regenerate_iterations(),
             single_view_consensus_threshold: default_single_view_consensus_threshold(),
             single_view_optimization_num_matches: default_single_view_optimization_num_matches(),
@@ -318,8 +313,6 @@ impl Default for VSlamSettings {
             two_view_optimization_maximum_matches: default_two_view_optimization_maximum_matches(),
             two_view_patience: default_two_view_patience(),
             three_view_patience: default_three_view_patience(),
-            three_view_relative_scale_incidence_minimum_cosine_distance:
-                default_three_view_relative_scale_incidence_minimum_cosine_distance(),
             three_view_std_dev_threshold: default_three_view_std_dev_threshold(),
             three_view_filter_loop_iterations: default_three_view_filter_loop_iterations(),
             three_view_optimization_landmarks: default_three_view_optimization_landmarks(),
@@ -373,8 +366,8 @@ fn default_merge_nearest_neighbors() -> usize {
     1 << 4
 }
 
-fn default_robust_observation_incidence_minimum_cosine_distance() -> f64 {
-    1e-4
+fn default_robust_observation_incidence_minimum_parallelepiped_volume() -> f64 {
+    0.001
 }
 
 fn default_regenerate_iterations() -> usize {
@@ -454,10 +447,6 @@ fn default_two_view_patience() -> usize {
 
 fn default_three_view_patience() -> usize {
     1 << 16
-}
-
-fn default_three_view_relative_scale_incidence_minimum_cosine_distance() -> f64 {
-    default_robust_observation_incidence_minimum_cosine_distance()
 }
 
 fn default_three_view_minimum_relative_scales() -> usize {

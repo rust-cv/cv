@@ -920,15 +920,19 @@ where
                     let f = self.data.frame(*first).bearing(f);
                     let s = self.data.frame(*second).bearing(s);
 
-                    let is_robust = 1.0 - (first_pose.isometry() * c).dot(&f)
-                        > self
-                            .settings
-                            .robust_observation_incidence_minimum_cosine_distance
-                        || 1.0 - (second_pose.isometry() * c).dot(&s)
-                            > self
-                                .settings
-                                .robust_observation_incidence_minimum_cosine_distance;
-                    is_robust.then(|| ())?;
+                    // We only care about the parallelepiped, which only cares about rotation, not translation
+                    // or scale. Make the maximum cosine distance 2.0 so it will pass regardless.
+                    self.is_tri_landmark_robust(
+                        *first_pose,
+                        *second_pose,
+                        c,
+                        f,
+                        s,
+                        2.0,
+                        self.settings
+                            .robust_observation_incidence_minimum_parallelepiped_volume,
+                    )
+                    .then(|| ())?;
                     let fp = self
                         .triangulator
                         .triangulate_relative(*first_pose, c, f)?
@@ -985,7 +989,7 @@ where
                         s,
                         1.0,
                         self.settings
-                            .robust_observation_incidence_minimum_cosine_distance,
+                            .robust_observation_incidence_minimum_parallelepiped_volume,
                     )
                     .then(|| [c, f, s])
                 })
@@ -1022,7 +1026,7 @@ where
                         s,
                         self.settings.robust_maximum_cosine_distance,
                         self.settings
-                            .robust_observation_incidence_minimum_cosine_distance,
+                            .robust_observation_incidence_minimum_parallelepiped_volume,
                     )
                     .then(|| [c, f, s])
                 })
@@ -1082,7 +1086,6 @@ where
                         c,
                         f,
                         self.settings.robust_maximum_cosine_distance,
-                        0.0,
                     )
                 })
                 .collect_vec();
@@ -1101,7 +1104,6 @@ where
                         c,
                         s,
                         self.settings.robust_maximum_cosine_distance,
-                        0.0,
                     )
                 })
                 .collect_vec();
@@ -1123,7 +1125,7 @@ where
                         s,
                         self.settings.robust_maximum_cosine_distance,
                         self.settings
-                            .robust_observation_incidence_minimum_cosine_distance,
+                            .robust_observation_incidence_minimum_parallelepiped_volume,
                     )
                 })
                 .count();
@@ -1173,16 +1175,11 @@ where
         a: UnitVector3<f64>,
         b: UnitVector3<f64>,
         maximum_cosine_distance: f64,
-        incidence_minimum_cosine_distance: f64,
     ) -> bool {
-        let is_triangulatable = self.triangulator.triangulate_relative(pose, a, b).is_some();
         let pose = pose.isometry();
         // Transform a to be in the reference frame of camera B.
         let a = pose * a;
-        let is_cosine_distance_satisfied =
-            epipolar::loss(pose.translation.vector, a, b) < maximum_cosine_distance;
-        let is_incidence_angle_satisfied = 1.0 - a.dot(&b) > incidence_minimum_cosine_distance;
-        is_cosine_distance_satisfied && is_incidence_angle_satisfied && is_triangulatable
+        epipolar::loss(pose.translation.vector, a, b) < maximum_cosine_distance
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1194,15 +1191,8 @@ where
         f: UnitVector3<f64>,
         s: UnitVector3<f64>,
         maximum_cosine_distance: f64,
-        incidence_minimum_cosine_distance: f64,
+        incidence_minimum_parallelepiped_volume: f64,
     ) -> bool {
-        let is_triangulatable = self
-            .triangulator
-            .triangulate_observations_to_camera(
-                c,
-                core::array::IntoIter::new([(first_pose, f), (second_pose, s)]),
-            )
-            .is_some();
         // Compute the isometries we need.
         let c_to_f = first_pose.isometry();
         let c_to_s = second_pose.isometry();
@@ -1216,12 +1206,14 @@ where
             < maximum_cosine_distance
             && epipolar::loss(c_to_s.translation.vector, c_in_s, s) < maximum_cosine_distance
             && epipolar::loss(f_to_s.translation.vector, f_in_s, s) < maximum_cosine_distance;
-        // Ensure that at least one pair of bearings is observing from a sufficiently different incidence angle.
-        let is_incidence_angle_satisfied = 1.0 - s.dot(&c_in_s) > incidence_minimum_cosine_distance
-            || 1.0 - s.dot(&f_in_s) > incidence_minimum_cosine_distance
-            || 1.0 - f.dot(&c_in_f) > incidence_minimum_cosine_distance;
         // If both are satisfied, then it passes.
-        is_cosine_distance_satisfied && is_incidence_angle_satisfied && is_triangulatable
+        is_cosine_distance_satisfied
+            && self.is_tri_observation_angularly_robust(
+                c_in_s,
+                f_in_s,
+                s,
+                incidence_minimum_parallelepiped_volume,
+            )
     }
 
     /// This estimates and optimizes the [`CameraToCamera`] between frames `a` and `b`.
@@ -2511,35 +2503,42 @@ where
         }
     }
 
+    /// Checks if a tri-observation is robust only from the non-distance perspective
+    fn is_tri_observation_angularly_robust(
+        &self,
+        a: UnitVector3<f64>,
+        b: UnitVector3<f64>,
+        c: UnitVector3<f64>,
+        incidence_minimum_parallelepiped_volume: f64,
+    ) -> bool {
+        // Ensure the three bearings form a sufficiently voluminous parallelepiped with their tripple product, which
+        // indicates a high likelihood of correctness and good triangulation.
+        a.cross(&b).dot(&c).abs() > incidence_minimum_parallelepiped_volume
+    }
+
     /// Triangulates a landmark only if it is robust and only using robust observations.
     pub fn is_landmark_robust(
         &self,
         reconstruction: ReconstructionKey,
         landmark: LandmarkKey,
     ) -> bool {
-        // Ensure we have the minimum robust observations.
-        let has_enough_observations = self
-            .data
-            .landmark(reconstruction, landmark)
-            .observations
-            .len()
-            >= self.settings.robust_minimum_observations;
         // Ensure at least two observations have an incidence angle between them exceeding the minimum.
-        let is_incidence_angle_satisfied = self
-            .data
+        self.data
             .landmark_observations(reconstruction, landmark)
             .map(|(view, feature)| {
-                let pose = self.data.pose(reconstruction, view).inverse();
-                pose.isometry() * self.data.observation_bearing(reconstruction, view, feature)
+                let pose = self.data.pose(reconstruction, view).inverse().isometry();
+                pose * self.data.observation_bearing(reconstruction, view, feature)
             })
             .tuple_combinations()
-            .any(|(bearing_a, bearing_b)| {
-                1.0 - bearing_a.dot(&bearing_b)
-                    > self
-                        .settings
-                        .robust_observation_incidence_minimum_cosine_distance
-            });
-        has_enough_observations && is_incidence_angle_satisfied
+            .any(|(a, b, c)| {
+                self.is_tri_observation_angularly_robust(
+                    a,
+                    b,
+                    c,
+                    self.settings
+                        .robust_observation_incidence_minimum_parallelepiped_volume,
+                )
+            })
     }
 
     /// Triangulates a landmark only if it is robust and only using robust observations.
