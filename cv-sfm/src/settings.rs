@@ -370,7 +370,7 @@ fn default_merge_nearest_neighbors() -> usize {
 }
 
 fn default_robust_observation_incidence_minimum_parallelepiped_volume() -> f64 {
-    1e-5
+    1e-4
 }
 
 fn default_regenerate_iterations() -> usize {
