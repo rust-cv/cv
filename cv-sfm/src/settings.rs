@@ -14,9 +14,9 @@ pub struct VSlamSettings {
     /// The maximum cosine distance of an observation for it to be considered robust enough for optimization
     #[cfg_attr(
         feature = "serde-serialize",
-        serde(default = "default_robust_maximum_cosine_distance")
+        serde(default = "default_maximum_cosine_distance")
     )]
-    pub robust_maximum_cosine_distance: f64,
+    pub maximum_cosine_distance: f64,
     /// The maximum sine distance of a two-view observation for it to exist
     #[cfg_attr(
         feature = "serde-serialize",
@@ -41,12 +41,6 @@ pub struct VSlamSettings {
         serde(default = "default_merge_maximum_cosine_distance")
     )]
     pub merge_maximum_cosine_distance: f64,
-    /// The number of nearest neighbor points to consider for merging landmarks.
-    #[cfg_attr(
-        feature = "serde-serialize",
-        serde(default = "default_merge_nearest_neighbors")
-    )]
-    pub merge_nearest_neighbors: usize,
     /// The minimum tripple product absolute value of three observations of a landmark for it to be
     /// considered robust enough for optimization
     #[cfg_attr(
@@ -54,12 +48,6 @@ pub struct VSlamSettings {
         serde(default = "default_robust_observation_incidence_minimum_parallelepiped_volume")
     )]
     pub robust_observation_incidence_minimum_parallelepiped_volume: f64,
-    /// The number of iterations to run regeneration.
-    #[cfg_attr(
-        feature = "serde-serialize",
-        serde(default = "default_regenerate_iterations")
-    )]
-    pub regenerate_iterations: usize,
     /// The threshold used for single-view sample consensus
     #[cfg_attr(
         feature = "serde-serialize",
@@ -287,15 +275,13 @@ impl Default for VSlamSettings {
     fn default() -> Self {
         Self {
             akaze_threshold: default_akaze_threshold(),
-            robust_maximum_cosine_distance: default_robust_maximum_cosine_distance(),
+            maximum_cosine_distance: default_maximum_cosine_distance(),
             maximum_sine_distance: default_maximum_sine_distance(),
             minimum_robust_landmarks: default_minimum_robust_landmarks(),
             robust_minimum_observations: default_robust_minimum_observations(),
             merge_maximum_cosine_distance: default_merge_maximum_cosine_distance(),
-            merge_nearest_neighbors: default_merge_nearest_neighbors(),
             robust_observation_incidence_minimum_parallelepiped_volume:
                 default_robust_observation_incidence_minimum_parallelepiped_volume(),
-            regenerate_iterations: default_regenerate_iterations(),
             single_view_consensus_threshold: default_single_view_consensus_threshold(),
             single_view_optimization_num_matches: default_single_view_optimization_num_matches(),
             single_view_filter_loop_iterations: default_single_view_filter_loop_iterations(),
@@ -345,7 +331,7 @@ fn default_akaze_threshold() -> f64 {
     1e-4
 }
 
-fn default_robust_maximum_cosine_distance() -> f64 {
+fn default_maximum_cosine_distance() -> f64 {
     5e-7
 }
 
@@ -362,19 +348,11 @@ fn default_robust_minimum_observations() -> usize {
 }
 
 fn default_merge_maximum_cosine_distance() -> f64 {
-    default_robust_maximum_cosine_distance()
-}
-
-fn default_merge_nearest_neighbors() -> usize {
-    1 << 4
+    default_maximum_cosine_distance()
 }
 
 fn default_robust_observation_incidence_minimum_parallelepiped_volume() -> f64 {
     1e-4
-}
-
-fn default_regenerate_iterations() -> usize {
-    0
 }
 
 fn default_single_view_consensus_threshold() -> f64 {

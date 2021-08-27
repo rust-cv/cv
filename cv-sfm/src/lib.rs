@@ -969,13 +969,13 @@ where
                 .sqrt();
 
             // Scale the second pose using the scale.
-            let first_pose = *first_pose;
-            let second_pose = second_pose.scale(median_scale);
+            let mut first_pose = *first_pose;
+            let mut second_pose = second_pose.scale(median_scale);
 
             // Get the matches to use for optimization.
             // This uses the two-view maximum cosine distance to avoid restricting the
             // set of inliers too greatly.
-            let opti_matches: Vec<[UnitVector3<f64>; 3]> = common
+            let mut opti_matches: Vec<[UnitVector3<f64>; 3]> = common
                 .iter()
                 .filter_map(|&(c, f, s)| {
                     let c = self.data.frame(center).bearing(c);
@@ -996,58 +996,54 @@ where
                 .take(self.settings.three_view_optimization_landmarks)
                 .collect::<Vec<_>>();
 
-            info!(
-                "performing optimization on poses using {} two-view-robust three-way matches out of {}",
-                opti_matches.len(),
-                common.len()
-            );
-            if opti_matches.len() < 32 {
+            for iter in 0..self.settings.three_view_filter_loop_iterations {
                 info!(
-                    "need {} robust three-way matches; rejecting three-view match",
-                    32
+                    "performing optimization on poses using {} three-way matches out of {}",
+                    opti_matches.len(),
+                    common.len()
                 );
-                continue;
-            }
+                if opti_matches.len() < 32 {
+                    info!(
+                        "need {} robust three-way matches; rejecting three-view match",
+                        32
+                    );
+                    continue;
+                }
 
-            let [first_pose, second_pose] =
-                three_view_simple_optimize([first_pose, second_pose], &opti_matches, 0.01, 1000);
-
-            let opti_matches: Vec<[UnitVector3<f64>; 3]> = common
-                .iter()
-                .filter_map(|&(c, f, s)| {
-                    let c = self.data.frame(center).bearing(c);
-                    let f = self.data.frame(*first).bearing(f);
-                    let s = self.data.frame(*second).bearing(s);
-                    self.is_tri_landmark_robust(
-                        first_pose,
-                        second_pose,
-                        c,
-                        f,
-                        s,
-                        self.settings.robust_maximum_cosine_distance,
-                        self.settings
-                            .robust_observation_incidence_minimum_parallelepiped_volume,
-                    )
-                    .then(|| [c, f, s])
-                })
-                .take(self.settings.three_view_optimization_landmarks)
-                .collect::<Vec<_>>();
-
-            info!(
-                "performing optimization on poses using {} robust three-way matches out of {}",
-                opti_matches.len(),
-                common.len()
-            );
-            if opti_matches.len() < 32 {
-                info!(
-                    "need {} robust three-way matches; rejecting three-view match",
-                    32
+                let [new_first_pose, new_second_pose] = three_view_simple_optimize(
+                    [first_pose, second_pose],
+                    &opti_matches,
+                    0.01,
+                    1000,
                 );
-                continue;
-            }
+                first_pose = new_first_pose;
+                second_pose = new_second_pose;
 
-            let [first_pose, second_pose] =
-                three_view_simple_optimize([first_pose, second_pose], &opti_matches, 0.01, 1000);
+                if iter == self.settings.three_view_filter_loop_iterations - 1 {
+                    break;
+                }
+
+                opti_matches = common
+                    .iter()
+                    .filter_map(|&(c, f, s)| {
+                        let c = self.data.frame(center).bearing(c);
+                        let f = self.data.frame(*first).bearing(f);
+                        let s = self.data.frame(*second).bearing(s);
+                        self.is_tri_landmark_robust(
+                            first_pose,
+                            second_pose,
+                            c,
+                            f,
+                            s,
+                            self.settings.maximum_cosine_distance,
+                            self.settings
+                                .robust_observation_incidence_minimum_parallelepiped_volume,
+                        )
+                        .then(|| [c, f, s])
+                    })
+                    .take(self.settings.three_view_optimization_landmarks)
+                    .collect::<Vec<_>>();
+            }
 
             // Create a map from the center features to the first matches.
             let first_map: HashMap<usize, usize> =
@@ -1066,7 +1062,7 @@ where
                         c,
                         f,
                         s,
-                        self.settings.robust_maximum_cosine_distance,
+                        self.settings.maximum_cosine_distance,
                         0.0,
                     )
                 })
@@ -1123,7 +1119,7 @@ where
                         c,
                         f,
                         s,
-                        self.settings.robust_maximum_cosine_distance,
+                        self.settings.maximum_cosine_distance,
                         self.settings
                             .robust_observation_incidence_minimum_parallelepiped_volume,
                     )
@@ -1318,7 +1314,7 @@ where
         for self_feature in 0..new_frame.descriptor_features.len() {
             // Get the self feature descriptor.
             let self_descriptor = new_frame.descriptor(self_feature);
-            // Find the top 2 features in every view match, and collect those together.
+            // Find the top features in every view match, and collect those together.
             let lm_matches = view_matches
                 .iter()
                 .flat_map(|&view_match| {
@@ -1422,7 +1418,7 @@ where
         );
 
         // Estimate the pose and retrieve the inliers.
-        let (pose, inliers) = self
+        let (mut pose, inliers) = self
             .single_view_consensus
             .borrow_mut()
             .model_inliers(&self.world_to_camera_estimator, matches_3d.iter().copied())
@@ -1430,49 +1426,53 @@ where
 
         // Only keep inliers for optimization phase.
         let before_match_len = matches_3d.len();
-        let matches_3d = inliers
+        let mut matches_3d = inliers
             .into_iter()
             .map(|ix| matches_3d[ix])
             .take(self.settings.single_view_optimization_num_matches)
             .collect_vec();
         info!(
-            "found {} inliers (capped at {}) among {} matches; optimizing",
+            "found {} inliers (capped at {}) among {} matches",
             matches_3d.len(),
             self.settings.single_view_optimization_num_matches,
             before_match_len
         );
 
-        let pose = single_view_simple_optimize(pose, &matches_3d, 0.0001, 20000);
+        for iter in 0..self.settings.single_view_filter_loop_iterations {
+            info!(
+                "optimizing with {} inliers (capped at {})",
+                matches_3d.len(),
+                self.settings.single_view_optimization_num_matches
+            );
+            pose = single_view_simple_optimize(pose, &matches_3d, 0.0001, 20000);
 
-        let matches_3d = original_matches
-            .iter()
-            .filter_map(|&(landmark, feature)| {
-                let bearing = new_frame.bearing(feature);
-                self.is_observation_consistent(
-                    pose,
-                    bearing,
-                    self.data
-                        .landmark_pose_bearings(reconstruction_key, landmark),
-                )
-                .then(|| ())?;
-                Some(FeatureWorldMatch(
-                    new_frame.bearing(feature),
-                    self.triangulate_landmark_robust(reconstruction_key, landmark)?,
-                ))
-            })
-            .take(self.settings.single_view_optimization_num_matches)
-            .collect_vec();
-
-        info!(
-            "found {} robust matches (capped at {}) among {} original matches; optimizing again",
-            matches_3d.len(),
-            self.settings.single_view_optimization_num_matches,
-            original_matches.len()
-        );
-
-        let pose = single_view_simple_optimize(pose, &matches_3d, 0.0001, 20000);
+            // We dont need to extract robust landmarks again if this is the last iteration.
+            if iter == self.settings.single_view_filter_loop_iterations - 1 {
+                break;
+            }
+            // Take only the consistent 3d matches which are also robust.
+            matches_3d = original_matches
+                .iter()
+                .filter_map(|&(landmark, feature)| {
+                    let bearing = new_frame.bearing(feature);
+                    self.is_observation_consistent(
+                        pose,
+                        bearing,
+                        self.data
+                            .landmark_pose_bearings(reconstruction_key, landmark),
+                    )
+                    .then(|| ())?;
+                    Some(FeatureWorldMatch(
+                        new_frame.bearing(feature),
+                        self.triangulate_landmark_robust(reconstruction_key, landmark)?,
+                    ))
+                })
+                .take(self.settings.single_view_optimization_num_matches)
+                .collect_vec();
+        }
 
         let original_matches_len = original_matches.len();
+        // Extract the final matches which will be used to add observations.
         let final_matches: HashMap<usize, LandmarkKey> = original_matches
             .into_iter()
             .filter(|&(landmark, feature)| {
@@ -2001,9 +2001,6 @@ where
             // Filter observations after running bundle-adjust.
             self.filter_non_robust_observations(reconstruction)?;
         }
-        if self.data.reconstructions[reconstruction].views.len() == 10 {
-            self.regenerate_reconstruction(reconstruction)?;
-        }
         Some(reconstruction)
     }
 
@@ -2187,37 +2184,6 @@ where
         covisibilities
     }
 
-    /// Remove all constraints in the reconstruction and re-generate all constraints.
-    pub fn regenerate_reconstruction(
-        &mut self,
-        reconstruction: ReconstructionKey,
-    ) -> Option<ReconstructionKey> {
-        for _ in 0..self.settings.regenerate_iterations {
-            // Remove all constraints.
-            self.data.reconstructions[reconstruction]
-                .constraints
-                .clear();
-            // Go through every view.
-            let views = self.data.reconstructions[reconstruction]
-                .views
-                .keys()
-                .collect_vec();
-            for view in views {
-                // Record the constraints for this view.
-                // TODO: This might leave the graph disconnected
-                // if a set of views only connect to each other and not the surrounding graph.
-                // This needs to be fixed eventually.
-                if !self.record_view_constraints(reconstruction, view) {
-                    self.data.remove_view(reconstruction, view);
-                }
-            }
-            self.bundle_adjust_reconstruction(reconstruction)
-                .or_else(opeek(|| info!("failed to bundle adjust reconstruction")))?;
-            self.filter_non_robust_observations(reconstruction)?;
-        }
-        Some(reconstruction)
-    }
-
     /// Splits all observations in the landmark into their own separate landmarks.
     fn split_landmark(&mut self, reconstruction: ReconstructionKey, landmark: LandmarkKey) {
         let observations: Vec<(ViewKey, usize)> = self
@@ -2230,26 +2196,7 @@ where
         }
     }
 
-    fn raw_observation_mean_epipolar_loss(
-        &self,
-        pose: WorldToCamera,
-        bearing: UnitVector3<f64>,
-        others: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)>,
-    ) -> f64 {
-        others
-            .map(|(other_pose, other_bearing)| {
-                let transform = other_pose.isometry() * pose.isometry().inverse();
-                epipolar::loss(
-                    transform.translation.vector,
-                    transform * bearing,
-                    other_bearing,
-                )
-            })
-            .collect::<Mean>()
-            .mean()
-    }
-
-    fn observation_mean_epipolar_loss(
+    fn observation_loss(
         &self,
         reconstruction: ReconstructionKey,
         view: ViewKey,
@@ -2261,20 +2208,44 @@ where
         let pose = self.data.view(reconstruction, view).pose;
         let bearing = self.data.observation_bearing(reconstruction, view, feature);
 
-        // Get only the observations which aren't this one which are part of the landmark.
-        let other_observations = self
+        let observations: Vec<(ViewKey, usize)> = self
             .data
             .landmark_observations(reconstruction, landmark)
-            .filter(|&(other_view, _)| other_view != view)
-            .map(|(other_view, other_feature)| {
-                (
-                    self.data.view(reconstruction, other_view).pose,
-                    self.data
-                        .observation_bearing(reconstruction, other_view, other_feature),
-                )
-            });
+            .collect();
 
-        self.raw_observation_mean_epipolar_loss(pose, bearing, other_observations)
+        match observations[..] {
+            [] => unreachable!("landmark with 0 observations shouldnt exist ever"),
+            [_] => 2.0,
+            [(first_view, first_feature), (second_view, second_feature)] => {
+                // Extract poses and bearings.
+                let first_pose = self.data.view(reconstruction, first_view).pose;
+                let first_bearing =
+                    self.data
+                        .observation_bearing(reconstruction, first_view, first_feature);
+                let second_pose = self.data.view(reconstruction, second_view).pose;
+                let second_bearing =
+                    self.data
+                        .observation_bearing(reconstruction, second_view, second_feature);
+
+                // Compute the relative pose from first to second camera.
+                let total_pose =
+                    CameraToCamera(second_pose.isometry() * first_pose.isometry().inverse());
+                let total_pose = total_pose.isometry();
+                // Transform a to be in the reference frame of camera B.
+                let first_bearing = total_pose * first_bearing;
+                // We need to convert this from sine distance to cosine distance for consistency in comparison.
+                1.0 - epipolar::loss(total_pose.translation.vector, first_bearing, second_bearing)
+                    .asin()
+                    .cos()
+            }
+            _ => {
+                if let Some(point) = self.triangulate_landmark(reconstruction, landmark) {
+                    1.0 - pose.transform(point).bearing().dot(&bearing)
+                } else {
+                    2.0
+                }
+            }
+        }
     }
 
     fn is_observation_consistent(
@@ -2305,7 +2276,7 @@ where
                         .chain(Some((pose, bearing)))
                         .all(|(pose, bearing)| {
                             1.0 - pose.transform(point).bearing().dot(&bearing)
-                                < self.settings.robust_maximum_cosine_distance
+                                < self.settings.maximum_cosine_distance
                         })
                 })
                 .unwrap_or(false),
@@ -2377,7 +2348,7 @@ where
                                 self.data.observation_bearing(reconstruction, view, feature);
                             // If the observation doesnt agree with the triangulated point
                             if 1.0 - pose.transform(point).bearing().dot(&bearing)
-                                > self.settings.robust_maximum_cosine_distance
+                                > self.settings.maximum_cosine_distance
                             {
                                 // Kick out the observation.
                                 self.data.split_observation(reconstruction, view, feature);
@@ -2503,7 +2474,7 @@ where
             let &worst_observation = observations
                 .iter()
                 .max_by_key(|&&observation| {
-                    FloatOrd(self.observation_mean_epipolar_loss(reconstruction, view, observation))
+                    FloatOrd(self.observation_loss(reconstruction, view, observation))
                 })
                 .unwrap();
 
