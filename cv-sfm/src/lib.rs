@@ -928,7 +928,7 @@ where
                         c,
                         f,
                         s,
-                        2.0,
+                        1.0,
                         self.settings
                             .robust_observation_incidence_minimum_parallelepiped_volume,
                     )
@@ -1085,7 +1085,7 @@ where
                         first_pose,
                         c,
                         f,
-                        self.settings.robust_maximum_cosine_distance,
+                        self.settings.maximum_sine_distance,
                     )
                 })
                 .collect_vec();
@@ -1103,7 +1103,7 @@ where
                         second_pose,
                         c,
                         s,
-                        self.settings.robust_maximum_cosine_distance,
+                        self.settings.maximum_sine_distance,
                     )
                 })
                 .collect_vec();
@@ -1174,12 +1174,12 @@ where
         pose: CameraToCamera,
         a: UnitVector3<f64>,
         b: UnitVector3<f64>,
-        maximum_cosine_distance: f64,
+        maximum_sine_distance: f64,
     ) -> bool {
         let pose = pose.isometry();
         // Transform a to be in the reference frame of camera B.
         let a = pose * a;
-        epipolar::loss(pose.translation.vector, a, b) < maximum_cosine_distance
+        epipolar::loss(pose.translation.vector, a, b) < maximum_sine_distance
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1193,25 +1193,28 @@ where
         maximum_cosine_distance: f64,
         incidence_minimum_parallelepiped_volume: f64,
     ) -> bool {
-        // Compute the isometries we need.
-        let c_to_f = first_pose.isometry();
-        let c_to_s = second_pose.isometry();
-        let f_to_s = c_to_s * c_to_f.inverse();
+        // Triangulate the point
+        let point = if let Some(point) = self.triangulator.triangulate_observations_to_camera(
+            c,
+            core::array::IntoIter::new([(first_pose, f), (second_pose, s)]),
+        ) {
+            point
+        } else {
+            return false;
+        };
         // Compute the transformed bearings we need.
-        let c_in_f = c_to_f * c;
-        let c_in_s = c_to_s * c;
-        let f_in_s = f_to_s * f;
+        let f_in_c = first_pose.isometry().inverse() * f;
+        let s_in_c = second_pose.isometry().inverse() * s;
         // Ensure that the epipolar loss (measured in cosine distance) is within the threshold for each observation.
-        let is_cosine_distance_satisfied = epipolar::loss(c_to_f.translation.vector, c_in_f, f)
-            < maximum_cosine_distance
-            && epipolar::loss(c_to_s.translation.vector, c_in_s, s) < maximum_cosine_distance
-            && epipolar::loss(f_to_s.translation.vector, f_in_s, s) < maximum_cosine_distance;
+        let is_cosine_distance_satisfied = 1.0 - point.bearing().dot(&c) < maximum_cosine_distance
+            && 1.0 - first_pose.transform(point).bearing().dot(&f) < maximum_cosine_distance
+            && 1.0 - second_pose.transform(point).bearing().dot(&s) < maximum_cosine_distance;
         // If both are satisfied, then it passes.
         is_cosine_distance_satisfied
             && self.is_tri_observation_angularly_robust(
-                c_in_s,
-                f_in_s,
-                s,
+                c,
+                f_in_c,
+                s_in_c,
                 incidence_minimum_parallelepiped_volume,
             )
     }
@@ -2278,10 +2281,35 @@ where
         &self,
         pose: WorldToCamera,
         bearing: UnitVector3<f64>,
-        others: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)>,
+        mut others: impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)> + Clone,
     ) -> bool {
-        self.raw_observation_mean_epipolar_loss(pose, bearing, others)
-            < self.settings.robust_maximum_cosine_distance
+        match others.clone().count() {
+            0 => unreachable!("landmark with 0 observations shouldnt exist ever"),
+            1 => {
+                let (other_pose, other_bearing) = others.next().unwrap();
+                let total_pose = CameraToCamera(other_pose.isometry() * pose.isometry().inverse());
+                self.is_bi_landmark_robust(
+                    total_pose,
+                    bearing,
+                    other_bearing,
+                    self.settings.maximum_sine_distance,
+                )
+            }
+            _ => self
+                .triangulator
+                .triangulate_observations(others.clone().chain(Some((pose, bearing))))
+                .map(|point| {
+                    // Make sure this observation and all others are still consistent, otherwise its no good.
+                    others
+                        .clone()
+                        .chain(Some((pose, bearing)))
+                        .all(|(pose, bearing)| {
+                            1.0 - pose.transform(point).bearing().dot(&bearing)
+                                < self.settings.robust_maximum_cosine_distance
+                        })
+                })
+                .unwrap_or(false),
+        }
     }
 
     pub fn filter_non_robust_observations(
@@ -2302,10 +2330,7 @@ where
             .reconstruction(reconstruction)
             .landmarks
             .keys()
-            .filter(|&landmark| {
-                self.triangulate_landmark_robust(reconstruction, landmark)
-                    .is_some()
-            })
+            .filter(|&landmark| self.is_landmark_robust(reconstruction, landmark))
             .count();
         info!("started with {} robust landmarks", initial_num_landmarks);
 
@@ -2315,17 +2340,54 @@ where
                 .landmark_observations(reconstruction, landmark)
                 .collect();
 
-            if observations.len() == 1 {
-                continue;
-            }
+            match observations[..] {
+                [] => unreachable!("landmark with 0 observations shouldnt exist ever"),
+                [_] => continue,
+                [(first_view, first_feature), (second_view, second_feature)] => {
+                    // Extract poses and bearings.
+                    let first_pose = self.data.view(reconstruction, first_view).pose;
+                    let first_bearing =
+                        self.data
+                            .observation_bearing(reconstruction, first_view, first_feature);
+                    let second_pose = self.data.view(reconstruction, second_view).pose;
+                    let second_bearing =
+                        self.data
+                            .observation_bearing(reconstruction, second_view, second_feature);
 
-            for &(view, feature) in observations.iter() {
-                // Disagreeing with one observation is fine, unless there are less than 4 observations.
-                if self.observation_mean_epipolar_loss(reconstruction, view, feature)
-                    > self.settings.robust_maximum_cosine_distance
-                {
-                    // If the observation is bad, we must remove it from the landmark and the view.
-                    self.data.split_observation(reconstruction, view, feature);
+                    // Compute the relative pose from first to second camera.
+                    let total_pose =
+                        CameraToCamera(second_pose.isometry() * first_pose.isometry().inverse());
+                    // Check if the bi landmark is robust.
+                    if !self.is_bi_landmark_robust(
+                        total_pose,
+                        first_bearing,
+                        second_bearing,
+                        self.settings.maximum_sine_distance,
+                    ) {
+                        // If it isnt, split the landmark.
+                        self.split_landmark(reconstruction, landmark);
+                    }
+                }
+                _ => {
+                    if let Some(point) = self.triangulate_landmark(reconstruction, landmark) {
+                        for (view, feature) in observations {
+                            // Get pose and bearing.
+                            let pose = self.data.view(reconstruction, view).pose;
+                            let bearing =
+                                self.data.observation_bearing(reconstruction, view, feature);
+                            // If the observation doesnt agree with the triangulated point
+                            if 1.0 - pose.transform(point).bearing().dot(&bearing)
+                                > self.settings.robust_maximum_cosine_distance
+                            {
+                                // Kick out the observation.
+                                self.data.split_observation(reconstruction, view, feature);
+                            }
+                        }
+                    } else {
+                        // If we cannot triangulate the landmark, it should be removed.
+                        // This likely means that it no longer satisfies chierality.
+                        self.split_landmark(reconstruction, landmark);
+                    }
                 }
             }
         }
@@ -2336,10 +2398,7 @@ where
             .reconstruction(reconstruction)
             .landmarks
             .keys()
-            .filter(|&landmark| {
-                self.triangulate_landmark_robust(reconstruction, landmark)
-                    .is_some()
-            })
+            .filter(|&landmark| self.is_landmark_robust(reconstruction, landmark))
             .count();
         info!("ended with {} robust landmarks", final_num_landmarks);
 
@@ -2412,7 +2471,6 @@ where
     }
 
     /// Merges two landmarks unconditionally. Returns the new landmark ID.
-    /// The point should be the [`WorldPoint`] of the landmark.
     pub fn merge_landmarks(
         &mut self,
         reconstruction: ReconstructionKey,

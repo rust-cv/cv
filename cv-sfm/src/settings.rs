@@ -17,6 +17,12 @@ pub struct VSlamSettings {
         serde(default = "default_robust_maximum_cosine_distance")
     )]
     pub robust_maximum_cosine_distance: f64,
+    /// The maximum sine distance of a two-view observation for it to exist
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_maximum_sine_distance")
+    )]
+    pub maximum_sine_distance: f64,
     /// The the minimum number of robust landmarks a reconstruction must have lest it be discarded.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -114,12 +120,6 @@ pub struct VSlamSettings {
         serde(default = "default_two_view_consensus_threshold")
     )]
     pub two_view_consensus_threshold: f64,
-    /// The maximum cosine distance allowed for two-view matches.
-    #[cfg_attr(
-        feature = "serde-serialize",
-        serde(default = "default_two_view_maximum_cosine_distance")
-    )]
-    pub two_view_maximum_cosine_distance: f64,
     /// The minimum ratio of good matches to total matches to consider a two-view match successful.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -288,6 +288,7 @@ impl Default for VSlamSettings {
         Self {
             akaze_threshold: default_akaze_threshold(),
             robust_maximum_cosine_distance: default_robust_maximum_cosine_distance(),
+            maximum_sine_distance: default_maximum_sine_distance(),
             minimum_robust_landmarks: default_minimum_robust_landmarks(),
             robust_minimum_observations: default_robust_minimum_observations(),
             merge_maximum_cosine_distance: default_merge_maximum_cosine_distance(),
@@ -305,7 +306,6 @@ impl Default for VSlamSettings {
             single_view_minimum_robust_landmarks: default_single_view_minimum_robust_landmarks(),
             single_view_match_better_by: default_single_view_match_better_by(),
             two_view_consensus_threshold: default_two_view_consensus_threshold(),
-            two_view_maximum_cosine_distance: default_two_view_maximum_cosine_distance(),
             two_view_inlier_minimum_threshold: default_two_view_inlier_minimum_threshold(),
             two_view_minimum_robust_matches: default_two_view_minimum_robust_matches(),
             two_view_match_better_by: default_two_view_match_better_by(),
@@ -346,7 +346,10 @@ fn default_akaze_threshold() -> f64 {
 }
 
 fn default_robust_maximum_cosine_distance() -> f64 {
-    // Sine distance
+    5e-7
+}
+
+fn default_maximum_sine_distance() -> f64 {
     5e-4
 }
 
@@ -367,7 +370,7 @@ fn default_merge_nearest_neighbors() -> usize {
 }
 
 fn default_robust_observation_incidence_minimum_parallelepiped_volume() -> f64 {
-    0.001
+    1e-5
 }
 
 fn default_regenerate_iterations() -> usize {
@@ -412,11 +415,6 @@ fn default_single_view_match_better_by() -> u32 {
 }
 
 fn default_two_view_consensus_threshold() -> f64 {
-    // Sine distance
-    5e-4
-}
-
-fn default_two_view_maximum_cosine_distance() -> f64 {
     // Sine distance
     5e-4
 }
