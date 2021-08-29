@@ -72,6 +72,12 @@ pub struct VSlamSettings {
         serde(default = "default_single_view_patience")
     )]
     pub single_view_patience: usize,
+    /// The rotation magnitude at which single view optimization is terminated.
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_single_view_epsilon")
+    )]
+    pub single_view_epsilon: f64,
     /// The threshold of mean cosine distance standard deviation that terminates single-view optimization.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -286,6 +292,7 @@ impl Default for VSlamSettings {
             single_view_optimization_num_matches: default_single_view_optimization_num_matches(),
             single_view_filter_loop_iterations: default_single_view_filter_loop_iterations(),
             single_view_patience: default_single_view_patience(),
+            single_view_epsilon: default_single_view_epsilon(),
             single_view_std_dev_threshold: default_single_view_std_dev_threshold(),
             single_view_minimum_landmarks: default_single_view_minimum_landmarks(),
             single_view_inlier_minimum_threshold: default_single_view_inlier_minimum_threshold(),
@@ -369,7 +376,11 @@ fn default_single_view_filter_loop_iterations() -> usize {
 }
 
 fn default_single_view_patience() -> usize {
-    20000
+    100000
+}
+
+fn default_single_view_epsilon() -> f64 {
+    1e-6
 }
 
 fn default_single_view_std_dev_threshold() -> f64 {

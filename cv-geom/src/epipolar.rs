@@ -65,11 +65,14 @@ pub fn point_gradient(translation: Vector3<f64>, b: UnitVector3<f64>) -> Vector3
 // point line up with the bearing. The translation in this case is the translation from the
 // optical center of the camera to the point, while `b` is the bearing which matches to the point.
 // The translation is in the reference frame of the camera itself.
+//
+// Returns the L2 tangent space.
 #[inline(always)]
 pub fn world_pose_gradient(translation: Vector3<f64>, b: UnitVector3<f64>) -> Se3TangentSpace {
     let projected_point = (translation).dot(&b) * b.into_inner();
     let translation_gradient = projected_point - translation;
-    Se3TangentSpace::new(translation_gradient, translation.normalize().cross(&b))
+    let rotation_gradient = translation.normalize().cross(&b);
+    Se3TangentSpace::new(translation_gradient, rotation_gradient)
 }
 
 // Produces the absolute value of the sine of the angle between the two epipolar planes.

@@ -13,3 +13,4 @@ num-traits = "0.2.14"
 average = "0.13.1"
 itertools = "0.10.1"
 log = { version = "0.4.14", default-features = false }
+float-ord = { version = "0.3.2", default-features = false }

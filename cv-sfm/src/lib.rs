@@ -1444,7 +1444,13 @@ where
                 matches_3d.len(),
                 self.settings.single_view_optimization_num_matches
             );
-            pose = single_view_simple_optimize(pose, &matches_3d, 0.0001, 20000);
+            pose = single_view_simple_optimize(
+                pose,
+                &matches_3d,
+                0.001,
+                0.001,
+                self.settings.single_view_patience,
+            );
 
             // We dont need to extract robust landmarks again if this is the last iteration.
             if iter == self.settings.single_view_filter_loop_iterations - 1 {
