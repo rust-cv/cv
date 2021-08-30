@@ -28,21 +28,17 @@ pub fn relative_pose_gradient(
     // they become more perpendicular. The unit vector `nb` describes the normal of the plane
     // formed by `b` and the translation.
     let cross_b = b.cross(&translation);
-    let cross_b_norm_squared = cross_b.norm_squared();
 
     // Only correct this pose if the other bearing `a` is less perpendicular to the translation.
     // Otherwise, we will correct the pose from the other side (where we came from) in a
     // separate call to this function.
-    let rotation = if cross_a_norm_squared < cross_b_norm_squared {
-        // If `a` is less perpendicular to the translation, we compute the projection length of `a`
-        // onto `b`'s epipolar plane normal (how far it is out of the epipolar plane) and then
-        // take the absolute value to get sine distance.
-        cross_a
-            .scale(cross_a_norm_squared.sqrt().recip())
-            .cross(&cross_b.scale(cross_a_norm_squared.sqrt().recip()))
-    } else {
-        Vector3::zeros()
-    };
+
+    // If `a` is less perpendicular to the translation, we compute the projection length of `a`
+    // onto `b`'s epipolar plane normal (how far it is out of the epipolar plane) and then
+    // take the absolute value to get sine distance.
+    let rotation = cross_a
+        .scale(cross_a_norm_squared.sqrt().recip())
+        .cross(&cross_b.scale(cross_a_norm_squared.sqrt().recip()));
 
     let a_cross_t = a.cross(&translation);
     Se3TangentSpace::new(a.cross(&b) * (a_cross_t.dot(&b)), rotation)

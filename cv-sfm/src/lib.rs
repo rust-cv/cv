@@ -1446,10 +1446,10 @@ where
             );
             pose = single_view_simple_optimize(
                 pose,
-                &matches_3d,
                 0.00001,
                 0.00001,
                 self.settings.single_view_patience,
+                &matches_3d,
             );
 
             // We dont need to extract robust landmarks again if this is the last iteration.
