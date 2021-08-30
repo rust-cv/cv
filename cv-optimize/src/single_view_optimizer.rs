@@ -26,9 +26,11 @@ pub fn single_view_simple_optimize(
         return pose;
     }
     let inv_landmark_len = (landmarks.len() as f64).recip();
+    let mean_momentum = 0.9;
     let variance_momentum = 0.99;
     let epsilon = 1e-12;
     // Exponential moving averages.
+    let mut ema_mean = Vector6::<f64>::zeros();
     let mut ema_variance = Vector2::<f64>::new(
         (translation_trust_region * translation_trust_region).recip(),
         (rotation_trust_region * rotation_trust_region).recip(),
@@ -76,13 +78,15 @@ pub fn single_view_simple_optimize(
             continue;
         }
 
-        let mags = Vector2::new(tangent.translation.norm(), tangent.rotation.norm());
+        ema_mean = mean_momentum * ema_mean + (1.0 - mean_momentum) * tangent.to_vec();
+
+        let mean = Se3TangentSpace::from_vec(ema_mean);
         let variance = ema_variance;
         // Compute the final scale.
-        let scale = mags.zip_map(&variance, |mag, variance| mag / (variance + epsilon).sqrt());
+        let scale = variance.map(|variance| (variance + epsilon).sqrt().recip());
 
         // Terminate the algorithm once it stabilizes.
-        if (last_rot_mag - mags.y).abs() < epsilon {
+        if (last_rot_mag - mean.rotation.norm()).abs() < epsilon {
             log::info!(
                 "terminating single-view optimization at iteration {} due to stabilizing",
                 iteration
@@ -92,11 +96,11 @@ pub fn single_view_simple_optimize(
         }
 
         // Update the pose.
-        let delta = tangent
+        let delta = mean
             .scale_translation(translation_scale * scale.x)
             .scale_rotation(scale.y);
         last_pose = pose;
-        last_rot_mag = mags.y;
+        last_rot_mag = mean.rotation.norm();
         pose = WorldToCamera(delta.isometry() * pose.isometry());
 
         if iteration == iterations - 1 {

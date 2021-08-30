@@ -1447,8 +1447,8 @@ where
             pose = single_view_simple_optimize(
                 pose,
                 &matches_3d,
-                0.001,
-                0.001,
+                0.0001,
+                0.0001,
                 self.settings.single_view_patience,
             );
 
