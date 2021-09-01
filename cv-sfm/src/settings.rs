@@ -481,7 +481,7 @@ fn default_tracking_recent_frames() -> usize {
 }
 
 fn default_optimization_three_view_constraint_patience() -> usize {
-    20000
+    1 << 16
 }
 
 fn default_optimization_maximum_three_view_constraints() -> usize {

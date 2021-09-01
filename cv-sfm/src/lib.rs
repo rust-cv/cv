@@ -15,7 +15,10 @@ use cv_core::{
     TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera, WorldToWorld,
 };
 use cv_geom::epipolar;
-use cv_optimize::{single_view_simple_optimize, three_view_simple_optimize};
+use cv_optimize::{
+    single_view_simple_optimize_l1, single_view_simple_optimize_l2, three_view_simple_optimize_l1,
+    three_view_simple_optimize_l2,
+};
 use cv_pinhole::CameraIntrinsicsK1Distortion;
 use float_ord::FloatOrd;
 use hamming_lsh::HammingHasher;
@@ -996,9 +999,9 @@ where
                 .take(self.settings.three_view_optimization_landmarks)
                 .collect::<Vec<_>>();
 
-            for iter in 0..self.settings.three_view_filter_loop_iterations {
+            for _ in 0..self.settings.three_view_filter_loop_iterations {
                 info!(
-                    "performing optimization on poses using {} three-way matches out of {}",
+                    "performing L1 optimization on poses using {} three-way matches out of {}",
                     opti_matches.len(),
                     common.len()
                 );
@@ -1010,18 +1013,15 @@ where
                     continue;
                 }
 
-                let [new_first_pose, new_second_pose] = three_view_simple_optimize(
+                let [new_first_pose, new_second_pose] = three_view_simple_optimize_l1(
                     [first_pose, second_pose],
+                    0.00000001,
+                    0.00000001,
+                    self.settings.optimization_three_view_constraint_patience,
                     &opti_matches,
-                    0.01,
-                    1000,
                 );
                 first_pose = new_first_pose;
                 second_pose = new_second_pose;
-
-                if iter == self.settings.three_view_filter_loop_iterations - 1 {
-                    break;
-                }
 
                 opti_matches = common
                     .iter()
@@ -1044,6 +1044,29 @@ where
                     .take(self.settings.three_view_optimization_landmarks)
                     .collect::<Vec<_>>();
             }
+
+            info!(
+                "performing L2 optimization on poses using {} three-way matches out of {}",
+                opti_matches.len(),
+                common.len()
+            );
+            if opti_matches.len() < 32 {
+                info!(
+                    "need {} robust three-way matches; rejecting three-view match",
+                    32
+                );
+                continue;
+            }
+
+            let [new_first_pose, new_second_pose] = three_view_simple_optimize_l2(
+                [first_pose, second_pose],
+                0.00000001,
+                0.00000001,
+                self.settings.optimization_three_view_constraint_patience,
+                &opti_matches,
+            );
+            first_pose = new_first_pose;
+            second_pose = new_second_pose;
 
             // Create a map from the center features to the first matches.
             let first_map: HashMap<usize, usize> =
@@ -1438,24 +1461,20 @@ where
             before_match_len
         );
 
-        for iter in 0..self.settings.single_view_filter_loop_iterations {
+        for _ in 0..self.settings.single_view_filter_loop_iterations {
             info!(
-                "optimizing with {} inliers (capped at {})",
+                "L1 optimization with {} inliers (capped at {})",
                 matches_3d.len(),
                 self.settings.single_view_optimization_num_matches
             );
-            pose = single_view_simple_optimize(
+            pose = single_view_simple_optimize_l1(
                 pose,
-                0.00001,
-                0.00001,
+                0.0000001,
+                0.0000001,
                 self.settings.single_view_patience,
                 &matches_3d,
             );
 
-            // We dont need to extract robust landmarks again if this is the last iteration.
-            if iter == self.settings.single_view_filter_loop_iterations - 1 {
-                break;
-            }
             // Take only the consistent 3d matches which are also robust.
             matches_3d = original_matches
                 .iter()
@@ -1476,6 +1495,19 @@ where
                 .take(self.settings.single_view_optimization_num_matches)
                 .collect_vec();
         }
+
+        info!(
+            "final L2 optimization with {} inliers (capped at {})",
+            matches_3d.len(),
+            self.settings.single_view_optimization_num_matches
+        );
+        pose = single_view_simple_optimize_l2(
+            pose,
+            0.0000001,
+            0.0000001,
+            self.settings.single_view_patience,
+            &matches_3d,
+        );
 
         let original_matches_len = original_matches.len();
         // Extract the final matches which will be used to add observations.
@@ -1719,8 +1751,13 @@ where
             opti_matches.len()
         );
 
-        let [mut first_pose, mut second_pose] =
-            three_view_simple_optimize([first_pose, second_pose], &opti_matches, 0.01, 1000);
+        let [mut first_pose, mut second_pose] = three_view_simple_optimize_l2(
+            [first_pose, second_pose],
+            0.000001,
+            0.000001,
+            self.settings.optimization_three_view_constraint_patience,
+            &opti_matches,
+        );
 
         let final_scale = first_pose.isometry().translation.vector.norm()
             + second_pose.isometry().translation.vector.norm();

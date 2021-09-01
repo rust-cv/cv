@@ -5,12 +5,12 @@ pub use single_view_optimizer::*;
 pub use three_view_optimizer::*;
 
 use cv_core::{
-    nalgebra::{Vector2, Vector6},
-    Pose, Se3TangentSpace, WorldToCamera,
+    nalgebra::{IsometryMatrix3, Vector2, Vector6},
+    Se3TangentSpace,
 };
 
 pub struct AdaMaxSo3Tangent {
-    pub pose: WorldToCamera,
+    pub pose: IsometryMatrix3<f64>,
     pub ema_mean: Vector6<f64>,
     pub ema_variance: Vector2<f64>,
     pub last_rot_mag: f64,
@@ -24,7 +24,7 @@ pub struct AdaMaxSo3Tangent {
 
 impl AdaMaxSo3Tangent {
     pub fn new(
-        pose: WorldToCamera,
+        pose: IsometryMatrix3<f64>,
         translation_trust_region: f64,
         rotation_trust_region: f64,
         translation_scale: f64,
@@ -52,6 +52,7 @@ impl AdaMaxSo3Tangent {
         }
     }
 
+    // Returns true if it has reached stability.
     pub fn step(&mut self, tangent: Se3TangentSpace) -> bool {
         let squared_norms = Vector2::new(
             tangent.translation.norm_squared() * self.squared_recip_translation_trust_region,
@@ -87,11 +88,11 @@ impl AdaMaxSo3Tangent {
             .scale_translation(self.translation_scale * scale.x)
             .scale_rotation(scale.y);
         self.last_rot_mag = mean.rotation.norm();
-        self.pose = WorldToCamera(delta.isometry() * self.pose.isometry());
+        self.pose = delta.isometry() * self.pose;
         false
     }
 
-    pub fn pose(&self) -> WorldToCamera {
+    pub fn pose(&self) -> IsometryMatrix3<f64> {
         self.pose
     }
 }
