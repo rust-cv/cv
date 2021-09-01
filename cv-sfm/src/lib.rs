@@ -1469,8 +1469,8 @@ where
             );
             pose = single_view_simple_optimize_l1(
                 pose,
-                0.0000001,
-                0.0000001,
+                0.00000001,
+                0.00000001,
                 self.settings.single_view_patience,
                 &matches_3d,
             );
@@ -1503,8 +1503,8 @@ where
         );
         pose = single_view_simple_optimize_l2(
             pose,
-            0.0000001,
-            0.0000001,
+            0.00000001,
+            0.00000001,
             self.settings.single_view_patience,
             &matches_3d,
         );

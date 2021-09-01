@@ -1,6 +1,8 @@
 use crate::AdaMaxSo3Tangent;
 use cv_core::{nalgebra::UnitVector3, CameraToCamera, Pose, Se3TangentSpace};
 use cv_geom::epipolar;
+use float_ord::FloatOrd;
+use itertools::izip;
 
 fn landmark_deltas(
     poses: [CameraToCamera; 2],
@@ -55,29 +57,41 @@ pub fn three_view_simple_optimize_l1(
         )
     });
     let inv_landmark_len = (landmarks.len() as f64).recip();
+    let mut ts = [vec![0.0; landmarks.len()], vec![0.0; landmarks.len()]];
+    let mut rs = [vec![0.0; landmarks.len()], vec![0.0; landmarks.len()]];
     for iteration in 0..iterations {
         // Extract the tangent vectors for each pose.
-        let mut net_l1_deltas = [Se3TangentSpace::identity(); 2];
-        let mut net_l2_deltas = [Se3TangentSpace::identity(); 2];
+        for v in ts.iter_mut().chain(rs.iter_mut()) {
+            v.clear();
+        }
+        let mut net_l1s = [Se3TangentSpace::identity(), Se3TangentSpace::identity()];
         for &observations in landmarks {
             let deltas = landmark_deltas(poses, observations);
 
-            for ((net_l1, net_l2), &delta) in net_l1_deltas
-                .iter_mut()
-                .zip(net_l2_deltas.iter_mut())
-                .zip(deltas.iter())
+            for ((l1sum, ts, rs), &delta) in
+                izip!(net_l1s.iter_mut(), ts.iter_mut(), rs.iter_mut()).zip(deltas.iter())
             {
-                *net_l2 += delta;
-                *net_l1 += delta.l1();
+                ts.push(delta.translation.norm());
+                rs.push(delta.rotation.norm());
+                *l1sum += delta.l1();
             }
         }
+        for v in ts.iter_mut().chain(rs.iter_mut()) {
+            v.sort_unstable_by_key(|&f| FloatOrd(f));
+        }
 
-        let mut net_deltas = net_l1_deltas;
-        for (delta, &l2_delta) in net_deltas.iter_mut().zip(net_l2_deltas.iter()) {
-            *delta = delta
-                .scale_translation(l2_delta.translation.norm())
-                .scale_rotation(l2_delta.rotation.norm())
-                .scale(inv_landmark_len);
+        let mut net_deltas = [Se3TangentSpace::identity(); 2];
+        for (delta, (l1sum, ts, rs)) in
+            net_deltas
+                .iter_mut()
+                .zip(izip!(net_l1s.iter(), ts.iter(), rs.iter()))
+        {
+            let translation_scale = ts[ts.len() / 2] * inv_landmark_len;
+            let rotation_scale = rs[rs.len() / 2] * inv_landmark_len;
+            *delta = l1sum
+                .scale(inv_landmark_len)
+                .scale_translation(translation_scale)
+                .scale_rotation(rotation_scale);
         }
 
         // Run everything through the optimizer and keep track of if all of them finished.
