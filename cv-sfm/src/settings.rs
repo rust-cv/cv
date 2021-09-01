@@ -364,7 +364,7 @@ fn default_robust_observation_incidence_minimum_parallelepiped_volume() -> f64 {
 
 fn default_single_view_consensus_threshold() -> f64 {
     // Cosine distance
-    1e-5
+    5e-7
 }
 
 fn default_single_view_optimization_num_matches() -> usize {
@@ -372,7 +372,7 @@ fn default_single_view_optimization_num_matches() -> usize {
 }
 
 fn default_single_view_filter_loop_iterations() -> usize {
-    5
+    3
 }
 
 fn default_single_view_patience() -> usize {
