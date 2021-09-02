@@ -72,6 +72,14 @@ pub struct VSlamSettings {
         serde(default = "default_single_view_patience")
     )]
     pub single_view_patience: usize,
+
+    /// The initial number of best features to use for camera tracking. This is doubled repeatedly until
+    /// tracking succeeds or fails.
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_single_view_initial_features")
+    )]
+    pub single_view_initial_features: usize,
     /// The rotation magnitude at which single view optimization is terminated.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -292,6 +300,7 @@ impl Default for VSlamSettings {
             single_view_optimization_num_matches: default_single_view_optimization_num_matches(),
             single_view_filter_loop_iterations: default_single_view_filter_loop_iterations(),
             single_view_patience: default_single_view_patience(),
+            single_view_initial_features: default_single_view_initial_features(),
             single_view_epsilon: default_single_view_epsilon(),
             single_view_std_dev_threshold: default_single_view_std_dev_threshold(),
             single_view_minimum_landmarks: default_single_view_minimum_landmarks(),
@@ -377,6 +386,10 @@ fn default_single_view_filter_loop_iterations() -> usize {
 
 fn default_single_view_patience() -> usize {
     100000
+}
+
+fn default_single_view_initial_features() -> usize {
+    1 << 13
 }
 
 fn default_single_view_epsilon() -> f64 {
@@ -501,7 +514,7 @@ fn default_optimization_iterations() -> usize {
 }
 
 fn default_optimization_landmarks() -> usize {
-    1 << 6
+    1 << 4
 }
 
 fn default_optimization_robust_covisibility_minimum_landmarks() -> usize {

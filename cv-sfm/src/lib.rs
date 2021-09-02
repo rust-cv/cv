@@ -35,7 +35,7 @@ use std::{
     cmp::{self, Reverse},
     collections::{HashMap, HashSet},
     mem,
-    ops::Sub,
+    ops::{Range, Sub},
     path::Path,
 };
 
@@ -60,6 +60,7 @@ fn canonical_view_order(mut views: [ViewKey; 3]) -> [ViewKey; 3] {
 #[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct Feature {
     pub bearing: UnitVector3<f64>,
+    pub response: f32,
     pub color: [u8; 3],
 }
 
@@ -1318,23 +1319,24 @@ where
         Some((pose, matches))
     }
 
-    /// Attempts to register the frame into the given reconstruction.
-    ///
-    /// Returns the pose and a map from feature indices to landmarks.
-    fn register_frame(
-        &mut self,
+    /// Attempts to register the frame into the given reconstruction using a specific number of features.
+    fn register_frame_subset(
+        &self,
         reconstruction_key: ReconstructionKey,
         new_frame_key: FrameKey,
-        view_matches: Vec<ViewKey>,
+        view_matches: &[ViewKey],
+        add_features: Range<usize>,
+        original_matches: &mut Vec<(LandmarkKey, usize)>,
     ) -> Option<(WorldToCamera, HashMap<usize, LandmarkKey>)> {
-        info!("trying to register frame into existing reconstruction");
         let reconstruction = self.data.reconstruction(reconstruction_key);
         let new_frame = self.data.frame(new_frame_key);
 
-        info!("performing matching against {} views", view_matches.len());
-
-        let mut original_matches: Vec<(LandmarkKey, usize)> = vec![];
-        for self_feature in 0..new_frame.descriptor_features.len() {
+        info!(
+            "performing matching of features {:?} against {} views",
+            add_features,
+            view_matches.len()
+        );
+        for self_feature in add_features {
             // Get the self feature descriptor.
             let self_descriptor = new_frame.descriptor(self_feature);
             // Find the top features in every view match, and collect those together.
@@ -1399,10 +1401,15 @@ where
             original_matches.len()
         );
 
+        // Shadow the old original matches to prevent the original from being used anymore, since we will filter the data
+        // and make modifications we don't want preserved on future invocations.
+        let mut original_matches = original_matches.clone();
         let landmark_counts = original_matches.iter().counts_by(|&(landmark, _)| landmark);
+        // If two separate features match to the landmark, that is always 100% incorrect.
+        // This is not true of multiple landmarks matching to one feature, which may indicate they should be merged.
         original_matches.retain(|(landmark, _)| landmark_counts[landmark] == 1);
-        original_matches.shuffle(&mut *self.rng.borrow_mut());
-        original_matches.sort_unstable_by_key(|&(landmark, _)| {
+        // Sort this in a stable way to preserve the order. Features near the beginning have a higher response.
+        original_matches.sort_by_key(|&(landmark, _)| {
             cmp::Reverse(
                 self.data
                     .landmark(reconstruction_key, landmark)
@@ -1547,6 +1554,42 @@ where
         }
 
         Some((pose, final_matches))
+    }
+
+    /// Attempts to register the frame into the given reconstruction.
+    ///
+    /// Returns the pose and a map from feature indices to landmarks.
+    fn register_frame(
+        &self,
+        reconstruction: ReconstructionKey,
+        frame: FrameKey,
+        view_matches: Vec<ViewKey>,
+    ) -> Option<(WorldToCamera, HashMap<usize, LandmarkKey>)> {
+        info!("trying to register frame into existing reconstruction");
+
+        let mut original_matches: Vec<(LandmarkKey, usize)> = vec![];
+        let new_frame_num_features = self.data.frame(frame).descriptor_features.len();
+        let mut add_features = 0..std::cmp::min(
+            self.settings.single_view_initial_features,
+            new_frame_num_features,
+        );
+        loop {
+            if let Some(success) = self.register_frame_subset(
+                reconstruction,
+                frame,
+                &view_matches,
+                add_features.clone(),
+                &mut original_matches,
+            ) {
+                return Some(success);
+            }
+            if add_features.end == new_frame_num_features {
+                break;
+            }
+            add_features =
+                add_features.end..std::cmp::min(add_features.end * 2, new_frame_num_features);
+        }
+        None
     }
 
     /// Moves all views from one reconstruction to another and then removes the old reconstruction.
@@ -1925,13 +1968,23 @@ where
             .collect();
 
         // Calibrate keypoint and combine into features.
-        izip!(
-            keypoints.into_iter().map(|kp| intrinsics.calibrate(kp)),
-            descriptors,
-            colors
-        )
-        .map(|(bearing, descriptor, color)| (descriptor, Feature { bearing, color }))
-        .collect()
+        let mut features: Vec<(BitArray<64>, Feature)> = izip!(keypoints, descriptors, colors)
+            .map(|(keypoint, descriptor, color)| {
+                let bearing = intrinsics.calibrate(keypoint);
+                let response = keypoint.response;
+                (
+                    descriptor,
+                    Feature {
+                        bearing,
+                        response,
+                        color,
+                    },
+                )
+            })
+            .collect();
+        // Sort the features by response (higher response comes first).
+        features.sort_unstable_by_key(|&(_, Feature { response, .. })| Reverse(FloatOrd(response)));
+        features
     }
 
     /// This will take the first view of the reconstruction and scale everything so that the
