@@ -502,7 +502,7 @@ fn default_optimization_maximum_three_view_constraints() -> usize {
 }
 
 fn default_optimization_minimum_new_constraints() -> usize {
-    2
+    4
 }
 
 fn default_optimization_std_dev_threshold() -> f64 {
