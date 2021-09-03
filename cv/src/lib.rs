@@ -106,6 +106,6 @@ pub mod sfm {
 
 /// Visualization utilities
 pub mod vis {
-    #[cfg(feature = "imgshow")]
-    pub use imgshow::imgshow;
+    #[cfg(feature = "egui")]
+    pub use egui::*;
 }

@@ -13,7 +13,7 @@ members = [
     "nister-stewenius",
     "vslam-sandbox",
     "kpdraw",
-    "imgshow",
+    "egui",
     "tutorial-code/chapter2-first-program",
     "tutorial-code/chapter3-akaze-feature-extraction",
 ]

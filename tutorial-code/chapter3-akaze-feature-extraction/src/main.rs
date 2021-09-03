@@ -20,5 +20,5 @@ fn main() {
 
     let out_image = DynamicImage::ImageRgba8(image_canvas.0);
 
-    cv::vis::imgshow(&out_image).expect("showing image failed");
+    cv::vis::imgshow(&out_image);
 }

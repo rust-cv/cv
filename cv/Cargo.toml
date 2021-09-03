@@ -21,7 +21,7 @@ default = [
     "nister-stewenius",
     "lambda-twist",
     "akaze",
-    "imgshow",
+    "egui",
     "space",
     "hnsw",
     "levenberg-marquardt",
@@ -58,7 +58,7 @@ eight-point = { optional = true, version = "0.8.0", path = "../eight-point" }
 nister-stewenius = { optional = true, version = "0.1.0", path = "../nister-stewenius" }
 lambda-twist = { optional = true, version = "0.7.0", path = "../lambda-twist" }
 akaze = { optional = true, version = "0.7.0", path = "../akaze" }
-imgshow = { optional = true, version = "0.1.0", path = "../imgshow" }
+egui = { optional = true, version = "0.1", path = "../egui" }
 space = { version = "0.17.0", optional = true }
 hnsw = { version = "0.11.0", optional = true }
 hgg = { version = "0.4.1", optional = true }
