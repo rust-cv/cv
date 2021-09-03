@@ -1,73 +1,71 @@
-use iced::{
-    keyboard::{Event, KeyCode},
-    Application, Clipboard, Command, Element, Error, Settings, Subscription,
+use eframe::{
+    egui::{self, CtxRef, TextureId, Vec2},
+    epi,
+    epi::{Frame, Storage},
 };
 use image::{DynamicImage, GenericImageView};
 
-/// This function shows an image and will not return until the user presses space or closes the window.
-pub fn imgshow(image: &DynamicImage) -> Result<(), Error> {
-    let mut settings = Settings::with_flags(image.clone());
-    settings.window.size = (image.width(), image.height());
-    Imgshow::run(settings)
+pub struct DisplayImage {
+    texture_id: TextureId,
+    size: Vec2,
 }
-
-struct Imgshow {
-    image: iced::image::Handle,
-    should_exit: bool,
+impl DisplayImage {
+    pub fn new(texture_id: TextureId, size: Vec2) -> DisplayImage {
+        DisplayImage { texture_id, size }
+    }
 }
-
-#[derive(Debug, Clone, Copy)]
-enum Message {
-    Close,
-    Nothing,
+pub struct App {
+    name: String,
+    image: DynamicImage,
+    display_image: DisplayImage,
 }
-
-impl Application for Imgshow {
-    type Executor = iced::executor::Default;
-    type Message = Message;
-    type Flags = DynamicImage;
-
-    fn new(image: DynamicImage) -> (Self, Command<Message>) {
-        let bgra_data = image.to_bgra8().into_raw();
-        (
-            Self {
-                image: iced::image::Handle::from_pixels(image.width(), image.height(), bgra_data),
-                should_exit: false,
-            },
-            Command::none(),
-        )
-    }
-
-    fn title(&self) -> String {
-        String::from("imgshow")
-    }
-
-    fn subscription(&self) -> Subscription<Message> {
-        iced_native::subscription::events().map(|event| {
-            if let iced_native::Event::Keyboard(Event::KeyPressed {
-                key_code: KeyCode::Space | KeyCode::Escape,
-                modifiers: _,
-            }) = event
-            {
-                Message::Close
-            } else {
-                Message::Nothing
-            }
-        })
-    }
-
-    fn update(&mut self, message: Message, _: &mut Clipboard) -> Command<Message> {
-        if let Message::Close = message {
-            self.should_exit = true;
+impl App {
+    pub fn new(image: DynamicImage) -> Self {
+        App {
+            name: String::from("Rust CV"),
+            image,
+            display_image: DisplayImage::new(egui::TextureId::Egui, Vec2::default()),
         }
-        Command::none()
     }
-
-    fn should_exit(&self) -> bool {
-        self.should_exit
+}
+impl epi::App for App {
+    fn name(&self) -> &str {
+        &self.name
     }
-
-    fn view(&mut self) -> Element<Message> {
-        iced::Image::new(self.image.clone()).into()
+    fn setup(&mut self, _ctx: &CtxRef, frame: &mut Frame<'_>, _storage: Option<&dyn Storage>) {
+        let Self { image, .. } = self;
+        let size = Vec2::from([image.width() as f32, image.height() as f32]);
+        let pixels = {
+            let image_bytes = image.as_bytes();
+            let mut pixels = Vec::with_capacity(image_bytes.len() / 4);
+            for rgba in image_bytes.chunks_exact(4) {
+                if let [r, g, b, a] = *rgba {
+                    pixels.push(egui::Color32::from_rgba_unmultiplied(r, g, b, a));
+                }
+            }
+            pixels
+        };
+        let image_texture_id = frame
+            .tex_allocator()
+            .alloc_srgba_premultiplied((image.width() as usize, image.height() as usize), &*pixels);
+        self.display_image = DisplayImage::new(image_texture_id, size);
     }
+    fn update(&mut self, ctx: &CtxRef, _frame: &mut Frame<'_>) {
+        let Self { display_image, .. } = self;
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.image(display_image.texture_id, display_image.size);
+        });
+    }
+}
+pub fn imgshow(image: &DynamicImage) -> Result<(), std::io::Error> {
+    let app = App::new(image.clone());
+    let native_options = eframe::NativeOptions {
+        initial_window_size: Option::from(Vec2::from(&[
+            (image.width() + 15) as f32,
+            (image.height() + 15) as f32,
+        ])),
+        ..Default::default()
+    };
+    eframe::run_native(Box::new(app), native_options);
+    Ok(())
 }
