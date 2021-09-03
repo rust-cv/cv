@@ -1855,7 +1855,9 @@ where
         view: ViewKey,
     ) -> bool {
         let constraints = self.generate_view_constraints(reconstruction, view);
-        if constraints.len() < self.settings.optimization_minimum_new_constraints {
+        if constraints.len() < self.settings.optimization_minimum_new_constraints
+            && constraints.len() < self.data.reconstruction(reconstruction).views.len()
+        {
             return false;
         }
         for constraint in constraints {
