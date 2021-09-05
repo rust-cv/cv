@@ -6,17 +6,19 @@ mod pyramid;
 pub mod utils;
 
 
-// pub use crate::sift::{
-//     blah
-// };
+pub use crate::sift::{
+    SIFTConfig
+};
 pub use crate::image::{
-    SimpleRGBImage,
+    SimpleRGBAImage,
     ApplyAcrossChannels
 };
+
 pub use crate::pyramid::{
     gaussian_kernels,
     number_of_octaves,
-    base_image
+    base_image,
+    image_pyramid
 };
 
 pub type Dimension = u32;
@@ -27,22 +29,31 @@ mod tests {
 
     use image::{DynamicImage};
     use image::io::{Reader as ImageReader};
-    use crate::image::{SimpleRGBImage, ApplyAcrossChannels};
+    use crate::image::{SimpleRGBAImage, ApplyAcrossChannels};
     use crate::pyramid;
     use crate::utils::{assert_similar};
+    use crate::sift::{SIFTConfig};
     use nalgebra::{DMatrix};
 
 
-    fn get_box_image_f64() -> SimpleRGBImage<f64> {
-        let img = ImageReader::open("/home/aalekh/Documents/projects/cv-rust/res/box.png").unwrap().decode().unwrap().to_rgb8();
-        let d_img = DynamicImage::ImageRgb8(img);
-        SimpleRGBImage::<f64>::from_dynamic(&d_img)
+    fn get_box_image_f64() -> SimpleRGBAImage<f64> {
+        let img = ImageReader::open("/home/aalekh/Documents/projects/cv-rust/res/box.png")
+        .unwrap()
+        .decode()
+        .unwrap()
+        .to_rgba8();
+        let d_img = DynamicImage::ImageRgba8(img);
+        SimpleRGBAImage::<f64>::from_dynamic(&d_img)
     }
 
-    fn get_box_image_u8() -> SimpleRGBImage<u8> {
-        let img = ImageReader::open("/home/aalekh/Documents/projects/cv-rust/res/box.png").unwrap().decode().unwrap().to_rgb8();
-        let d_img = DynamicImage::ImageRgb8(img);
-        SimpleRGBImage::<u8>::from_dynamic(&d_img)
+    fn get_box_image_u8() -> SimpleRGBAImage<u8> {
+        let img = ImageReader::open("/home/aalekh/Documents/projects/cv-rust/res/box.png")
+        .unwrap()
+        .decode()
+        .unwrap()
+        .to_rgba8();
+        let d_img = DynamicImage::ImageRgba8(img);
+        SimpleRGBAImage::<u8>::from_dynamic(&d_img)
     }
 
     fn do_nothing(m: &DMatrix<f64>) -> DMatrix<f64> {
@@ -136,15 +147,50 @@ mod tests {
         assert!(result.is_same_as(&expected));
     }
 
-    // #[test]
-    // fn base_image_for_box_image() {
-    //     let img = get_box_image_f64();
-    //     let og_shape = img.shape();
-    //     let result = pyramid::base_image(&img, 1.6, 0.5);
+    #[test]
+    fn base_image_for_box_image() {
+        let img = get_box_image_f64();
+        let og_shape = img.shape();
+        let result = pyramid::base_image(&img, 1.6, 0.5);
 
-    //     let expected_shape = (og_shape.0 * 2, og_shape.1 * 2);
-    //     let obtained_shape = result.shape();
+        let expected_shape = (og_shape.0 * 2, og_shape.1 * 2);
+        let obtained_shape = result.shape();
 
-    //     assert_eq!(expected_shape, obtained_shape);
-    // }
+        assert_eq!(expected_shape, obtained_shape);
+
+        // println!("{:?}", result);
+    }
+
+
+    #[test]
+    fn zeros_like_400_800() {
+        let height = 400;
+        let width = 800;
+        let result = SimpleRGBAImage::<f64>::zeros_like((height, width));
+        assert_eq!(result.shape(), (height, width));
+        assert!(
+            result.is_same_as(
+                &SimpleRGBAImage::<f64>::from_slice(
+                    &vec![0.0; 400 * 800 * 4],
+                    width,
+                    height
+                )
+            )
+        );
+    }
+
+    #[test]
+    fn image_pyramid_for_box_image() {
+        let img = get_box_image_f64();
+        let out = "/home/aalekh/Documents/projects/cv-rust/cv-sift/media/box_pyramid";
+
+        let result = pyramid::image_pyramid(&img, SIFTConfig::new());
+
+        for (row_idx, row) in result.iter().enumerate() {
+            for (entry_idx, _entry) in row.iter().enumerate() {
+                let _path = format!("{}/oct_{}_level_{}.png", out, row_idx, entry_idx);
+                // _entry.save(&_path).unwrap();
+            }
+        }
+    }
 }
