@@ -1,7 +1,9 @@
-use image::{DynamicImage, RgbImage, Rgb};
+use image::{DynamicImage, RgbImage, Rgb, GenericImageView, ColorType};
 use nalgebra::{DMatrix};
 use imgshow::imgshow;
 use itertools::izip;
+use imgproc_rs::image::{Image as ImgProcImage};
+use imgproc_rs::convert::{u8_to_f64_scale as img_proc_u8_to_f64_scale};
 
 
 #[derive(Debug, Clone)]
@@ -33,6 +35,9 @@ impl Shape for SimpleRGBImageU8 {
     }
 }
 
+// pub trait AcrossChannelOperations {
+//     fn apply_mut<F: Fn()>
+// }
 // pub trait ApplyAcrossChannels<T> {
 //     fn apply_mut<F: Fn(usize, usize, T) -> T>(&mut self, f: F);
 //     fn apply<F: Fn(usize, usize, T) -> T>(&self, f: F) -> Self;
@@ -130,8 +135,8 @@ impl<'a> IntoIterator for &'a SimpleRGBImageU8 {
     fn into_iter(self) -> Self::IntoIter {
         izip!(
             self.red().iter(),
-            self.blue().iter(),
-            self.green().iter()
+            self.green().iter(),
+            self.blue().iter()
         )
         .map(|(&a, &b, &c)| (a, b, c))
         .collect::<Vec<(u8, u8, u8)>>()
@@ -146,8 +151,8 @@ impl<'a> IntoIterator for &'a SimpleRGBImageF64 {
     fn into_iter(self) -> Self::IntoIter {
         izip!(
             self.red().iter(),
-            self.blue().iter(),
-            self.green().iter()
+            self.green().iter(),
+            self.blue().iter()
         )
         .map(|(&a, &b, &c)| (a, b, c))
         .collect::<Vec<(f64, f64, f64)>>()
@@ -162,6 +167,64 @@ impl<'a> SimpleRGBImageU8 {
         let temp = self.as_view();
         imgshow(&temp).unwrap();
     }
+
+    pub fn from_slice(slice: &[u8], width: u32, height: u32) -> SimpleRGBImageU8 {
+        
+        let mut red : Vec<u8> = Vec::new();
+        let mut green: Vec<u8> = Vec::new();
+        let mut blue: Vec<u8> = Vec::new();
+        
+        slice.iter().enumerate().for_each(|(idx, &pixel)| {
+            match idx % 3 {
+                0 => {
+                    red.push(pixel);
+                },
+                1 => {
+                    green.push(pixel);
+                },
+                2 => {
+                    blue.push(pixel);
+                },
+                _ => {
+                    unreachable!();
+                }
+            }
+        });
+
+        let h = height as usize;
+        let w = width as usize;
+
+        let red_dmat = DMatrix::from_iterator(h, w, red.into_iter());
+        let green_dmat = DMatrix::from_iterator(h, w, green.into_iter());
+        let blue_dmat = DMatrix::from_iterator(h, w, blue.into_iter());
+
+        Self {
+            width: width,
+            height: height,
+            channels: [red_dmat, green_dmat, blue_dmat]
+        }
+    }
+
+    pub fn as_imgproc_image_u8(&self) -> ImgProcImage<u8> {
+
+        let d_img = self.as_view();
+        let (width, height) = d_img.dimensions();
+        let (channels, alpha) = (3, false);
+
+        ImgProcImage::<u8>::from_slice(width, height, channels, alpha, d_img.as_bytes())
+    }
+
+    pub fn as_imgproc_image_f64(&self) -> ImgProcImage<f64> {
+
+        let d_img = self.as_view();
+        let (width, height) = d_img.dimensions();
+        let (channels, alpha) = (3, false);
+
+        let raw_u8 = ImgProcImage::<u8>::from_slice(width, height, channels, alpha, d_img.as_bytes());
+
+        img_proc_u8_to_f64_scale(&raw_u8, 255)
+    }
+
     pub fn as_view(&self) -> DynamicImage {
         let mut img = RgbImage::new(self.width, self.height);
 
@@ -193,10 +256,10 @@ impl<'a> SimpleRGBImageU8 {
                     red.push(pixel);
                 },
                 1 => {
-                    blue.push(pixel);
+                    green.push(pixel);
                 },
                 2 => {
-                    green.push(pixel);
+                    blue.push(pixel);
                 },
                 _ => {
                     unreachable!();
@@ -235,10 +298,50 @@ impl<'a> SimpleRGBImageU8 {
 
 impl<'a> SimpleRGBImageF64 {
 
+
     pub fn show(&self) {
         let temp = self.as_view();
         imgshow(&temp).unwrap();
     }
+
+
+    pub fn from_slice(slice: &[f64], width: u32, height: u32) -> SimpleRGBImageF64 {
+        
+        let mut red : Vec<f64> = Vec::new();
+        let mut green: Vec<f64> = Vec::new();
+        let mut blue: Vec<f64> = Vec::new();
+        
+        slice.iter().enumerate().for_each(|(idx, &pixel)| {
+            match idx % 3 {
+                0 => {
+                    red.push(pixel);
+                },
+                1 => {
+                    green.push(pixel);
+                },
+                2 => {
+                    blue.push(pixel);
+                },
+                _ => {
+                    unreachable!();
+                }
+            }
+        });
+
+        let h = height as usize;
+        let w = width as usize;
+
+        let red_dmat = DMatrix::from_iterator(h, w, red.into_iter());
+        let green_dmat = DMatrix::from_iterator(h, w, green.into_iter());
+        let blue_dmat = DMatrix::from_iterator(h, w, blue.into_iter());
+
+        Self {
+            width: width,
+            height: height,
+            channels: [red_dmat, green_dmat, blue_dmat]
+        }
+    }
+
     pub fn as_view(&self) -> DynamicImage {
         let mut img = RgbImage::new(self.width, self.height);
 
@@ -274,10 +377,10 @@ impl<'a> SimpleRGBImageF64 {
                     red.push(pixel as f64 / 255.0);
                 },
                 1 => {
-                    blue.push(pixel as f64 / 255.0);
+                    green.push(pixel as f64 / 255.0);
                 },
                 2 => {
-                    green.push(pixel as f64 / 255.0);
+                    blue.push(pixel as f64 / 255.0);
                 },
                 _ => {
                     unreachable!();

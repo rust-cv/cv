@@ -1,20 +1,22 @@
 use image::{DynamicImage};
-use cv_sift::image::{SimpleRGBImageU8, SimpleRGBImageF64};
+use cv_sift::{SimpleRGBImageU8, base_image, Shape};
 
-// pub mod image;
+fn test_base_image(in_path: &str, out_path: &str) {
+
+    let image: DynamicImage = image::open(in_path).unwrap();
+
+    let simple_img = SimpleRGBImageU8::from_dynamic(&image);
+    dbg!(simple_img.shape());
+
+    let simple_img_base_img = base_image(&simple_img, 1.6, 0.5);
+    dbg!(simple_img_base_img.shape());
+
+    simple_img_base_img.as_view().save(out_path).unwrap();
+}
 
 
 pub fn main() {
-
-    let image: DynamicImage = image::open("/home/aalekh/Documents/projects/cv-rust/res/0000000002.jpeg").unwrap();
-
-    let simple_img1 = SimpleRGBImageU8::from_dynamic(&image);
-    let simple_img2 = SimpleRGBImageF64::from_dynamic(&image);
-    
-    let s_img_ref1 = &simple_img1;
-    let s_img_ref2 = &simple_img2;
-
-    s_img_ref1.as_view().save("/home/aalekh/Documents/projects/cv-rust/res/0000000002_u8.png").unwrap();
-    s_img_ref2.as_view().save("/home/aalekh/Documents/projects/cv-rust/res/0000000002_f64.png").unwrap();
-
+    let inp = "/home/aalekh/Documents/projects/cv-rust/res/box.png";
+    let out = "/home/aalekh/Documents/projects/cv-rust/res/box_base_image.png";
+    test_base_image(inp, out);
 }

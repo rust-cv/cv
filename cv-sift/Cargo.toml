@@ -17,6 +17,7 @@ readme = "README.md"
 # cv = { version = "0.6.0", path="../cv" }
 image = { version = "0.23.14", default-features = false }
 imgshow = { version = "*", path="../imgshow" }
-nalgebra = "*"
-num = "*"
-itertools = "*"
+nalgebra = "0.29"
+num = "0.4"
+itertools = "0.10"
+imgproc-rs = { version = "0.2.3", features = ["parallel"] }
