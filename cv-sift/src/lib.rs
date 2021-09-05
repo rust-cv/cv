@@ -6,12 +6,12 @@ mod pyramid;
 pub mod utils;
 
 
-pub use crate::sift::{
-    blah
-};
+// pub use crate::sift::{
+//     blah
+// };
 pub use crate::image::{
-    SimpleRGBImageU8,
-    Shape
+    SimpleRGBImage,
+    ApplyAcrossChannels
 };
 pub use crate::pyramid::{
     gaussian_kernels,
@@ -27,21 +27,34 @@ mod tests {
 
     use image::{DynamicImage};
     use image::io::{Reader as ImageReader};
-    pub use crate::image::{SimpleRGBImageU8, Shape};
+    use crate::image::{SimpleRGBImage, ApplyAcrossChannels};
     use crate::pyramid;
     use crate::utils::{assert_similar};
+    use nalgebra::{DMatrix};
 
 
-    fn get_box_image() -> SimpleRGBImageU8 {
+    fn get_box_image_f64() -> SimpleRGBImage<f64> {
         let img = ImageReader::open("/home/aalekh/Documents/projects/cv-rust/res/box.png").unwrap().decode().unwrap().to_rgb8();
         let d_img = DynamicImage::ImageRgb8(img);
-        let s_img = SimpleRGBImageU8::from_dynamic(&d_img);
-        s_img
+        SimpleRGBImage::<f64>::from_dynamic(&d_img)
+    }
+
+    fn get_box_image_u8() -> SimpleRGBImage<u8> {
+        let img = ImageReader::open("/home/aalekh/Documents/projects/cv-rust/res/box.png").unwrap().decode().unwrap().to_rgb8();
+        let d_img = DynamicImage::ImageRgb8(img);
+        SimpleRGBImage::<u8>::from_dynamic(&d_img)
+    }
+
+    fn do_nothing(m: &DMatrix<f64>) -> DMatrix<f64> {
+        m.clone()
+    }
+    fn do_nothing_mut(m: &mut DMatrix<f64>) {
+        m.add_scalar_mut(0.0);
     }
 
     #[test]
     fn create_a_simple_image_from_dynamic() {
-        get_box_image();
+        get_box_image_u8();
     }
 
     #[test]
@@ -101,20 +114,37 @@ mod tests {
 
     #[test]
     fn number_of_octaves_box_image() {
-        let img = get_box_image();
+        let img = get_box_image_u8();
         let result = pyramid::number_of_octaves(img.height, img.width);
         assert_eq!(result, 7);
     }
 
+
+
     #[test]
-    fn base_image_for_box_image() {
-        let img = get_box_image();
-        let og_shape = img.shape();
-        let result = pyramid::base_image(&img, 1.6, 0.5);
-
-        let expected_shape = (og_shape.0 * 2, og_shape.1 * 2);
-        let obtained_shape = result.shape();
-
-        assert_eq!(expected_shape, obtained_shape);
+    fn apply_channels_mut_do_nothing() {
+        let expected = get_box_image_f64();
+        let mut result = get_box_image_f64();
+        result.apply_channels_mut(&mut do_nothing_mut);
+        assert!(result.is_same_as(&expected));
     }
+
+    #[test]
+    fn apply_channels_do_nothing() {
+        let expected = get_box_image_f64();
+        let result = get_box_image_f64().apply_channels(&do_nothing);
+        assert!(result.is_same_as(&expected));
+    }
+
+    // #[test]
+    // fn base_image_for_box_image() {
+    //     let img = get_box_image_f64();
+    //     let og_shape = img.shape();
+    //     let result = pyramid::base_image(&img, 1.6, 0.5);
+
+    //     let expected_shape = (og_shape.0 * 2, og_shape.1 * 2);
+    //     let obtained_shape = result.shape();
+
+    //     assert_eq!(expected_shape, obtained_shape);
+    // }
 }

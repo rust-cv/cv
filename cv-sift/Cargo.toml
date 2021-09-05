@@ -20,4 +20,4 @@ imgshow = { version = "*", path="../imgshow" }
 nalgebra = "0.29"
 num = "0.4"
 itertools = "0.10"
-imgproc-rs = { version = "0.2.3", features = ["parallel"] }
+# imgproc-rs = { version = "0.2.3", features = ["parallel"] }

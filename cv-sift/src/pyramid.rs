@@ -1,10 +1,10 @@
 
 use crate::{Dimension};
-use crate::image::{SimpleRGBImageU8, Shape};
-use imgproc_rs::transform;
-use imgproc_rs::enums::{Scale as ImgProcScale};
-use imgproc_rs::image::{Image as ImgProcImage};
-use imgproc_rs::filter;
+use crate::image::{SimpleRGBImage};
+// use imgproc_rs::transform;
+// use imgproc_rs::enums::{Scale as ImgProcScale};
+// use imgproc_rs::image::{Image as ImgProcImage};
+// use imgproc_rs::filter;
 
 /// List of gaussian kernels at which to blur the input image.
 /// # Examples
@@ -67,7 +67,7 @@ pub fn number_of_octaves(height: Dimension, width: Dimension) -> u32 {
 /// Scale the image by a factor of 2 and apply some blur.
 /// # Examples
 /// ```
-///     use cv_sift::{base_image, SimpleRGBImageU8, Shape};
+///     use cv_sift::{base_image, SimpleRGBImage};
 ///     use image::io::{Reader};
 ///     use image::{DynamicImage};
 /// 
@@ -75,43 +75,48 @@ pub fn number_of_octaves(height: Dimension, width: Dimension) -> u32 {
 ///     let img = Reader::open("/home/aalekh/Documents/projects/cv-rust/res/box.png").unwrap().decode().unwrap().to_rgb8();
 ///     let d_img = DynamicImage::ImageRgb8(img);
 ///     
-///     let box_img = SimpleRGBImageU8::from_dynamic(&d_img);
+///     let box_img = SimpleRGBImage::<f64>::from_dynamic(&d_img);
 ///     assert_eq!(box_img.shape(), (223, 324));
 ///     
-///     let base_img = base_image(&box_img, 1.6, 0.5);
-///     assert_eq!(base_img.shape(), (446, 648));
+///     // let base_img = base_image(&box_img, 1.6, 0.5);
+///     // assert_eq!(base_img.shape(), (446, 648));
 /// 
 /// ```
 pub fn base_image(
-    img: &SimpleRGBImageU8,
-    sigma: f64,
-    assumed_blur: f64
-) -> SimpleRGBImageU8 {
+    _img: &SimpleRGBImage<f64>,
+    _sigma: f64,
+    _assumed_blur: f64
+) -> SimpleRGBImage<f64> {
 
-    let (height, width) = img.shape();
+    todo!();
 
-    let raw: ImgProcImage<f64> = img.as_imgproc_image_f64();
-    let res = transform::scale(&raw, 2.0, 2.0, ImgProcScale::Bilinear).unwrap();
+    // let (height, width) = img.shape();
+    // println!("{:?}", img);
+    // img.to_owned()
+    // let raw: ImgProcImage<f64> = img.as_imgproc_image_f64();
+    // let res = transform::scale(&raw, 2.0, 2.0, ImgProcScale::Bilinear).unwrap();
 
-    let final_sigma = {
-        let sigma_val = sigma * sigma - 4.0 * assumed_blur * assumed_blur;
-        if sigma_val > 0.01 {
-            sigma_val.sqrt()
-        } else {
-            0.01_f64.sqrt()
-        }
-    };
-    let neg_two_times_ln_0_005 = 10.59663473309607335491_f64;
-    let ksize = (1.0 + 2.0 * (final_sigma * final_sigma * neg_two_times_ln_0_005 ).sqrt().round()) as u32;
+    // let final_sigma = {
+    //     let sigma_val = sigma * sigma - 4.0 * assumed_blur * assumed_blur;
+    //     if sigma_val > 0.01 {
+    //         sigma_val.sqrt()
+    //     } else {
+    //         0.01_f64.sqrt()
+    //     }
+    // };
+    // let neg_two_times_ln_0_005 = 10.59663473309607335491_f64;
+    // let ksize = (1.0 + 2.0 * (final_sigma * final_sigma * neg_two_times_ln_0_005 ).sqrt().round()) as u32;
 
-    let base_img = match ksize % 2 {
-        0 => filter::gaussian_blur(&res, ksize + 1, final_sigma).unwrap(),
-        _ => filter::gaussian_blur(&res, ksize, final_sigma).unwrap()
-    };
+    // let base_img = match ksize % 2 {
+    //     0 => filter::gaussian_blur(&res, ksize + 1, final_sigma).unwrap(),
+    //     _ => filter::gaussian_blur(&res, ksize, final_sigma).unwrap()
+    // };
 
-    let base_img_as_u8 = base_img.data().iter().map(|x| x.round() as u8).collect::<Vec<u8>>();
-    let out = SimpleRGBImageU8::from_slice(&base_img_as_u8, width * 2, height * 2); 
-    out
+    // let base_img_as_u8 = base_img.data().iter().map(|x| x.round() as u8).collect::<Vec<u8>>();
+    // let out = SimpleRGBImageU8::from_slice(&base_img_as_u8, width * 2, height * 2); 
+    // out
 }
 
+// pub fn gaussian_images(img: ) {
 
+// }
