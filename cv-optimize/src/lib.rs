@@ -46,7 +46,7 @@ impl AdaMaxSo3Tangent {
             squared_recip_translation_trust_region,
             squared_recip_rotation_trust_region,
             translation_scale,
-            mean_momentum: 0.9,
+            mean_momentum: 0.99,
             variance_momentum: 0.99,
             epsilon: 1e-12,
         }

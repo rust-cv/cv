@@ -103,12 +103,14 @@ fn main() {
             settings.single_view_consensus_threshold,
             Xoshiro256PlusPlus::seed_from_u64(0),
         )
-        .max_candidate_hypotheses(1024),
+        .max_candidate_hypotheses(4096)
+        .likelyhood_ratio_threshold(1e1),
         Arrsac::new(
             settings.two_view_consensus_threshold,
             Xoshiro256PlusPlus::seed_from_u64(0),
         )
-        .max_candidate_hypotheses(8192),
+        .max_candidate_hypotheses(8192)
+        .likelyhood_ratio_threshold(1e1),
         LambdaTwist::new(),
         EightPoint::new(),
         LinearEigenTriangulator::new(),

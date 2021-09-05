@@ -1047,7 +1047,7 @@ where
             }
 
             info!(
-                "performing L2 optimization on poses using {} three-way matches out of {}",
+                "performing L1 optimization on poses using {} three-way matches out of {}",
                 opti_matches.len(),
                 common.len()
             );
@@ -1061,8 +1061,8 @@ where
 
             let [new_first_pose, new_second_pose] = three_view_simple_optimize_l2(
                 [first_pose, second_pose],
-                0.00000001,
-                0.00000001,
+                0.000000001,
+                0.000000001,
                 self.settings.optimization_three_view_constraint_patience,
                 &opti_matches,
             );
@@ -1504,14 +1504,14 @@ where
         }
 
         info!(
-            "final L2 optimization with {} inliers (capped at {})",
+            "final L1 optimization with {} inliers (capped at {})",
             matches_3d.len(),
             self.settings.single_view_optimization_num_matches
         );
         pose = single_view_simple_optimize_l2(
             pose,
-            0.00000001,
-            0.00000001,
+            0.000000001,
+            0.000000001,
             self.settings.single_view_patience,
             &matches_3d,
         );
@@ -1747,15 +1747,15 @@ where
             + second_pose.isometry().translation.vector.norm();
         // Shuffle the landmarks to avoid bias.
         landmarks.shuffle(&mut *self.rng.borrow_mut());
-        // Sort the landmarks by their number of observations so the best ones are at the front.
-        landmarks.sort_unstable_by_key(|&landmark| {
-            cmp::Reverse(
-                self.data
-                    .landmark(reconstruction, landmark)
-                    .observations
-                    .len(),
-            )
-        });
+        // // Sort the landmarks by their number of observations so the best ones are at the front.
+        // landmarks.sort_unstable_by_key(|&landmark| {
+        //     cmp::Reverse(
+        //         self.data
+        //             .landmark(reconstruction, landmark)
+        //             .observations
+        //             .len(),
+        //     )
+        // });
 
         // Get the matches to use for optimization.
         let opti_matches: Vec<[UnitVector3<f64>; 3]> = landmarks
@@ -1794,10 +1794,17 @@ where
             opti_matches.len()
         );
 
-        let [mut first_pose, mut second_pose] = three_view_simple_optimize_l2(
+        // let [mut first_pose, mut second_pose] = three_view_simple_optimize_l2(
+        //     [first_pose, second_pose],
+        //     0.000000001,
+        //     0.000000001,
+        //     self.settings.optimization_three_view_constraint_patience,
+        //     &opti_matches,
+        // );
+        let [mut first_pose, mut second_pose] = three_view_simple_optimize_l1(
             [first_pose, second_pose],
-            0.000001,
-            0.000001,
+            0.00000001,
+            0.00000001,
             self.settings.optimization_three_view_constraint_patience,
             &opti_matches,
         );

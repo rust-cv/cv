@@ -348,11 +348,11 @@ fn default_akaze_threshold() -> f64 {
 }
 
 fn default_maximum_cosine_distance() -> f64 {
-    5e-7
+    1e-7
 }
 
 fn default_maximum_sine_distance() -> f64 {
-    5e-4
+    4.5e-4
 }
 
 fn default_minimum_robust_landmarks() -> usize {
@@ -373,7 +373,7 @@ fn default_robust_observation_incidence_minimum_parallelepiped_volume() -> f64 {
 
 fn default_single_view_consensus_threshold() -> f64 {
     // Cosine distance
-    5e-7
+    1e-7
 }
 
 fn default_single_view_optimization_num_matches() -> usize {
@@ -418,7 +418,7 @@ fn default_single_view_match_better_by() -> u32 {
 
 fn default_two_view_consensus_threshold() -> f64 {
     // Sine distance
-    5e-4
+    4.5e-4
 }
 
 fn default_two_view_inlier_minimum_threshold() -> f64 {
@@ -498,7 +498,7 @@ fn default_optimization_three_view_constraint_patience() -> usize {
 }
 
 fn default_optimization_maximum_three_view_constraints() -> usize {
-    1 << 4
+    1 << 6
 }
 
 fn default_optimization_minimum_new_constraints() -> usize {
@@ -514,7 +514,7 @@ fn default_optimization_iterations() -> usize {
 }
 
 fn default_optimization_landmarks() -> usize {
-    1 << 4
+    1 << 6
 }
 
 fn default_optimization_robust_covisibility_minimum_landmarks() -> usize {
