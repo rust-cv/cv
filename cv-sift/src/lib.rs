@@ -1,25 +1,28 @@
-mod sift;
-mod image;
-mod pyramid;
+pub mod sift;
+pub mod image;
+
+
+pub mod pyramid;
 
 // Expose all utils.
 pub mod utils;
 
 
-pub use crate::sift::{
-    SIFTConfig
-};
-pub use crate::image::{
-    SimpleRGBAImage,
-    ApplyAcrossChannels
-};
+// pub use crate::sift::{
+//     SIFTConfig
+// };
+// pub use crate::image::{
+//     SimpleRGBAImage,
+//     ApplyAcrossChannels
+// };
 
-pub use crate::pyramid::{
-    gaussian_kernels,
-    number_of_octaves,
-    base_image,
-    image_pyramid
-};
+// pub use crate::pyramid::{
+//     gaussian_kernels,
+//     number_of_octaves,
+//     base_image,
+//     image_pyramid,
+//     difference_of_gaussians
+// };
 
 pub type Dimension = u32;
 
@@ -190,6 +193,23 @@ mod tests {
             for (entry_idx, _entry) in row.iter().enumerate() {
                 let _path = format!("{}/oct_{}_level_{}.png", out, row_idx, entry_idx);
                 // _entry.save(&_path).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn difference_of_gaussians_image_pyramid_for_box_image() {
+        let img = get_box_image_f64();
+        let out = "/home/aalekh/Documents/projects/cv-rust/cv-sift/media/box_pyramid_diff_of_gaussians";
+
+        let gaussian_pyramid = pyramid::image_pyramid(&img, SIFTConfig::new());
+
+        let result = pyramid::difference_of_gaussians(&gaussian_pyramid);
+
+        for (row_idx, row) in result.iter().enumerate() {
+            for (entry_idx, _entry) in row.iter().enumerate() {
+                let _path = format!("{}/diff_of_gauss_oct_{}_level_{}.png", out, row_idx, entry_idx);
+                _entry.save(&_path).unwrap();
             }
         }
     }

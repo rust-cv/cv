@@ -1,7 +1,8 @@
-use image::{DynamicImage, RgbaImage, Rgba};
+use image::{DynamicImage, RgbaImage, Rgba, io::Reader as ImageReader};
 use nalgebra::{DMatrix, Scalar};
 use imgshow::imgshow;
 use num::{Num, NumCast};
+use std::io::ErrorKind;
 
 
 #[derive(Debug, Clone)]
@@ -67,6 +68,21 @@ impl<'a, T: Num + NumCast + Clone + Send + Sync + Scalar + Copy> IntoIterator fo
 
 impl<'a, T: Num + NumCast + Clone + Send + Sync + Scalar + Copy> SimpleRGBAImage<T> {
 
+    pub fn open(path: &str) -> Result<SimpleRGBAImage<T>, ErrorKind>{
+        
+        let img = ImageReader::open(path);
+        if img.is_err() {
+            return Err(ErrorKind::NotFound);
+        }
+        let clean_img = img
+        .unwrap()
+        .decode()
+        .unwrap()
+        .to_rgba8();
+        let d_img = DynamicImage::ImageRgba8(clean_img);
+        Ok(SimpleRGBAImage::<T>::from_dynamic(&d_img))
+    }
+
     pub fn show(&self) {
         let temp = self.as_view();
         imgshow(&temp).unwrap();
@@ -85,7 +101,7 @@ impl<'a, T: Num + NumCast + Clone + Send + Sync + Scalar + Copy> SimpleRGBAImage
     }
 
     pub fn save(&self, path: &str) -> image::ImageResult<()> {
-        self.as_view().to_owned().save(path)
+        self.as_view().save(path)
     }
 
     pub fn to_u8(&self) -> SimpleRGBAImage<u8> {
@@ -145,8 +161,8 @@ impl<'a, T: Num + NumCast + Clone + Send + Sync + Scalar + Copy> SimpleRGBAImage
         let alpha_dmat = DMatrix::<T>::from_iterator(h, w, alpha.into_iter());
 
         Self {
-            width: width,
-            height: height,
+            width,
+            height,
             channels: [red_dmat, green_dmat, blue_dmat, alpha_dmat]
         }
     }
@@ -214,8 +230,8 @@ impl<'a, T: Num + NumCast + Clone + Send + Sync + Scalar + Copy> SimpleRGBAImage
         let alpha_dmat = DMatrix::from_iterator(h, w, alpha.into_iter());
 
         Self {
-            width: width,
-            height: height,
+            width,
+            height,
             channels: [red_dmat, green_dmat, blue_dmat, alpha_dmat]
         }
     }
@@ -261,10 +277,10 @@ pub trait ApplyAcrossChannels<T: Num + NumCast + Clone + Send + Sync + Copy + Sc
 impl<'a, T: Num + NumCast + Clone + Send + Sync + Copy + Scalar> ApplyAcrossChannels<T> for SimpleRGBAImage<T> {
     fn apply_channels(&self, f: &dyn Fn(&DMatrix<T>) -> DMatrix<T>) -> SimpleRGBAImage<T> {
         
-        let new_red = f(&self.red());
-        let new_green = f(&self.green());
-        let new_blue = f(&self.blue());
-        let new_alpha = f(&self.alpha());
+        let new_red = f(self.red());
+        let new_green = f(self.green());
+        let new_blue = f(self.blue());
+        let new_alpha = f(self.alpha());
 
         let (new_height, new_width) = new_red.shape();
 

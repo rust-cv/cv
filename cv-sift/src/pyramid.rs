@@ -3,6 +3,8 @@ use crate::image::{SimpleRGBAImage};
 use crate::sift::SIFTConfig;
 use image::imageops;
 use image::{GenericImageView, DynamicImage};
+use nalgebra::{DMatrix};
+use std::convert::TryInto;
 // use imgproc_rs::transform;
 // use imgproc_rs::enums::{Scale as ImgProcScale};
 // use imgproc_rs::image::{Image as ImgProcImage};
@@ -12,7 +14,7 @@ use image::{GenericImageView, DynamicImage};
 /// # Examples
 /// ```
 ///      use cv_sift::{
-///         gaussian_kernels,
+///         pyramid::gaussian_kernels,
 ///      };
 ///      use cv_sift::utils::{assert_similar};
 /// 
@@ -35,13 +37,13 @@ pub fn gaussian_kernels(
     let images_per_octave = num_intervals + 3;
     let k: f64 = (2.0_f64).powf(1.0 / num_intervals as f64);
     let mut kernels: Vec<f64> = vec![0.0; images_per_octave];
-    
-    kernels[0] = sigma;
 
-    for idx in 1..images_per_octave {
+    kernels[0] = sigma;
+    for (idx, item) in kernels.iter_mut().enumerate().take(images_per_octave).skip(1) {
         let sigma_previous = (k.powf(idx as f64 - 1.0)) * sigma;
         let sigma_total = k * sigma_previous;
-        kernels[idx] = (sigma_total.powf(2.0) - sigma_previous.powf(2.0)).sqrt();
+        *item = (sigma_total.powf(2.0) - sigma_previous.powf(2.0)).sqrt();
+
     }
 
     kernels
@@ -50,7 +52,7 @@ pub fn gaussian_kernels(
 /// Compute the number of octaves in the image pyramid as a function of height and width of the image.
 /// # Examples
 /// ```
-///     use cv_sift::{
+///     use cv_sift::pyramid::{
 ///        number_of_octaves
 ///    };
 /// 
@@ -68,7 +70,7 @@ pub fn number_of_octaves(height: Dimension, width: Dimension) -> u32 {
 /// Scale the image by a factor of 2 and apply some blur.
 /// # Examples
 /// ```
-///     use cv_sift::{base_image, SimpleRGBAImage};
+///     use cv_sift::{pyramid::base_image, image::SimpleRGBAImage};
 ///     use image::io::{Reader};
 ///     use image::{DynamicImage};
 /// 
@@ -116,19 +118,12 @@ pub fn base_image(
 /// Given an image, generate the scale space pyramid.
 /// # Examples
 /// ```
-///     use cv_sift::{SimpleRGBAImage, image_pyramid, SIFTConfig};
+///     use cv_sift::{image::SimpleRGBAImage, pyramid::image_pyramid, sift::SIFTConfig};
 ///     use image::io::{Reader};
 ///     use image::{DynamicImage};
 /// 
 ///     // Use an absolute path here (for now?)
-///     let raw_img = Reader::open("/home/aalekh/Documents/projects/cv-rust/cv-sift/media/box.png")
-///     .unwrap()
-///     .decode()
-///     .unwrap()
-///     .to_rgba8();
-/// 
-///     let d_img = DynamicImage::ImageRgba8(raw_img);
-///     let img = SimpleRGBAImage::<f64>::from_dynamic(&d_img);
+///     let img = SimpleRGBAImage::<f64>::open("/home/aalekh/Documents/projects/cv-rust/cv-sift/media/box.png").unwrap();
 /// 
 ///     let out = "/absolute/path/to/a/directory";
 ///     let result = image_pyramid(&img, SIFTConfig::new());
@@ -143,7 +138,7 @@ pub fn base_image(
 /// ```
 pub fn image_pyramid(img: &SimpleRGBAImage<f64>, config: SIFTConfig) -> Vec<Vec<SimpleRGBAImage<f64>>> {
     let g_kernels = gaussian_kernels(config.sigma, config.num_intervals);
-    let base_img = base_image(&img, config.sigma, config.assumed_blur);
+    let base_img = base_image(img, config.sigma, config.assumed_blur);
     let num_octaves = number_of_octaves(base_img.height, base_img.width) as u32;
 
     let mut result: Vec<Vec<SimpleRGBAImage<f64>>> = vec![];
@@ -151,7 +146,7 @@ pub fn image_pyramid(img: &SimpleRGBAImage<f64>, config: SIFTConfig) -> Vec<Vec<
     for vec_blurred in image_pyramid_given_base(&base_img, num_octaves, &g_kernels).iter(){
         let mut vec_blurred_imgs: Vec<SimpleRGBAImage<f64>> = vec![];
         for blurred in vec_blurred.iter() {
-            vec_blurred_imgs.push(SimpleRGBAImage::<f64>::from_dynamic(&blurred));
+            vec_blurred_imgs.push(SimpleRGBAImage::<f64>::from_dynamic(blurred));
         }
         result.push(vec_blurred_imgs);
     }
@@ -163,12 +158,12 @@ pub fn image_pyramid(img: &SimpleRGBAImage<f64>, config: SIFTConfig) -> Vec<Vec<
 fn image_pyramid_given_base(
     img: &SimpleRGBAImage<f64>,
     num_octaves: u32,
-    g_kernels: &Vec<f64>
+    g_kernels: &[f64]
 ) -> Vec<Vec<DynamicImage>>{
 
-    let mut img_cp = img.to_owned().as_view().to_owned();
+    let mut img_cp = img.to_owned().as_view();
     let mut blurred_images: Vec<Vec<DynamicImage>> = vec![];
-    let mut octave_base_image = SimpleRGBAImage::<f64>::zeros_like(img.shape()).as_view().to_owned();
+    let mut octave_base_image = SimpleRGBAImage::<f64>::zeros_like(img.shape()).as_view();
 
     for _ in 0..num_octaves {
         let mut octave_images: Vec<DynamicImage> = vec![img_cp.clone()];
@@ -187,11 +182,61 @@ fn image_pyramid_given_base(
         img_cp = DynamicImage::ImageRgba8(
             imageops::resize(
                 &octave_base_image,
-                octave_base_image.width() / 2 as u32,
-                octave_base_image.height() / 2 as u32,
+                (octave_base_image.width() / 2) as u32,
+                (octave_base_image.height() / 2) as u32,
                 imageops::FilterType::Nearest
             )
         );
     }
     blurred_images
+}
+
+/// Subtract rgb channels of two images, as img1 - img2 while clamping all resultant values to [0.0, 255.0].
+fn subtract(img1: &SimpleRGBAImage<f64>, img2: &SimpleRGBAImage<f64>) -> SimpleRGBAImage<f64> {
+
+    let mut channels: Vec<DMatrix<f64>> = vec![];
+
+    for ch_idx in 0..3 {
+        let i1_channel = &img1.channels[ch_idx];
+        let i2_channel = &img2.channels[ch_idx];
+        let mut result_channel = i1_channel - i2_channel;
+
+        for val in result_channel.iter_mut() {
+            if *val < 0.0 {
+                *val = 0.0;
+            }
+            else if *val > 255.0 {
+                *val = 255.0;
+            }
+        }
+        channels.push(result_channel);
+    }
+
+    channels.push(
+        DMatrix::<f64>::from_iterator(
+            img1.height as usize,
+            img1.width as usize,
+            vec![255_f64; img1.height as usize * img1.width as usize].into_iter()
+        )
+    );
+
+    SimpleRGBAImage::<f64> {
+        height: img2.height,
+        width: img2.width,
+        channels: channels.try_into().unwrap()
+    }
+}
+
+/// Produce a pyramid of difference of gaussians.
+pub fn difference_of_gaussians(gaussian_images: &[Vec<SimpleRGBAImage<f64>>]) -> Vec<Vec<SimpleRGBAImage<f64>>> {
+    let mut dog_images: Vec<Vec<SimpleRGBAImage<f64>>> = vec![];
+
+    for octave_images in gaussian_images.iter() {
+        let mut dog_per_octave: Vec<SimpleRGBAImage<f64>> = vec![];
+        for (first, second) in octave_images.iter().zip(octave_images.iter().skip(1)) {
+            dog_per_octave.push(subtract(second, first));
+        }
+        dog_images.push(dog_per_octave);
+    }
+    dog_images
 }
