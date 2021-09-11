@@ -59,6 +59,19 @@ impl Se3TangentSpace {
         IsometryMatrix3::from_parts((rotation * self.translation).into(), rotation)
     }
 
+    /// For tangent spaces where the translation and rotation are both rotational, this retrieves the
+    /// translation and rotation rotation matrix. The rotation matrix for the translation rotates the translation,
+    /// while the rotation matrix for the rotation is left-multiplied by the rotation.
+    ///
+    /// Returns `(translation_rotation, rotation)`.
+    #[must_use]
+    #[inline(always)]
+    pub fn rotations(self) -> (Rotation3<f64>, Rotation3<f64>) {
+        let translation_rotation = Rotation3::from_scaled_axis(self.translation);
+        let rotation = Rotation3::from_scaled_axis(self.rotation);
+        (translation_rotation, rotation)
+    }
+
     /// Scales both the rotation and the translation.
     #[must_use]
     #[inline(always)]

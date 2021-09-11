@@ -348,7 +348,7 @@ fn default_akaze_threshold() -> f64 {
 }
 
 fn default_maximum_cosine_distance() -> f64 {
-    1e-7
+    1e-6
 }
 
 fn default_maximum_sine_distance() -> f64 {

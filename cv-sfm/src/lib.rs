@@ -12,12 +12,13 @@ use cv_core::{
     nalgebra::{IsometryMatrix3, Point3, UnitVector3, Vector3, Vector6},
     sample_consensus::{Consensus, Estimator},
     CameraModel, CameraToCamera, FeatureMatch, FeatureWorldMatch, Pose, Projective,
-    TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera, WorldToWorld,
+    Se3TangentSpace, TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera,
+    WorldToWorld,
 };
 use cv_geom::epipolar;
 use cv_optimize::{
     single_view_simple_optimize_l1, single_view_simple_optimize_l2, three_view_simple_optimize_l1,
-    three_view_simple_optimize_l2,
+    three_view_simple_optimize_l2, AdaMaxSo3Tangent,
 };
 use cv_pinhole::CameraIntrinsicsK1Distortion;
 use float_ord::FloatOrd;
@@ -298,6 +299,19 @@ impl VSlamData {
         self.bearing(self.view(reconstruction, view).frame, feature)
     }
 
+    pub fn landmark_bearing(
+        &self,
+        reconstruction: ReconstructionKey,
+        view: ViewKey,
+        landmark: LandmarkKey,
+    ) -> UnitVector3<f64> {
+        self.observation_bearing(
+            reconstruction,
+            view,
+            self.landmark(reconstruction, landmark).observations[&view],
+        )
+    }
+
     pub fn landmark(&self, reconstruction: ReconstructionKey, landmark: LandmarkKey) -> &Landmark {
         &self.reconstructions[reconstruction].landmarks[landmark]
     }
@@ -331,6 +345,25 @@ impl VSlamData {
         self.landmark(reconstruction, landmark)
             .observations
             .iter()
+            .map(move |(&view, &feature)| {
+                (
+                    self.view(reconstruction, view).pose,
+                    self.observation_bearing(reconstruction, view, feature),
+                )
+            })
+    }
+
+    /// Retrieves the (pose, bearing) iterator from a landmark.
+    pub fn landmark_pose_bearings_without_view(
+        &self,
+        reconstruction: ReconstructionKey,
+        landmark: LandmarkKey,
+        without_view: ViewKey,
+    ) -> impl Iterator<Item = (WorldToCamera, UnitVector3<f64>)> + Clone + '_ {
+        self.landmark(reconstruction, landmark)
+            .observations
+            .iter()
+            .filter(move |(&view, _)| view != without_view)
             .map(move |(&view, &feature)| {
                 (
                     self.view(reconstruction, view).pose,
@@ -816,22 +849,22 @@ where
             self.try_init(frame, free_frames.iter().copied());
         }
 
-        // If we already have a reconstruction, use that reconstruction to try and incorporate the found frames.
-        if let Some((reconstruction, _)) = self.data.frames[frame].view {
-            for found_frame in free_frames {
-                // Skip the frame if we initialized with it.
-                if self.data.frames[found_frame].view.is_some() {
-                    continue;
-                }
-                // Try to incorporate the found frame into the reconstruction.
-                self.try_localize_and_incorporate(reconstruction, found_frame)
-                    .or_else(opeek(|| info!("failed to incorporate frame")));
-                if !self.data.reconstructions.contains_key(reconstruction) {
-                    // If the reconstruction got eliminated in the previous step, exit with None.
-                    return None;
-                }
-            }
-        }
+        // // If we already have a reconstruction, use that reconstruction to try and incorporate the found frames.
+        // if let Some((reconstruction, _)) = self.data.frames[frame].view {
+        //     for found_frame in free_frames {
+        //         // Skip the frame if we initialized with it.
+        //         if self.data.frames[found_frame].view.is_some() {
+        //             continue;
+        //         }
+        //         // Try to incorporate the found frame into the reconstruction.
+        //         self.try_localize_and_incorporate(reconstruction, found_frame)
+        //             .or_else(opeek(|| info!("failed to incorporate frame")));
+        //         if !self.data.reconstructions.contains_key(reconstruction) {
+        //             // If the reconstruction got eliminated in the previous step, exit with None.
+        //             return None;
+        //         }
+        //     }
+        // }
 
         self.data.frames[frame].view
     }
@@ -1016,8 +1049,8 @@ where
 
                 let [new_first_pose, new_second_pose] = three_view_simple_optimize_l1(
                     [first_pose, second_pose],
-                    0.00000001,
-                    0.00000001,
+                    0.000001,
+                    0.000001,
                     self.settings.optimization_three_view_constraint_patience,
                     &opti_matches,
                 );
@@ -1059,10 +1092,10 @@ where
                 continue;
             }
 
-            let [new_first_pose, new_second_pose] = three_view_simple_optimize_l2(
+            let [new_first_pose, new_second_pose] = three_view_simple_optimize_l1(
                 [first_pose, second_pose],
-                0.000000001,
-                0.000000001,
+                0.000001,
+                0.000001,
                 self.settings.optimization_three_view_constraint_patience,
                 &opti_matches,
             );
@@ -1468,53 +1501,53 @@ where
             before_match_len
         );
 
-        for _ in 0..self.settings.single_view_filter_loop_iterations {
-            info!(
-                "L1 optimization with {} inliers (capped at {})",
-                matches_3d.len(),
-                self.settings.single_view_optimization_num_matches
-            );
-            pose = single_view_simple_optimize_l1(
-                pose,
-                0.00000001,
-                0.00000001,
-                self.settings.single_view_patience,
-                &matches_3d,
-            );
+        // for _ in 0..self.settings.single_view_filter_loop_iterations {
+        //     info!(
+        //         "L1 optimization with {} inliers (capped at {})",
+        //         matches_3d.len(),
+        //         self.settings.single_view_optimization_num_matches
+        //     );
+        //     pose = single_view_simple_optimize_l1(
+        //         pose,
+        //         0.0000001,
+        //         0.0000001,
+        //         self.settings.single_view_patience,
+        //         &matches_3d,
+        //     );
 
-            // Take only the consistent 3d matches which are also robust.
-            matches_3d = original_matches
-                .iter()
-                .filter_map(|&(landmark, feature)| {
-                    let bearing = new_frame.bearing(feature);
-                    self.is_observation_consistent(
-                        pose,
-                        bearing,
-                        self.data
-                            .landmark_pose_bearings(reconstruction_key, landmark),
-                    )
-                    .then(|| ())?;
-                    Some(FeatureWorldMatch(
-                        new_frame.bearing(feature),
-                        self.triangulate_landmark_robust(reconstruction_key, landmark)?,
-                    ))
-                })
-                .take(self.settings.single_view_optimization_num_matches)
-                .collect_vec();
-        }
+        //     // Take only the consistent 3d matches which are also robust.
+        //     matches_3d = original_matches
+        //         .iter()
+        //         .filter_map(|&(landmark, feature)| {
+        //             let bearing = new_frame.bearing(feature);
+        //             self.is_observation_consistent(
+        //                 pose,
+        //                 bearing,
+        //                 self.data
+        //                     .landmark_pose_bearings(reconstruction_key, landmark),
+        //             )
+        //             .then(|| ())?;
+        //             Some(FeatureWorldMatch(
+        //                 new_frame.bearing(feature),
+        //                 self.triangulate_landmark_robust(reconstruction_key, landmark)?,
+        //             ))
+        //         })
+        //         .take(self.settings.single_view_optimization_num_matches)
+        //         .collect_vec();
+        // }
 
-        info!(
-            "final L1 optimization with {} inliers (capped at {})",
-            matches_3d.len(),
-            self.settings.single_view_optimization_num_matches
-        );
-        pose = single_view_simple_optimize_l2(
-            pose,
-            0.000000001,
-            0.000000001,
-            self.settings.single_view_patience,
-            &matches_3d,
-        );
+        // info!(
+        //     "final L1 optimization with {} inliers (capped at {})",
+        //     matches_3d.len(),
+        //     self.settings.single_view_optimization_num_matches
+        // );
+        // pose = single_view_simple_optimize_l1(
+        //     pose,
+        //     0.0000001,
+        //     0.0000001,
+        //     self.settings.single_view_patience,
+        //     &matches_3d,
+        // );
 
         let original_matches_len = original_matches.len();
         // Extract the final matches which will be used to add observations.
@@ -1794,17 +1827,10 @@ where
             opti_matches.len()
         );
 
-        // let [mut first_pose, mut second_pose] = three_view_simple_optimize_l2(
-        //     [first_pose, second_pose],
-        //     0.000000001,
-        //     0.000000001,
-        //     self.settings.optimization_three_view_constraint_patience,
-        //     &opti_matches,
-        // );
         let [mut first_pose, mut second_pose] = three_view_simple_optimize_l1(
             [first_pose, second_pose],
-            0.00000001,
-            0.00000001,
+            0.000001,
+            0.000001,
             self.settings.optimization_three_view_constraint_patience,
             &opti_matches,
         );
@@ -2101,10 +2127,30 @@ where
     ) -> Option<ReconstructionKey> {
         for _ in 0..self.settings.reconstruction_optimization_iterations {
             // If there are three or more views, run global bundle-adjust.
-            self.bundle_adjust_reconstruction(reconstruction)
+            self.apply_constraints(reconstruction)
                 .or_else(opeek(|| info!("failed to bundle adjust reconstruction")))?;
             // Filter observations after running bundle-adjust.
             self.filter_non_robust_observations(reconstruction)?;
+        }
+        Some(reconstruction)
+    }
+
+    /// Optimizes reconstruction camera poses.
+    pub fn apply_constraints(
+        &mut self,
+        reconstruction: ReconstructionKey,
+    ) -> Option<ReconstructionKey> {
+        info!("optimizing reconstruction with three-view constraints");
+        let constraints = self.flatten_constraints(reconstruction);
+        for _ in 0..self.settings.optimization_iterations {
+            if let Some(bundle_adjust) =
+                self.compute_momentum_bundle_adjust(reconstruction, &constraints)
+            {
+                self.data.apply_bundle_adjust(bundle_adjust);
+            } else {
+                self.data.remove_reconstruction(reconstruction);
+                return None;
+            }
         }
         Some(reconstruction)
     }
@@ -2115,15 +2161,46 @@ where
         reconstruction: ReconstructionKey,
     ) -> Option<ReconstructionKey> {
         info!("bundle adjusting reconstruction");
-        let constraints = self.flatten_constraints(reconstruction);
+        let mut optimizers: Vec<(ViewKey, AdaMaxSo3Tangent)> = self
+            .data
+            .reconstruction(reconstruction)
+            .views
+            .iter()
+            .map(|(key, view)| {
+                (
+                    key,
+                    AdaMaxSo3Tangent::new(view.pose.isometry(), 0.0001, 0.0001),
+                )
+            })
+            .collect();
         for _ in 0..self.settings.optimization_iterations {
-            if let Some(bundle_adjust) =
-                self.compute_momentum_bundle_adjust(reconstruction, &constraints)
-            {
-                self.data.apply_bundle_adjust(bundle_adjust);
-            } else {
-                self.data.remove_reconstruction(reconstruction);
-                return None;
+            for (view, optimizer) in &mut optimizers {
+                let view = *view;
+                // Retrieve all of the landmarks in this view.
+                let mut landmarks = self.data.view(reconstruction, view).landmarks.clone();
+                // Randomly shuffle the landmarks.
+                landmarks.shuffle(&mut *self.rng.borrow_mut());
+                // Only take up to 64 robust (without this view) landmarks.
+                let landmarks = landmarks
+                    .iter()
+                    .filter_map(|&landmark| {
+                        Some(FeatureWorldMatch(
+                            self.data.landmark_bearing(reconstruction, view, landmark),
+                            self.triangulate_landmark_robust_without_view(
+                                reconstruction,
+                                landmark,
+                                view,
+                            )?,
+                        ))
+                    })
+                    .take(64)
+                    .collect_vec();
+                // Run an iteration of the optimizer.
+                optimizer.single_view_l1_step(&landmarks);
+            }
+            for (view, optimizer) in &optimizers {
+                let view = *view;
+                self.data.view_mut(reconstruction, view).pose = WorldToCamera(optimizer.pose());
             }
         }
         Some(reconstruction)
@@ -2686,6 +2763,51 @@ where
             .then(|| ())?;
         // Lastly, triangulate the point, failing if that fails.
         self.triangulate_pose_bearings(self.data.landmark_pose_bearings(reconstruction, landmark))
+    }
+
+    /// Triangulates a landmark only if it is robust and only using robust observations.
+    pub fn is_landmark_robust_without_view(
+        &self,
+        reconstruction: ReconstructionKey,
+        landmark: LandmarkKey,
+        without_view: ViewKey,
+    ) -> bool {
+        // Ensure at least two observations have an incidence angle between them exceeding the minimum.
+        self.data
+            .landmark_observations(reconstruction, landmark)
+            .filter(|&(view, _)| view != without_view)
+            .map(|(view, feature)| {
+                let pose = self.data.pose(reconstruction, view).inverse().isometry();
+                pose * self.data.observation_bearing(reconstruction, view, feature)
+            })
+            .tuple_combinations()
+            .any(|(a, b, c)| {
+                self.is_tri_observation_angularly_robust(
+                    a,
+                    b,
+                    c,
+                    self.settings
+                        .robust_observation_incidence_minimum_parallelepiped_volume,
+                )
+            })
+    }
+
+    /// Triangulates a landmark only if it is robust and only using robust observations.
+    pub fn triangulate_landmark_robust_without_view(
+        &self,
+        reconstruction: ReconstructionKey,
+        landmark: LandmarkKey,
+        without_view: ViewKey,
+    ) -> Option<WorldPoint> {
+        // Retrieve the observations.
+        self.is_landmark_robust_without_view(reconstruction, landmark, without_view)
+            .then(|| ())?;
+        // Lastly, triangulate the point, failing if that fails.
+        self.triangulate_pose_bearings(self.data.landmark_pose_bearings_without_view(
+            reconstruction,
+            landmark,
+            without_view,
+        ))
     }
 
     /// Triangulates a landmark with observations added. An observation is a (view, feature) pair.

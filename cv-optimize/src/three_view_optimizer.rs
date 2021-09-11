@@ -1,41 +1,26 @@
 use crate::AdaMaxSo3Tangent;
-use cv_core::{nalgebra::UnitVector3, CameraToCamera, Pose, Se3TangentSpace};
+use cv_core::{
+    nalgebra::{IsometryMatrix3, UnitVector3},
+    CameraToCamera, Pose, Se3TangentSpace,
+};
 use cv_geom::epipolar;
 use float_ord::FloatOrd;
 use itertools::izip;
 
 fn landmark_deltas(
-    poses: [CameraToCamera; 2],
+    poses: [IsometryMatrix3<f64>; 2],
     observations: [UnitVector3<f64>; 3],
 ) -> [Se3TangentSpace; 2] {
-    let ctof = poses[0].isometry();
-    let ftoc = ctof.inverse();
-    let ctos = poses[1].isometry();
-    let ftos = ctos * ftoc;
-    let stof = ftos.inverse();
+    let ftoc = poses[0];
+    let stoc = poses[1];
 
-    [
-        epipolar::relative_pose_gradient(
-            ctof.translation.vector,
-            ctof * observations[0],
-            observations[1],
-        ) + epipolar::relative_pose_gradient(
-            stof.translation.vector,
-            stof * observations[2],
-            observations[1],
-        )
-        .scale(0.5),
-        epipolar::relative_pose_gradient(
-            ctos.translation.vector,
-            ctos * observations[0],
-            observations[2],
-        ) + epipolar::relative_pose_gradient(
-            ftos.translation.vector,
-            ftos * observations[1],
-            observations[2],
-        )
-        .scale(0.5),
-    ]
+    epipolar::three_view_gradients(
+        observations[0],
+        ftoc * observations[1],
+        ftoc.translation.vector,
+        stoc * observations[2],
+        stoc.translation.vector,
+    )
 }
 
 pub fn three_view_simple_optimize_l1(
@@ -48,95 +33,84 @@ pub fn three_view_simple_optimize_l1(
     if landmarks.is_empty() {
         return poses;
     }
-    let mut optimizers = poses.map(|pose| {
-        AdaMaxSo3Tangent::new(
-            pose.isometry(),
-            translation_trust_region,
-            rotation_trust_region,
-            1.0,
-        )
-    });
-    let inv_landmark_len = (landmarks.len() as f64).recip();
-    let mut ts = [vec![0.0; landmarks.len()], vec![0.0; landmarks.len()]];
-    let mut rs = [vec![0.0; landmarks.len()], vec![0.0; landmarks.len()]];
+    let mut poses = poses.map(|pose| pose.isometry().inverse());
+    let mut prev_deltas = [Se3TangentSpace::identity(), Se3TangentSpace::identity()];
     for iteration in 0..iterations {
-        // Extract the tangent vectors for each pose.
-        for v in ts.iter_mut().chain(rs.iter_mut()) {
-            v.clear();
-        }
-        let mut net_l1s = [Se3TangentSpace::identity(), Se3TangentSpace::identity()];
+        // For the sums here, we use a VERY small number.
+        // This is so that if the gradient is zero for every data point (we are 100% perfect),
+        // then it will not turn the delta into NaN by taking the reciprocal of 0 (infinity) and multiplying
+        // it by 0.
+        let mut nets = [
+            (Se3TangentSpace::identity(), 0.0, 0.0),
+            (Se3TangentSpace::identity(), 0.0, 0.0),
+        ];
+        let tscale = poses
+            .iter()
+            .map(|pose| pose.translation.vector.norm())
+            .sum::<f64>();
         for &observations in landmarks {
             let deltas = landmark_deltas(poses, observations);
 
-            for ((l1sum, ts, rs), &delta) in
-                izip!(net_l1s.iter_mut(), ts.iter_mut(), rs.iter_mut()).zip(deltas.iter())
-            {
-                ts.push(delta.translation.norm());
-                rs.push(delta.rotation.norm());
+            for ((l1sum, ts, rs), &delta) in nets.iter_mut().zip(deltas.iter()) {
+                *ts += (delta.translation.norm() + tscale * 1e-9).recip();
+                *rs += (delta.rotation.norm() + 1e-9).recip();
                 *l1sum += delta.l1();
             }
         }
-        for v in ts.iter_mut().chain(rs.iter_mut()) {
-            v.sort_unstable_by_key(|&f| FloatOrd(f));
-        }
 
-        let mut net_deltas = [Se3TangentSpace::identity(); 2];
-        for (delta, (l1sum, ts, rs)) in
-            net_deltas
-                .iter_mut()
-                .zip(izip!(net_l1s.iter(), ts.iter(), rs.iter()))
-        {
-            let translation_scale = ts[ts.len() / 2] * inv_landmark_len;
-            let rotation_scale = rs[rs.len() / 2] * inv_landmark_len;
+        // Apply the harmonic mean as per the Weiszfeld algorithm from the paper
+        // "Sur le point pour lequel la somme des distances de n points donn ́es est minimum."
+        let mut deltas = [Se3TangentSpace::identity(); 2];
+        for (delta, (l1sum, ts, rs)) in deltas.iter_mut().zip(nets) {
             *delta = l1sum
-                .scale(inv_landmark_len)
-                .scale_translation(translation_scale)
-                .scale_rotation(rotation_scale);
-        }
-
-        // Run everything through the optimizer and keep track of if all of them finished.
-        let mut done = true;
-        for (optimizer, net_delta) in optimizers
-            .iter_mut()
-            .zip(std::array::IntoIter::new(net_deltas))
-        {
-            if !optimizer.step(net_delta) {
-                done = false;
-            }
+                .scale_translation(ts.recip())
+                .scale_rotation(rs.recip());
         }
 
         // Check if all of the optimizers reached stability.
+        let done = prev_deltas == deltas;
         if done {
             log::info!(
-                "terminating single-view optimization due to stabilizing on iteration {}",
+                "terminating three-view optimization due to stabilizing on iteration {}",
                 iteration
             );
             log::info!(
                 "first rotation magnitude: {}",
-                net_deltas[0].rotation.norm()
+                nets[0].0.rotation.norm() / landmarks.len() as f64
             );
             log::info!(
                 "second rotation magnitude: {}",
-                net_deltas[1].rotation.norm()
+                nets[1].0.rotation.norm() / landmarks.len() as f64
             );
             break;
         }
 
+        // Run everything through the optimizer and keep track of if all of them finished.
+        for (pose, delta) in poses.iter_mut().zip(deltas.iter()) {
+            // Perturb slightly using the previous delta to avoid getting stuck overlapping with a datapoint.
+            // This can occur to the Weizfeld algorithm because when you overlap a datapoint perfectly, it produces a 0.
+            // The 0 ends up causing the whole harmonic mean to go to 0. This small perturbation helps avoid
+            // getting stuck in a local minima.
+            *pose = delta.isometry() * *pose;
+        }
+
+        prev_deltas = deltas;
+
         // If we are on the last iteration, print some logs indicating so.
         if iteration == iterations - 1 {
-            log::info!("terminating single-view optimization due to reaching maximum iterations");
+            log::info!("terminating three-view optimization due to reaching maximum iterations");
             log::info!(
                 "first rotation magnitude: {}",
-                net_deltas[0].rotation.norm()
+                nets[0].0.rotation.norm() / landmarks.len() as f64
             );
             log::info!(
                 "second rotation magnitude: {}",
-                net_deltas[1].rotation.norm()
+                nets[1].0.rotation.norm() / landmarks.len() as f64
             );
             break;
         }
     }
-    optimizers.map(|optimizer| CameraToCamera(optimizer.pose()))
+    poses.map(|pose| pose.inverse().into())
 }
 
 pub fn three_view_simple_optimize_l2(
@@ -151,28 +125,25 @@ pub fn three_view_simple_optimize_l2(
     }
     let mut optimizers = poses.map(|pose| {
         AdaMaxSo3Tangent::new(
-            pose.isometry(),
+            pose.isometry().inverse(),
             translation_trust_region,
             rotation_trust_region,
-            1.0,
         )
     });
     let inv_landmark_len = (landmarks.len() as f64).recip();
     for iteration in 0..iterations {
+        let poses = optimizers.clone().map(|o| o.pose());
         // Extract the tangent vectors for each pose.
         let mut net_l2_deltas = [Se3TangentSpace::identity(); 2];
         for &observations in landmarks {
             let deltas = landmark_deltas(poses, observations);
 
             for (net_l2, &delta) in net_l2_deltas.iter_mut().zip(deltas.iter()) {
-                *net_l2 += delta;
+                *net_l2 += delta.scale(inv_landmark_len);
             }
         }
 
-        let mut net_deltas = net_l2_deltas;
-        for delta in &mut net_deltas {
-            *delta = delta.scale(inv_landmark_len);
-        }
+        let net_deltas = net_l2_deltas;
 
         // Run everything through the optimizer and keep track of if all of them finished.
         let mut done = true;
@@ -180,7 +151,7 @@ pub fn three_view_simple_optimize_l2(
             .iter_mut()
             .zip(std::array::IntoIter::new(net_deltas))
         {
-            if !optimizer.step(net_delta) {
+            if !optimizer.step_linear_translation(net_delta) {
                 done = false;
             }
         }
@@ -216,5 +187,5 @@ pub fn three_view_simple_optimize_l2(
             break;
         }
     }
-    optimizers.map(|optimizer| CameraToCamera(optimizer.pose()))
+    optimizers.map(|optimizer| CameraToCamera(optimizer.pose().inverse()))
 }

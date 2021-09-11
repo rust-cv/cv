@@ -264,7 +264,7 @@ impl TriangulatorObservations for SineL1Triangulator {
             point += delta;
 
             // Quit if we reach the accuracy of the epsilon.
-            if delta.norm_squared() < epsilon_squared {
+            if delta.norm_squared() / point.coords.norm_squared() < epsilon_squared {
                 break;
             }
         }

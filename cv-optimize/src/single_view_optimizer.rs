@@ -4,7 +4,10 @@ use cv_geom::epipolar;
 use float_ord::FloatOrd;
 use itertools::izip;
 
-fn landmark_delta(pose: WorldToCamera, landmark: FeatureWorldMatch) -> Option<Se3TangentSpace> {
+pub(crate) fn landmark_delta(
+    pose: WorldToCamera,
+    landmark: FeatureWorldMatch,
+) -> Option<Se3TangentSpace> {
     let FeatureWorldMatch(bearing, world_point) = landmark;
     let camera_point = pose.transform(world_point);
     Some(epipolar::world_pose_gradient(
@@ -27,7 +30,6 @@ pub fn single_view_simple_optimize_l1(
         original_pose.isometry(),
         translation_trust_region,
         rotation_trust_region,
-        1.0,
     );
     let inv_landmark_len = (landmarks.len() as f64).recip();
     let mut translations = vec![0.0; landmarks.len()];
@@ -42,7 +44,7 @@ pub fn single_view_simple_optimize_l1(
             if let Some(tangent) = landmark_delta(WorldToCamera(optimizer.pose()), landmark) {
                 *t = tangent.translation.norm();
                 *r = tangent.rotation.norm();
-                l1 += tangent.l1();
+                l1 += tangent.l1().scale(inv_landmark_len);
             } else {
                 *t = 0.0;
                 *r = 0.0;
@@ -51,26 +53,25 @@ pub fn single_view_simple_optimize_l1(
         translations.sort_unstable_by_key(|&f| FloatOrd(f));
         rotations.sort_unstable_by_key(|&f| FloatOrd(f));
 
-        let translation_scale = translations[translations.len() / 2] * inv_landmark_len;
-        let rotation_scale = rotations[rotations.len() / 2] * inv_landmark_len;
+        let translation_scale = translations[translations.len() / 2];
+        let rotation_scale = rotations[rotations.len() / 2];
 
         let tangent = l1
-            .scale(inv_landmark_len)
             .scale_translation(translation_scale)
             .scale_rotation(rotation_scale);
 
-        if optimizer.step(tangent) {
+        if optimizer.step_linear_translation(tangent) {
             log::info!(
                 "terminating single-view optimization due to stabilizing on iteration {}",
                 iteration
             );
-            log::info!("tangent rotation magnitude: {}", tangent.rotation.norm());
+            log::info!("tangent rotation magnitude: {}", l1.rotation.norm());
             break;
         }
 
         if iteration == iterations - 1 {
             log::info!("terminating single-view optimization due to reaching maximum iterations");
-            log::info!("tangent rotation magnitude: {}", tangent.rotation.norm());
+            log::info!("tangent rotation magnitude: {}", l1.rotation.norm());
             break;
         }
     }
@@ -91,7 +92,6 @@ pub fn single_view_simple_optimize_l2(
         original_pose.isometry(),
         translation_trust_region,
         rotation_trust_region,
-        1.0,
     );
     let inv_landmark_len = (landmarks.len() as f64).recip();
     for iteration in 0..iterations {
@@ -103,7 +103,7 @@ pub fn single_view_simple_optimize_l2(
 
         let tangent = l2.scale(inv_landmark_len);
 
-        if optimizer.step(tangent) {
+        if optimizer.step_linear_translation(tangent) {
             log::info!(
                 "terminating single-view optimization due to stabilizing on iteration {}",
                 iteration
