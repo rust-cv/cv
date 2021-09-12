@@ -1,11 +1,8 @@
-use crate::AdaMaxSo3Tangent;
 use cv_core::{
     nalgebra::{IsometryMatrix3, UnitVector3},
     CameraToCamera, Pose, Se3TangentSpace,
 };
 use cv_geom::epipolar;
-use float_ord::FloatOrd;
-use itertools::izip;
 
 fn landmark_deltas(
     poses: [IsometryMatrix3<f64>; 2],
@@ -25,8 +22,7 @@ fn landmark_deltas(
 
 pub fn three_view_simple_optimize_l1(
     poses: [CameraToCamera; 2],
-    translation_trust_region: f64,
-    rotation_trust_region: f64,
+    epsilon: f64,
     iterations: usize,
     landmarks: &[[UnitVector3<f64>; 3]],
 ) -> [CameraToCamera; 2] {
@@ -34,7 +30,8 @@ pub fn three_view_simple_optimize_l1(
         return poses;
     }
     let mut poses = poses.map(|pose| pose.isometry().inverse());
-    let mut prev_deltas = [Se3TangentSpace::identity(), Se3TangentSpace::identity()];
+    let mut bests = [[f64::INFINITY; 2]; 2];
+    let mut no_improve_for = 0;
     for iteration in 0..iterations {
         // For the sums here, we use a VERY small number.
         // This is so that if the gradient is zero for every data point (we are 100% perfect),
@@ -52,8 +49,8 @@ pub fn three_view_simple_optimize_l1(
             let deltas = landmark_deltas(poses, observations);
 
             for ((l1sum, ts, rs), &delta) in nets.iter_mut().zip(deltas.iter()) {
-                *ts += (delta.translation.norm() + tscale * 1e-9).recip();
-                *rs += (delta.rotation.norm() + 1e-9).recip();
+                *ts += (delta.translation.norm() + tscale * epsilon).recip();
+                *rs += (delta.rotation.norm() + epsilon).recip();
                 *l1sum += delta.l1();
             }
         }
@@ -67,9 +64,22 @@ pub fn three_view_simple_optimize_l1(
                 .scale_rotation(rs.recip());
         }
 
+        no_improve_for += 1;
+        for ([best_t, best_r], (l1, _, _)) in bests.iter_mut().zip(nets.iter()) {
+            let t = l1.translation.norm();
+            let r = l1.rotation.norm();
+            if *best_t > t {
+                *best_t = t;
+                no_improve_for = 0;
+            }
+            if *best_r > r {
+                *best_r = r;
+                no_improve_for = 0;
+            }
+        }
+
         // Check if all of the optimizers reached stability.
-        let done = prev_deltas == deltas;
-        if done {
+        if no_improve_for >= 50 {
             log::info!(
                 "terminating three-view optimization due to stabilizing on iteration {}",
                 iteration
@@ -94,8 +104,6 @@ pub fn three_view_simple_optimize_l1(
             *pose = delta.isometry() * *pose;
         }
 
-        prev_deltas = deltas;
-
         // If we are on the last iteration, print some logs indicating so.
         if iteration == iterations - 1 {
             log::info!("terminating three-view optimization due to reaching maximum iterations");
@@ -115,77 +123,79 @@ pub fn three_view_simple_optimize_l1(
 
 pub fn three_view_simple_optimize_l2(
     poses: [CameraToCamera; 2],
-    translation_trust_region: f64,
-    rotation_trust_region: f64,
+    optimization_rate: f64,
     iterations: usize,
     landmarks: &[[UnitVector3<f64>; 3]],
 ) -> [CameraToCamera; 2] {
     if landmarks.is_empty() {
         return poses;
     }
-    let mut optimizers = poses.map(|pose| {
-        AdaMaxSo3Tangent::new(
-            pose.isometry().inverse(),
-            translation_trust_region,
-            rotation_trust_region,
-        )
-    });
     let inv_landmark_len = (landmarks.len() as f64).recip();
+    let mut poses = poses.map(|pose| pose.isometry().inverse());
+    let mut bests = [[f64::INFINITY; 2]; 2];
+    let mut no_improve_for = 0;
     for iteration in 0..iterations {
-        let poses = optimizers.clone().map(|o| o.pose());
-        // Extract the tangent vectors for each pose.
-        let mut net_l2_deltas = [Se3TangentSpace::identity(); 2];
+        // For the sums here, we use a VERY small number.
+        // This is so that if the gradient is zero for every data point (we are 100% perfect),
+        // then it will not turn the delta into NaN by taking the reciprocal of 0 (infinity) and multiplying
+        // it by 0.
+        let mut nets = [Se3TangentSpace::identity(), Se3TangentSpace::identity()];
         for &observations in landmarks {
             let deltas = landmark_deltas(poses, observations);
 
-            for (net_l2, &delta) in net_l2_deltas.iter_mut().zip(deltas.iter()) {
-                *net_l2 += delta.scale(inv_landmark_len);
+            for (l2sum, &delta) in nets.iter_mut().zip(deltas.iter()) {
+                *l2sum += delta;
             }
         }
 
-        let net_deltas = net_l2_deltas;
+        // Apply the harmonic mean as per the Weiszfeld algorithm from the paper
+        // "Sur le point pour lequel la somme des distances de n points donn ́es est minimum."
+        let mut deltas = [Se3TangentSpace::identity(); 2];
+        for (delta, l2sum) in deltas.iter_mut().zip(nets) {
+            *delta = l2sum.scale(inv_landmark_len * optimization_rate);
+        }
 
-        // Run everything through the optimizer and keep track of if all of them finished.
-        let mut done = true;
-        for (optimizer, net_delta) in optimizers
-            .iter_mut()
-            .zip(std::array::IntoIter::new(net_deltas))
-        {
-            if !optimizer.step_linear_translation(net_delta) {
-                done = false;
+        no_improve_for += 1;
+        for ([best_t, best_r], l2sum) in bests.iter_mut().zip(nets.iter()) {
+            let t = l2sum.translation.norm();
+            let r = l2sum.rotation.norm();
+            if *best_t > t {
+                *best_t = t;
+                no_improve_for = 0;
+            }
+            if *best_r > r {
+                *best_r = r;
+                no_improve_for = 0;
             }
         }
 
         // Check if all of the optimizers reached stability.
-        if done {
+        if no_improve_for >= 50 {
             log::info!(
                 "terminating three-view optimization due to stabilizing on iteration {}",
                 iteration
             );
-            log::info!(
-                "first rotation magnitude: {}",
-                net_deltas[0].rotation.norm()
-            );
-            log::info!(
-                "second rotation magnitude: {}",
-                net_deltas[1].rotation.norm()
-            );
+            log::info!("first rotation magnitude: {}", deltas[0].rotation.norm());
+            log::info!("second rotation magnitude: {}", deltas[1].rotation.norm());
             break;
+        }
+
+        // Run everything through the optimizer and keep track of if all of them finished.
+        for (pose, delta) in poses.iter_mut().zip(deltas.iter()) {
+            // Perturb slightly using the previous delta to avoid getting stuck overlapping with a datapoint.
+            // This can occur to the Weizfeld algorithm because when you overlap a datapoint perfectly, it produces a 0.
+            // The 0 ends up causing the whole harmonic mean to go to 0. This small perturbation helps avoid
+            // getting stuck in a local minima.
+            *pose = delta.isometry() * *pose;
         }
 
         // If we are on the last iteration, print some logs indicating so.
         if iteration == iterations - 1 {
             log::info!("terminating three-view optimization due to reaching maximum iterations");
-            log::info!(
-                "first rotation magnitude: {}",
-                net_deltas[0].rotation.norm()
-            );
-            log::info!(
-                "second rotation magnitude: {}",
-                net_deltas[1].rotation.norm()
-            );
+            log::info!("first rotation magnitude: {}", deltas[0].rotation.norm());
+            log::info!("second rotation magnitude: {}", deltas[1].rotation.norm());
             break;
         }
     }
-    optimizers.map(|optimizer| CameraToCamera(optimizer.pose().inverse()))
+    poses.map(|pose| pose.inverse().into())
 }

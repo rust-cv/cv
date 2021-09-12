@@ -1,8 +1,5 @@
-use crate::AdaMaxSo3Tangent;
 use cv_core::{FeatureWorldMatch, Pose, Projective, Se3TangentSpace, WorldToCamera};
 use cv_geom::epipolar;
-use float_ord::FloatOrd;
-use itertools::izip;
 
 pub(crate) fn landmark_delta(
     pose: WorldToCamera,
@@ -17,93 +14,104 @@ pub(crate) fn landmark_delta(
 }
 
 pub fn single_view_simple_optimize_l1(
-    original_pose: WorldToCamera,
-    translation_trust_region: f64,
-    rotation_trust_region: f64,
+    mut pose: WorldToCamera,
+    epsilon: f64,
     iterations: usize,
     landmarks: &[FeatureWorldMatch],
 ) -> WorldToCamera {
     if landmarks.is_empty() {
-        return original_pose;
+        return pose;
     }
-    let mut optimizer = AdaMaxSo3Tangent::new(
-        original_pose.isometry(),
-        translation_trust_region,
-        rotation_trust_region,
-    );
-    let inv_landmark_len = (landmarks.len() as f64).recip();
-    let mut translations = vec![0.0; landmarks.len()];
-    let mut rotations = vec![0.0; landmarks.len()];
+    let mut best_trans = f64::INFINITY;
+    let mut best_rot = f64::INFINITY;
+    let mut no_improve_for = 0;
     for iteration in 0..iterations {
-        let mut l1 = Se3TangentSpace::identity();
-        for (t, r, &landmark) in izip!(
-            translations.iter_mut(),
-            rotations.iter_mut(),
-            landmarks.iter()
-        ) {
-            if let Some(tangent) = landmark_delta(WorldToCamera(optimizer.pose()), landmark) {
-                *t = tangent.translation.norm();
-                *r = tangent.rotation.norm();
-                l1 += tangent.l1().scale(inv_landmark_len);
-            } else {
-                *t = 0.0;
-                *r = 0.0;
+        let tscale = pose.isometry().translation.vector.norm();
+        let mut l1sum = Se3TangentSpace::identity();
+        let mut ts = 0.0;
+        let mut rs = 0.0;
+        for &landmark in landmarks {
+            if let Some(tangent) = landmark_delta(pose, landmark) {
+                ts += (tangent.translation.norm() + tscale * epsilon).recip();
+                rs += (tangent.rotation.norm() + epsilon).recip();
+                l1sum += tangent.l1();
             }
         }
-        translations.sort_unstable_by_key(|&f| FloatOrd(f));
-        rotations.sort_unstable_by_key(|&f| FloatOrd(f));
 
-        let translation_scale = translations[translations.len() / 2];
-        let rotation_scale = rotations[rotations.len() / 2];
+        let delta = l1sum
+            .scale_translation(ts.recip())
+            .scale_rotation(rs.recip());
 
-        let tangent = l1
-            .scale_translation(translation_scale)
-            .scale_rotation(rotation_scale);
+        no_improve_for += 1;
+        let t = l1sum.translation.norm();
+        let r = l1sum.rotation.norm();
+        if best_trans > t {
+            best_trans = t;
+            no_improve_for = 0;
+        }
+        if best_rot > r {
+            best_rot = r;
+            no_improve_for = 0;
+        }
 
-        if optimizer.step_linear_translation(tangent) {
+        if no_improve_for >= 50 {
             log::info!(
                 "terminating single-view optimization due to stabilizing on iteration {}",
                 iteration
             );
-            log::info!("tangent rotation magnitude: {}", l1.rotation.norm());
+            log::info!("tangent rotation magnitude: {}", l1sum.rotation.norm());
             break;
         }
 
+        // Update the pose.
+        pose = (delta.isometry() * pose.isometry()).into();
+
         if iteration == iterations - 1 {
             log::info!("terminating single-view optimization due to reaching maximum iterations");
-            log::info!("tangent rotation magnitude: {}", l1.rotation.norm());
+            log::info!("tangent rotation magnitude: {}", l1sum.rotation.norm());
             break;
         }
     }
-    WorldToCamera(optimizer.pose())
+    pose
 }
 
 pub fn single_view_simple_optimize_l2(
-    original_pose: WorldToCamera,
-    translation_trust_region: f64,
-    rotation_trust_region: f64,
+    mut pose: WorldToCamera,
+    optimization_rate: f64,
     iterations: usize,
     landmarks: &[FeatureWorldMatch],
 ) -> WorldToCamera {
     if landmarks.is_empty() {
-        return original_pose;
+        return pose;
     }
-    let mut optimizer = AdaMaxSo3Tangent::new(
-        original_pose.isometry(),
-        translation_trust_region,
-        rotation_trust_region,
-    );
+    let mut best_trans = f64::INFINITY;
+    let mut best_rot = f64::INFINITY;
+    let mut no_improve_for = 0;
     let inv_landmark_len = (landmarks.len() as f64).recip();
     for iteration in 0..iterations {
-        // Compute gradient for this sample.
-        let l2 = landmarks
-            .iter()
-            .filter_map(|&landmark| landmark_delta(WorldToCamera(optimizer.pose()), landmark))
-            .sum::<Se3TangentSpace>();
+        let mut l2sum = Se3TangentSpace::identity();
+        for &landmark in landmarks {
+            if let Some(tangent) = landmark_delta(pose, landmark) {
+                l2sum += tangent;
+            }
+        }
 
-        let tangent = l2.scale(inv_landmark_len);
+        let tangent = l2sum.scale(inv_landmark_len);
+        let delta = tangent.scale(optimization_rate);
 
-        if optimizer.step_linear_translation(tangent) {
+        no_improve_for += 1;
+        let t = l2sum.translation.norm();
+        let r = l2sum.rotation.norm();
+        if best_trans > t {
+            best_trans = t;
+            no_improve_for = 0;
+        }
+        if best_rot > r {
+            best_rot = r;
+            no_improve_for = 0;
+        }
+
+        if no_improve_for >= 50 {
             log::info!(
                 "terminating single-view optimization due to stabilizing on iteration {}",
                 iteration
@@ -112,11 +120,14 @@ pub fn single_view_simple_optimize_l2(
             break;
         }
 
+        // Update the pose.
+        pose = (delta.isometry() * pose.isometry()).into();
+
         if iteration == iterations - 1 {
             log::info!("terminating single-view optimization due to reaching maximum iterations");
             log::info!("tangent rotation magnitude: {}", tangent.rotation.norm());
             break;
         }
     }
-    WorldToCamera(optimizer.pose())
+    pose
 }

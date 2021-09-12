@@ -136,7 +136,7 @@ pub fn three_view_gradients(
         })
         .unwrap_or_else(Vector3::zeros);
 
-    let trans_c = two_view_same_space_triangulate_sine_l1(stof, f, s)
+    let trans_c = two_view_same_space_triangulate_sine_l1(-stof, f, s)
         .map(|p| {
             // Move the point into the translational reference frame of C from F.
             let p = p + ftoc;
@@ -152,10 +152,10 @@ pub fn three_view_gradients(
     // the center pose (leaving it as the origin), we need to apply the translation gradient for `trans_c` to
     // the first and second poses. To do this, we just give half of it to each pose, and we need to basically
     // apply the opposite translation to those poses.
-    // let first_translation = trans_f * (2.0 / 3.0) + trans_c * (1.0 / 3.0);
-    // let second_translation = trans_s * (2.0 / 3.0) + trans_c * (1.0 / 3.0);
-    let first_translation = trans_f;
-    let second_translation = trans_s;
+    let first_translation = trans_f * (2.0 / 3.0) + trans_c * (1.0 / 3.0);
+    let second_translation = trans_s * (2.0 / 3.0) + trans_c * (1.0 / 3.0);
+    // let first_translation = trans_f;
+    // let second_translation = trans_s;
     // let first_translation = Vector3::zeros();
     // let second_translation = Vector3::zeros();
 
@@ -183,7 +183,7 @@ pub fn point_gradient(translation: Vector3<f64>, b: UnitVector3<f64>) -> Vector3
 // optical center of the camera to the point, while `b` is the bearing which matches to the point.
 // The translation is in the reference frame of the camera itself.
 //
-// Returns the L2 tangent space.
+// Returns the L2 tangent space delta.
 #[inline(always)]
 pub fn world_pose_gradient(translation: Vector3<f64>, b: UnitVector3<f64>) -> Se3TangentSpace {
     let projected_point = translation.dot(&b) * b.into_inner();

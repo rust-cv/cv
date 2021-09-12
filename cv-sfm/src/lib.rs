@@ -12,13 +12,12 @@ use cv_core::{
     nalgebra::{IsometryMatrix3, Point3, UnitVector3, Vector3, Vector6},
     sample_consensus::{Consensus, Estimator},
     CameraModel, CameraToCamera, FeatureMatch, FeatureWorldMatch, Pose, Projective,
-    Se3TangentSpace, TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera,
-    WorldToWorld,
+    TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera, WorldToWorld,
 };
 use cv_geom::epipolar;
 use cv_optimize::{
     single_view_simple_optimize_l1, single_view_simple_optimize_l2, three_view_simple_optimize_l1,
-    three_view_simple_optimize_l2, AdaMaxSo3Tangent,
+    three_view_simple_optimize_l2,
 };
 use cv_pinhole::CameraIntrinsicsK1Distortion;
 use float_ord::FloatOrd;
@@ -849,22 +848,22 @@ where
             self.try_init(frame, free_frames.iter().copied());
         }
 
-        // // If we already have a reconstruction, use that reconstruction to try and incorporate the found frames.
-        // if let Some((reconstruction, _)) = self.data.frames[frame].view {
-        //     for found_frame in free_frames {
-        //         // Skip the frame if we initialized with it.
-        //         if self.data.frames[found_frame].view.is_some() {
-        //             continue;
-        //         }
-        //         // Try to incorporate the found frame into the reconstruction.
-        //         self.try_localize_and_incorporate(reconstruction, found_frame)
-        //             .or_else(opeek(|| info!("failed to incorporate frame")));
-        //         if !self.data.reconstructions.contains_key(reconstruction) {
-        //             // If the reconstruction got eliminated in the previous step, exit with None.
-        //             return None;
-        //         }
-        //     }
-        // }
+        // If we already have a reconstruction, use that reconstruction to try and incorporate the found frames.
+        if let Some((reconstruction, _)) = self.data.frames[frame].view {
+            for found_frame in free_frames {
+                // Skip the frame if we initialized with it.
+                if self.data.frames[found_frame].view.is_some() {
+                    continue;
+                }
+                // Try to incorporate the found frame into the reconstruction.
+                self.try_localize_and_incorporate(reconstruction, found_frame)
+                    .or_else(opeek(|| info!("failed to incorporate frame")));
+                if !self.data.reconstructions.contains_key(reconstruction) {
+                    // If the reconstruction got eliminated in the previous step, exit with None.
+                    return None;
+                }
+            }
+        }
 
         self.data.frames[frame].view
     }
@@ -967,7 +966,7 @@ where
                         s,
                         1.0,
                         self.settings
-                            .robust_observation_incidence_minimum_parallelepiped_volume,
+                            .robust_observation_incidence_minimum_cosine_distance,
                     )
                     .then(|| ())?;
                     let fp = self
@@ -1026,7 +1025,7 @@ where
                         s,
                         1.0,
                         self.settings
-                            .robust_observation_incidence_minimum_parallelepiped_volume,
+                            .robust_observation_incidence_minimum_cosine_distance,
                     )
                     .then(|| [c, f, s])
                 })
@@ -1049,8 +1048,7 @@ where
 
                 let [new_first_pose, new_second_pose] = three_view_simple_optimize_l1(
                     [first_pose, second_pose],
-                    0.000001,
-                    0.000001,
+                    1e-12,
                     self.settings.optimization_three_view_constraint_patience,
                     &opti_matches,
                 );
@@ -1071,7 +1069,7 @@ where
                             s,
                             self.settings.maximum_cosine_distance,
                             self.settings
-                                .robust_observation_incidence_minimum_parallelepiped_volume,
+                                .robust_observation_incidence_minimum_cosine_distance,
                         )
                         .then(|| [c, f, s])
                     })
@@ -1080,7 +1078,7 @@ where
             }
 
             info!(
-                "performing L1 optimization on poses using {} three-way matches out of {}",
+                "final L2 optimization on poses using {} three-way matches out of {}",
                 opti_matches.len(),
                 common.len()
             );
@@ -1092,10 +1090,9 @@ where
                 continue;
             }
 
-            let [new_first_pose, new_second_pose] = three_view_simple_optimize_l1(
+            let [new_first_pose, new_second_pose] = three_view_simple_optimize_l2(
                 [first_pose, second_pose],
-                0.000001,
-                0.000001,
+                0.1,
                 self.settings.optimization_three_view_constraint_patience,
                 &opti_matches,
             );
@@ -1178,7 +1175,7 @@ where
                         s,
                         self.settings.maximum_cosine_distance,
                         self.settings
-                            .robust_observation_incidence_minimum_parallelepiped_volume,
+                            .robust_observation_incidence_minimum_cosine_distance,
                     )
                 })
                 .count();
@@ -1244,7 +1241,7 @@ where
         f: UnitVector3<f64>,
         s: UnitVector3<f64>,
         maximum_cosine_distance: f64,
-        incidence_minimum_parallelepiped_volume: f64,
+        incidence_minimum_cosine_distance: f64,
     ) -> bool {
         // Triangulate the point
         let point = if let Some(point) = self.triangulator.triangulate_observations_to_camera(
@@ -1262,14 +1259,20 @@ where
         let is_cosine_distance_satisfied = 1.0 - point.bearing().dot(&c) < maximum_cosine_distance
             && 1.0 - first_pose.transform(point).bearing().dot(&f) < maximum_cosine_distance
             && 1.0 - second_pose.transform(point).bearing().dot(&s) < maximum_cosine_distance;
+        let is_incidence_satisfied =
+            self.is_bi_observation_angularly_robust(c, f_in_c, incidence_minimum_cosine_distance)
+                || self.is_bi_observation_angularly_robust(
+                    c,
+                    s_in_c,
+                    incidence_minimum_cosine_distance,
+                )
+                || self.is_bi_observation_angularly_robust(
+                    f_in_c,
+                    s_in_c,
+                    incidence_minimum_cosine_distance,
+                );
         // If both are satisfied, then it passes.
-        is_cosine_distance_satisfied
-            && self.is_tri_observation_angularly_robust(
-                c,
-                f_in_c,
-                s_in_c,
-                incidence_minimum_parallelepiped_volume,
-            )
+        is_cosine_distance_satisfied && is_incidence_satisfied
     }
 
     /// This estimates and optimizes the [`CameraToCamera`] between frames `a` and `b`.
@@ -1501,53 +1504,51 @@ where
             before_match_len
         );
 
-        // for _ in 0..self.settings.single_view_filter_loop_iterations {
-        //     info!(
-        //         "L1 optimization with {} inliers (capped at {})",
-        //         matches_3d.len(),
-        //         self.settings.single_view_optimization_num_matches
-        //     );
-        //     pose = single_view_simple_optimize_l1(
-        //         pose,
-        //         0.0000001,
-        //         0.0000001,
-        //         self.settings.single_view_patience,
-        //         &matches_3d,
-        //     );
+        for _ in 0..self.settings.single_view_filter_loop_iterations {
+            info!(
+                "L1 optimization with {} inliers (capped at {})",
+                matches_3d.len(),
+                self.settings.single_view_optimization_num_matches
+            );
+            pose = single_view_simple_optimize_l1(
+                pose,
+                1e-12,
+                self.settings.single_view_patience,
+                &matches_3d,
+            );
 
-        //     // Take only the consistent 3d matches which are also robust.
-        //     matches_3d = original_matches
-        //         .iter()
-        //         .filter_map(|&(landmark, feature)| {
-        //             let bearing = new_frame.bearing(feature);
-        //             self.is_observation_consistent(
-        //                 pose,
-        //                 bearing,
-        //                 self.data
-        //                     .landmark_pose_bearings(reconstruction_key, landmark),
-        //             )
-        //             .then(|| ())?;
-        //             Some(FeatureWorldMatch(
-        //                 new_frame.bearing(feature),
-        //                 self.triangulate_landmark_robust(reconstruction_key, landmark)?,
-        //             ))
-        //         })
-        //         .take(self.settings.single_view_optimization_num_matches)
-        //         .collect_vec();
-        // }
+            // Take only the consistent 3d matches which are also robust.
+            matches_3d = original_matches
+                .iter()
+                .filter_map(|&(landmark, feature)| {
+                    let bearing = new_frame.bearing(feature);
+                    self.is_observation_consistent(
+                        pose,
+                        bearing,
+                        self.data
+                            .landmark_pose_bearings(reconstruction_key, landmark),
+                    )
+                    .then(|| ())?;
+                    Some(FeatureWorldMatch(
+                        new_frame.bearing(feature),
+                        self.triangulate_landmark_robust(reconstruction_key, landmark)?,
+                    ))
+                })
+                .take(self.settings.single_view_optimization_num_matches)
+                .collect_vec();
+        }
 
-        // info!(
-        //     "final L1 optimization with {} inliers (capped at {})",
-        //     matches_3d.len(),
-        //     self.settings.single_view_optimization_num_matches
-        // );
-        // pose = single_view_simple_optimize_l1(
-        //     pose,
-        //     0.0000001,
-        //     0.0000001,
-        //     self.settings.single_view_patience,
-        //     &matches_3d,
-        // );
+        info!(
+            "final L2 optimization with {} inliers (capped at {})",
+            matches_3d.len(),
+            self.settings.single_view_optimization_num_matches
+        );
+        pose = single_view_simple_optimize_l2(
+            pose,
+            0.1,
+            self.settings.single_view_patience,
+            &matches_3d,
+        );
 
         let original_matches_len = original_matches.len();
         // Extract the final matches which will be used to add observations.
@@ -1780,15 +1781,15 @@ where
             + second_pose.isometry().translation.vector.norm();
         // Shuffle the landmarks to avoid bias.
         landmarks.shuffle(&mut *self.rng.borrow_mut());
-        // // Sort the landmarks by their number of observations so the best ones are at the front.
-        // landmarks.sort_unstable_by_key(|&landmark| {
-        //     cmp::Reverse(
-        //         self.data
-        //             .landmark(reconstruction, landmark)
-        //             .observations
-        //             .len(),
-        //     )
-        // });
+        // Sort the landmarks by their number of observations so the best ones are at the front.
+        landmarks.sort_unstable_by_key(|&landmark| {
+            cmp::Reverse(
+                self.data
+                    .landmark(reconstruction, landmark)
+                    .observations
+                    .len(),
+            )
+        });
 
         // Get the matches to use for optimization.
         let opti_matches: Vec<[UnitVector3<f64>; 3]> = landmarks
@@ -1823,14 +1824,13 @@ where
         );
 
         info!(
-            "performing optimization on three-view constraint using {} landmarks",
+            "performing L2 optimization on three-view constraint using {} landmarks",
             opti_matches.len()
         );
 
-        let [mut first_pose, mut second_pose] = three_view_simple_optimize_l1(
+        let [mut first_pose, mut second_pose] = three_view_simple_optimize_l2(
             [first_pose, second_pose],
-            0.000001,
-            0.000001,
+            0.1,
             self.settings.optimization_three_view_constraint_patience,
             &opti_matches,
         );
@@ -2150,57 +2150,6 @@ where
             } else {
                 self.data.remove_reconstruction(reconstruction);
                 return None;
-            }
-        }
-        Some(reconstruction)
-    }
-
-    /// Optimizes reconstruction camera poses.
-    pub fn bundle_adjust_reconstruction(
-        &mut self,
-        reconstruction: ReconstructionKey,
-    ) -> Option<ReconstructionKey> {
-        info!("bundle adjusting reconstruction");
-        let mut optimizers: Vec<(ViewKey, AdaMaxSo3Tangent)> = self
-            .data
-            .reconstruction(reconstruction)
-            .views
-            .iter()
-            .map(|(key, view)| {
-                (
-                    key,
-                    AdaMaxSo3Tangent::new(view.pose.isometry(), 0.0001, 0.0001),
-                )
-            })
-            .collect();
-        for _ in 0..self.settings.optimization_iterations {
-            for (view, optimizer) in &mut optimizers {
-                let view = *view;
-                // Retrieve all of the landmarks in this view.
-                let mut landmarks = self.data.view(reconstruction, view).landmarks.clone();
-                // Randomly shuffle the landmarks.
-                landmarks.shuffle(&mut *self.rng.borrow_mut());
-                // Only take up to 64 robust (without this view) landmarks.
-                let landmarks = landmarks
-                    .iter()
-                    .filter_map(|&landmark| {
-                        Some(FeatureWorldMatch(
-                            self.data.landmark_bearing(reconstruction, view, landmark),
-                            self.triangulate_landmark_robust_without_view(
-                                reconstruction,
-                                landmark,
-                                view,
-                            )?,
-                        ))
-                    })
-                    .take(64)
-                    .collect_vec();
-                // Run an iteration of the optimizer.
-                optimizer.single_view_l1_step(&landmarks);
-            }
-            for (view, optimizer) in &optimizers {
-                let view = *view;
-                self.data.view_mut(reconstruction, view).pose = WorldToCamera(optimizer.pose());
             }
         }
         Some(reconstruction)
@@ -2715,16 +2664,15 @@ where
     }
 
     /// Checks if a tri-observation is robust only from the non-distance perspective
-    fn is_tri_observation_angularly_robust(
+    fn is_bi_observation_angularly_robust(
         &self,
         a: UnitVector3<f64>,
         b: UnitVector3<f64>,
-        c: UnitVector3<f64>,
-        incidence_minimum_parallelepiped_volume: f64,
+        incidence_minimum_cosine_distance: f64,
     ) -> bool {
         // Ensure the three bearings form a sufficiently voluminous parallelepiped with their tripple product, which
         // indicates a high likelihood of correctness and good triangulation.
-        a.cross(&b).dot(&c).abs() > incidence_minimum_parallelepiped_volume
+        1.0 - a.dot(&b) > incidence_minimum_cosine_distance
     }
 
     /// Triangulates a landmark only if it is robust and only using robust observations.
@@ -2735,21 +2683,29 @@ where
     ) -> bool {
         // Ensure at least two observations have an incidence angle between them exceeding the minimum.
         self.data
-            .landmark_observations(reconstruction, landmark)
-            .map(|(view, feature)| {
-                let pose = self.data.pose(reconstruction, view).inverse().isometry();
-                pose * self.data.observation_bearing(reconstruction, view, feature)
-            })
-            .tuple_combinations()
-            .any(|(a, b, c)| {
-                self.is_tri_observation_angularly_robust(
-                    a,
-                    b,
-                    c,
-                    self.settings
-                        .robust_observation_incidence_minimum_parallelepiped_volume,
-                )
-            })
+            .landmark(reconstruction, landmark)
+            .observations
+            .len()
+            >= cmp::min(
+                self.settings.robust_minimum_observations,
+                self.data.reconstruction(reconstruction).views.len(),
+            )
+            && self
+                .data
+                .landmark_observations(reconstruction, landmark)
+                .map(|(view, feature)| {
+                    let pose = self.data.pose(reconstruction, view).inverse().isometry();
+                    pose * self.data.observation_bearing(reconstruction, view, feature)
+                })
+                .tuple_combinations()
+                .any(|(a, b)| {
+                    self.is_bi_observation_angularly_robust(
+                        a,
+                        b,
+                        self.settings
+                            .robust_observation_incidence_minimum_cosine_distance,
+                    )
+                })
     }
 
     /// Triangulates a landmark only if it is robust and only using robust observations.
@@ -2781,13 +2737,12 @@ where
                 pose * self.data.observation_bearing(reconstruction, view, feature)
             })
             .tuple_combinations()
-            .any(|(a, b, c)| {
-                self.is_tri_observation_angularly_robust(
+            .any(|(a, b)| {
+                self.is_bi_observation_angularly_robust(
                     a,
                     b,
-                    c,
                     self.settings
-                        .robust_observation_incidence_minimum_parallelepiped_volume,
+                        .robust_observation_incidence_minimum_cosine_distance,
                 )
             })
     }

@@ -45,9 +45,9 @@ pub struct VSlamSettings {
     /// considered robust enough for optimization
     #[cfg_attr(
         feature = "serde-serialize",
-        serde(default = "default_robust_observation_incidence_minimum_parallelepiped_volume")
+        serde(default = "default_robust_observation_incidence_minimum_cosine_distance")
     )]
-    pub robust_observation_incidence_minimum_parallelepiped_volume: f64,
+    pub robust_observation_incidence_minimum_cosine_distance: f64,
     /// The threshold used for single-view sample consensus
     #[cfg_attr(
         feature = "serde-serialize",
@@ -294,8 +294,8 @@ impl Default for VSlamSettings {
             minimum_robust_landmarks: default_minimum_robust_landmarks(),
             robust_minimum_observations: default_robust_minimum_observations(),
             merge_maximum_cosine_distance: default_merge_maximum_cosine_distance(),
-            robust_observation_incidence_minimum_parallelepiped_volume:
-                default_robust_observation_incidence_minimum_parallelepiped_volume(),
+            robust_observation_incidence_minimum_cosine_distance:
+                default_robust_observation_incidence_minimum_cosine_distance(),
             single_view_consensus_threshold: default_single_view_consensus_threshold(),
             single_view_optimization_num_matches: default_single_view_optimization_num_matches(),
             single_view_filter_loop_iterations: default_single_view_filter_loop_iterations(),
@@ -348,7 +348,7 @@ fn default_akaze_threshold() -> f64 {
 }
 
 fn default_maximum_cosine_distance() -> f64 {
-    1e-6
+    1e-7
 }
 
 fn default_maximum_sine_distance() -> f64 {
@@ -367,8 +367,8 @@ fn default_merge_maximum_cosine_distance() -> f64 {
     default_maximum_cosine_distance()
 }
 
-fn default_robust_observation_incidence_minimum_parallelepiped_volume() -> f64 {
-    1e-4
+fn default_robust_observation_incidence_minimum_cosine_distance() -> f64 {
+    1e-3
 }
 
 fn default_single_view_consensus_threshold() -> f64 {
