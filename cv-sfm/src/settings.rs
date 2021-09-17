@@ -559,7 +559,7 @@ fn default_optimization_iterations() -> usize {
 }
 
 fn default_optimization_minimum_landmarks() -> usize {
-    1 << 6
+    24
 }
 
 fn default_optimization_maximum_landmarks() -> usize {
