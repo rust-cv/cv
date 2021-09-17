@@ -23,6 +23,22 @@ pub struct VSlamSettings {
         serde(default = "default_maximum_sine_distance")
     )]
     pub maximum_sine_distance: f64,
+    /// The minimum cosine distance between two bearings that successfully match in a view
+    /// for the view to be considered part of a robust match
+    ///
+    /// This is done because views which only have matches in a narrow area in the image are very
+    /// poor at providing a good estimate of the distance of the camera from the landmarks.
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_robust_view_bearing_pair_minimum_cosine_distance")
+    )]
+    pub robust_view_bearing_pair_minimum_cosine_distance: f64,
+    /// The minimum number of bearings that must meet `robust_view_bearing_pair_minimum_cosine_distance`
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_robust_view_num_robust_bearing_pair")
+    )]
+    pub robust_view_num_robust_bearing_pair: usize,
     /// The the minimum number of robust landmarks a reconstruction must have lest it be discarded.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -206,6 +222,12 @@ pub struct VSlamSettings {
         serde(default = "default_reconstruction_optimization_iterations")
     )]
     pub reconstruction_optimization_iterations: usize,
+    /// The number of features to extract for tracking
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_tracking_features")
+    )]
+    pub tracking_features: usize,
     /// The number of most similar frames to attempt to match when tracking.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -265,12 +287,18 @@ pub struct VSlamSettings {
         serde(default = "default_optimization_iterations")
     )]
     pub optimization_iterations: usize,
-    /// The number of landmarks to use for optimization
+    /// The minimum number of landmarks to use for optimization
     #[cfg_attr(
         feature = "serde-serialize",
-        serde(default = "default_optimization_landmarks")
+        serde(default = "default_optimization_minimum_landmarks")
     )]
-    pub optimization_landmarks: usize,
+    pub optimization_minimum_landmarks: usize,
+    /// The maximum number of landmarks to use for optimization
+    #[cfg_attr(
+        feature = "serde-serialize",
+        serde(default = "default_optimization_maximum_landmarks")
+    )]
+    pub optimization_maximum_landmarks: usize,
     /// The minimum landmarks required for a three-view pose to be considered robust
     #[cfg_attr(
         feature = "serde-serialize",
@@ -291,6 +319,9 @@ impl Default for VSlamSettings {
             akaze_threshold: default_akaze_threshold(),
             maximum_cosine_distance: default_maximum_cosine_distance(),
             maximum_sine_distance: default_maximum_sine_distance(),
+            robust_view_bearing_pair_minimum_cosine_distance:
+                default_robust_view_bearing_pair_minimum_cosine_distance(),
+            robust_view_num_robust_bearing_pair: default_robust_view_num_robust_bearing_pair(),
             minimum_robust_landmarks: default_minimum_robust_landmarks(),
             robust_minimum_observations: default_robust_minimum_observations(),
             merge_maximum_cosine_distance: default_merge_maximum_cosine_distance(),
@@ -323,6 +354,7 @@ impl Default for VSlamSettings {
             three_view_minimum_relative_scales: default_three_view_minimum_relative_scales(),
             reconstruction_optimization_iterations: default_reconstruction_optimization_iterations(
             ),
+            tracking_features: default_tracking_features(),
             tracking_similar_frames: default_tracking_similar_frames(),
             tracking_similar_frame_recent_threshold:
                 default_tracking_similar_frame_recent_threshold(),
@@ -335,7 +367,8 @@ impl Default for VSlamSettings {
             optimization_minimum_new_constraints: default_optimization_minimum_new_constraints(),
             optimization_std_dev_threshold: default_optimization_std_dev_threshold(),
             optimization_iterations: default_optimization_iterations(),
-            optimization_landmarks: default_optimization_landmarks(),
+            optimization_minimum_landmarks: default_optimization_minimum_landmarks(),
+            optimization_maximum_landmarks: default_optimization_maximum_landmarks(),
             optimization_robust_covisibility_minimum_landmarks:
                 default_optimization_robust_covisibility_minimum_landmarks(),
             optimization_convergence_rate: default_optimization_convergence_rate(),
@@ -353,6 +386,14 @@ fn default_maximum_cosine_distance() -> f64 {
 
 fn default_maximum_sine_distance() -> f64 {
     4.5e-4
+}
+
+fn default_robust_view_bearing_pair_minimum_cosine_distance() -> f64 {
+    1e-1
+}
+
+fn default_robust_view_num_robust_bearing_pair() -> usize {
+    16
 }
 
 fn default_minimum_robust_landmarks() -> usize {
@@ -477,6 +518,10 @@ fn default_reconstruction_optimization_iterations() -> usize {
     1
 }
 
+fn default_tracking_features() -> usize {
+    1 << 13
+}
+
 fn default_tracking_similar_frames() -> usize {
     1 << 5
 }
@@ -513,8 +558,12 @@ fn default_optimization_iterations() -> usize {
     1 << 10
 }
 
-fn default_optimization_landmarks() -> usize {
+fn default_optimization_minimum_landmarks() -> usize {
     1 << 6
+}
+
+fn default_optimization_maximum_landmarks() -> usize {
+    1 << 8
 }
 
 fn default_optimization_robust_covisibility_minimum_landmarks() -> usize {

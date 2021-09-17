@@ -13,9 +13,10 @@ use ::image::{DynamicImage, GenericImageView, ImageResult};
 use bitarray::BitArray;
 use cv_core::{nalgebra::Point2, ImagePoint};
 use evolution::*;
+use float_ord::FloatOrd;
 use log::*;
 use nonlinear_diffusion::pm_g2;
-use std::path::Path;
+use std::{cmp::Reverse, path::Path};
 
 /// A point of interest in an image.
 /// This pretty much follows from OpenCV conventions.
@@ -59,6 +60,9 @@ impl ImagePoint for KeyPoint {
 ///
 #[derive(Debug, Copy, Clone)]
 pub struct Akaze {
+    /// The maximum number of features to extract
+    pub maximum_features: usize,
+
     /// Default number of sublevels per scale level
     pub num_sublevels: u32,
 
@@ -118,6 +122,7 @@ impl Akaze {
 impl Default for Akaze {
     fn default() -> Akaze {
         Akaze {
+            maximum_features: usize::MAX,
             num_sublevels: 4,
             max_octave_evolution: 4,
             base_scale_offset: 1.6f64,
@@ -202,7 +207,7 @@ impl Akaze {
     /// # Return Value
     /// The resulting keypoints.
     ///
-    fn find_image_keypoints(&self, evolutions: &mut Vec<EvolutionStep>) -> Vec<KeyPoint> {
+    pub fn find_image_keypoints(&self, evolutions: &mut Vec<EvolutionStep>) -> Vec<KeyPoint> {
         self.detector_response(evolutions);
         trace!("Computing detector response finished.");
         self.detect_keypoints(evolutions)
@@ -233,7 +238,10 @@ impl Akaze {
         let mut evolutions = self.allocate_evolutions(image.width(), image.height());
         self.create_nonlinear_scale_space(&mut evolutions, &float_image);
         trace!("Finding image keypoints.");
-        let keypoints = self.find_image_keypoints(&mut evolutions);
+        let mut keypoints = self.find_image_keypoints(&mut evolutions);
+        trace!("Sorting keypoints by response and truncating the worst keypoints based on the set maximum");
+        keypoints.sort_unstable_by_key(|kp| Reverse(FloatOrd(kp.response)));
+        keypoints.truncate(self.maximum_features);
         trace!("Extracting descriptors.");
         let descriptors = self.extract_descriptors(&evolutions, &keypoints);
         trace!("Computing descriptors finished.");

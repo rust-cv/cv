@@ -15,10 +15,7 @@ use cv_core::{
     TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera, WorldToWorld,
 };
 use cv_geom::epipolar;
-use cv_optimize::{
-    single_view_simple_optimize_l1, single_view_simple_optimize_l2, three_view_simple_optimize_l1,
-    three_view_simple_optimize_l2,
-};
+use cv_optimize::{single_view_simple_optimize_l2, three_view_simple_optimize_l2};
 use cv_pinhole::CameraIntrinsicsK1Distortion;
 use float_ord::FloatOrd;
 use hamming_lsh::HammingHasher;
@@ -1032,9 +1029,32 @@ where
                 .take(self.settings.three_view_optimization_landmarks)
                 .collect::<Vec<_>>();
 
+            let num_robust_bearing_pairs = opti_matches
+                .iter()
+                .tuple_combinations()
+                .filter(|(a, b)| {
+                    a.iter().zip(b.iter()).all(|(a, b)| {
+                        1.0 - a.dot(b)
+                            > self
+                                .settings
+                                .robust_view_bearing_pair_minimum_cosine_distance
+                    })
+                })
+                .count();
+
+            info!("found {} robust bearing pairs", num_robust_bearing_pairs);
+
+            if num_robust_bearing_pairs < self.settings.robust_view_num_robust_bearing_pair {
+                info!(
+                    "could not find {} robust bearing pairs; rejecting three-view match",
+                    self.settings.robust_view_num_robust_bearing_pair
+                );
+                return None;
+            }
+
             for _ in 0..self.settings.three_view_filter_loop_iterations {
                 info!(
-                    "performing L1 optimization on poses using {} three-way matches out of {}",
+                    "performing L2 optimization on poses using {} three-way matches out of {}",
                     opti_matches.len(),
                     common.len()
                 );
@@ -1046,9 +1066,9 @@ where
                     continue;
                 }
 
-                let [new_first_pose, new_second_pose] = three_view_simple_optimize_l1(
+                let [new_first_pose, new_second_pose] = three_view_simple_optimize_l2(
                     [first_pose, second_pose],
-                    1e-12,
+                    0.01,
                     self.settings.optimization_three_view_constraint_patience,
                     &opti_matches,
                 );
@@ -1092,7 +1112,7 @@ where
 
             let [new_first_pose, new_second_pose] = three_view_simple_optimize_l2(
                 [first_pose, second_pose],
-                0.1,
+                0.01,
                 self.settings.optimization_three_view_constraint_patience,
                 &opti_matches,
             );
@@ -1506,13 +1526,13 @@ where
 
         for _ in 0..self.settings.single_view_filter_loop_iterations {
             info!(
-                "L1 optimization with {} inliers (capped at {})",
+                "L2 optimization with {} inliers (capped at {})",
                 matches_3d.len(),
                 self.settings.single_view_optimization_num_matches
             );
-            pose = single_view_simple_optimize_l1(
+            pose = single_view_simple_optimize_l2(
                 pose,
-                1e-12,
+                0.01,
                 self.settings.single_view_patience,
                 &matches_3d,
             );
@@ -1545,7 +1565,7 @@ where
         );
         pose = single_view_simple_optimize_l2(
             pose,
-            0.1,
+            0.01,
             self.settings.single_view_patience,
             &matches_3d,
         );
@@ -1761,10 +1781,10 @@ where
             "optimizing three-view constraint with {} robust landmarks",
             landmarks.len()
         );
-        if landmarks.len() < self.settings.optimization_landmarks {
+        if landmarks.len() < self.settings.optimization_minimum_landmarks {
             info!(
                 "insufficient robust landmarks, needed {} robust landmarks; rejecting optimization",
-                self.settings.optimization_landmarks
+                self.settings.optimization_minimum_landmarks
             );
             return None;
         }
@@ -1801,12 +1821,12 @@ where
                         .bearing(self.data.landmark(reconstruction, landmark).observations[&view])
                 })
             })
-            .take(self.settings.optimization_landmarks)
+            .take(self.settings.optimization_maximum_landmarks)
             .collect::<Vec<_>>();
 
         let mut opti_landmark_observation_nums = landmarks
             .iter()
-            .take(self.settings.optimization_landmarks)
+            .take(self.settings.optimization_maximum_landmarks)
             .map(|&landmark| {
                 self.data
                     .landmark(reconstruction, landmark)
@@ -1823,6 +1843,29 @@ where
             opti_landmark_observation_nums
         );
 
+        let num_robust_bearing_pairs = opti_matches
+            .iter()
+            .tuple_combinations()
+            .filter(|(a, b)| {
+                a.iter().zip(b.iter()).all(|(a, b)| {
+                    1.0 - a.dot(b)
+                        > self
+                            .settings
+                            .robust_view_bearing_pair_minimum_cosine_distance
+                })
+            })
+            .count();
+
+        info!("found {} robust bearing pairs", num_robust_bearing_pairs);
+
+        if num_robust_bearing_pairs < self.settings.robust_view_num_robust_bearing_pair {
+            info!(
+                "could not find {} robust bearing pairs; rejecting optimization",
+                self.settings.robust_view_num_robust_bearing_pair
+            );
+            return None;
+        }
+
         info!(
             "performing L2 optimization on three-view constraint using {} landmarks",
             opti_matches.len()
@@ -1830,7 +1873,7 @@ where
 
         let [mut first_pose, mut second_pose] = three_view_simple_optimize_l2(
             [first_pose, second_pose],
-            0.1,
+            0.01,
             self.settings.optimization_three_view_constraint_patience,
             &opti_matches,
         );
@@ -1987,8 +2030,11 @@ where
         intrinsics: &CameraIntrinsicsK1Distortion,
         image: &DynamicImage,
     ) -> Vec<(BitArray<64>, Feature)> {
-        let (keypoints, descriptors) =
-            akaze::Akaze::new(self.settings.akaze_threshold).extract(image);
+        let (keypoints, descriptors) = akaze::Akaze {
+            maximum_features: self.settings.tracking_features,
+            ..akaze::Akaze::new(self.settings.akaze_threshold)
+        }
+        .extract(image);
         let rbg_image = image.to_rgb8();
 
         // Use bicubic interpolation to extract colors from the image.
