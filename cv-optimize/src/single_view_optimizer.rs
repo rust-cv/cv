@@ -16,6 +16,7 @@ pub(crate) fn landmark_delta(
 pub fn single_view_simple_optimize_l1(
     mut pose: WorldToCamera,
     epsilon: f64,
+    optimization_rate: f64,
     iterations: usize,
     landmarks: &[FeatureWorldMatch],
 ) -> WorldToCamera {
@@ -39,6 +40,7 @@ pub fn single_view_simple_optimize_l1(
         }
 
         let delta = l1sum
+            .scale(optimization_rate)
             .scale_translation(ts.recip())
             .scale_rotation(rs.recip());
 

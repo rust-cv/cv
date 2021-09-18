@@ -15,7 +15,10 @@ use cv_core::{
     TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera, WorldToWorld,
 };
 use cv_geom::epipolar;
-use cv_optimize::{single_view_simple_optimize_l2, three_view_simple_optimize_l2};
+use cv_optimize::{
+    single_view_simple_optimize_l1, single_view_simple_optimize_l2, three_view_simple_optimize_l1,
+    three_view_simple_optimize_l2,
+};
 use cv_pinhole::CameraIntrinsicsK1Distortion;
 use float_ord::FloatOrd;
 use hamming_lsh::HammingHasher;
@@ -932,8 +935,10 @@ where
                 ))
             })
             .collect_vec();
-        for ((first, (first_pose, first_matches)), (second, (second_pose, second_matches))) in
-            options.iter().tuple_combinations()
+        'outer: for (
+            (first, (first_pose, first_matches)),
+            (second, (second_pose, second_matches)),
+        ) in options.iter().tuple_combinations()
         {
             // Create a map from the center features to the second matches.
             let second_map: HashMap<usize, usize> =
@@ -1052,9 +1057,13 @@ where
                 return None;
             }
 
+            // If we have more than half of the initial matches, the estimation is robust.
+            // As soon as we drop to this threshold, we have failed to estimate the pose.
+            let robust_minimum_matches = opti_matches.len() / 2;
+
             for _ in 0..self.settings.three_view_filter_loop_iterations {
                 info!(
-                    "performing L2 optimization on poses using {} three-way matches out of {}",
+                    "performing L1 optimization on poses using {} three-way matches out of {}",
                     opti_matches.len(),
                     common.len()
                 );
@@ -1063,11 +1072,17 @@ where
                         "need {} robust three-way matches; rejecting three-view match",
                         32
                     );
-                    continue;
+                    continue 'outer;
                 }
 
-                let [new_first_pose, new_second_pose] = three_view_simple_optimize_l2(
+                if opti_matches.len() <= robust_minimum_matches {
+                    info!("need more than half of the initial robust matches ({}) to be robust; rejecting three-view match", robust_minimum_matches);
+                    continue 'outer;
+                }
+
+                let [new_first_pose, new_second_pose] = three_view_simple_optimize_l1(
                     [first_pose, second_pose],
+                    1e-14,
                     0.01,
                     self.settings.optimization_three_view_constraint_patience,
                     &opti_matches,
@@ -1107,6 +1122,11 @@ where
                     "need {} robust three-way matches; rejecting three-view match",
                     32
                 );
+                continue;
+            }
+
+            if opti_matches.len() <= robust_minimum_matches {
+                info!("need more than half of the initial robust matches ({}) to be robust; rejecting three-view match", robust_minimum_matches);
                 continue;
             }
 
@@ -1210,6 +1230,11 @@ where
                 first_matches.len(),
                 second_matches.len()
             );
+
+            if num_robust_matches <= robust_minimum_matches {
+                info!("need more than half of the initial robust matches ({}) to be robust; rejecting three-view match", robust_minimum_matches);
+                continue 'outer;
+            }
 
             if num_robust_matches < self.settings.three_view_minimum_robust_matches {
                 info!(
@@ -1524,14 +1549,25 @@ where
             before_match_len
         );
 
+        // If we have more than half of the initial matches, the estimation is robust.
+        // As soon as we drop to this threshold, we have failed to estimate the pose.
+        let robust_minimum_matches = matches_3d.len() / 2;
+
         for _ in 0..self.settings.single_view_filter_loop_iterations {
             info!(
-                "L2 optimization with {} inliers (capped at {})",
+                "L1 optimization with {} inliers (capped at {})",
                 matches_3d.len(),
                 self.settings.single_view_optimization_num_matches
             );
-            pose = single_view_simple_optimize_l2(
+
+            if matches_3d.len() <= robust_minimum_matches {
+                info!("need more than half of the initial robust matches ({}) to be robust; rejecting single-view match", robust_minimum_matches);
+                return None;
+            }
+
+            pose = single_view_simple_optimize_l1(
                 pose,
+                1e-14,
                 0.01,
                 self.settings.single_view_patience,
                 &matches_3d,
@@ -1563,12 +1599,40 @@ where
             matches_3d.len(),
             self.settings.single_view_optimization_num_matches
         );
+
+        if matches_3d.len() <= robust_minimum_matches {
+            info!("need more than half of the initial robust matches ({}) to be robust; rejecting single-view match", robust_minimum_matches);
+            return None;
+        }
+
         pose = single_view_simple_optimize_l2(
             pose,
             0.01,
             self.settings.single_view_patience,
             &matches_3d,
         );
+
+        let final_num_robust_matches = original_matches
+            .iter()
+            .filter(|&&(landmark, feature)| {
+                let bearing = new_frame.bearing(feature);
+                self.is_observation_consistent(
+                    pose,
+                    bearing,
+                    self.data
+                        .landmark_pose_bearings(reconstruction_key, landmark),
+                ) && self
+                    .triangulate_landmark_robust(reconstruction_key, landmark)
+                    .is_some()
+            })
+            .count();
+
+        info!("ended with {} robust matches", final_num_robust_matches);
+
+        if final_num_robust_matches <= robust_minimum_matches {
+            info!("need more than half of the initial robust matches ({}) to be robust; rejecting single-view match", robust_minimum_matches);
+            return None;
+        }
 
         let original_matches_len = original_matches.len();
         // Extract the final matches which will be used to add observations.
@@ -2238,6 +2302,27 @@ where
             ba.updated_views.push((view, pose.into()));
         }
         Some(ba).filter(|ba| ba.updated_views.len() >= 3)
+    }
+
+    /// Removes all of the constraints from the reconstruction and attempts to regenerate constraints
+    /// for all of the views.
+    pub fn regenerate_reconstruction(
+        &mut self,
+        reconstruction: ReconstructionKey,
+    ) -> Option<ReconstructionKey> {
+        self.data.reconstructions[reconstruction]
+            .constraints
+            .clear();
+        for view in self
+            .data
+            .reconstruction(reconstruction)
+            .views
+            .keys()
+            .collect_vec()
+        {
+            self.record_view_constraints(reconstruction, view);
+        }
+        self.optimize_reconstruction(reconstruction)
     }
 
     /// Generates the constraints for a view using covisibilites.

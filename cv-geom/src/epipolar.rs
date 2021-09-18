@@ -108,10 +108,10 @@ pub fn three_view_gradients(
     // the gradient, because it is actually the same gradient being applied to two poses to
     // even out the application of gradient. We could have a gradient for the center camera, which
     // would make this a non-issue, but those would be three unecessary degrees of freedom.
-    // let first_rotation = rot_cf * (2.0 / 3.0) + rot_sf * (1.0 / 3.0);
-    // let second_rotation = rot_cs * (2.0 / 3.0) + rot_fs * (1.0 / 3.0);
-    let first_rotation = rot_cf;
-    let second_rotation = rot_cs;
+    let first_rotation = rot_cf * (2.0 / 3.0) + rot_sf * (1.0 / 3.0);
+    let second_rotation = rot_cs * (2.0 / 3.0) + rot_fs * (1.0 / 3.0);
+    // let first_rotation = rot_cf;
+    // let second_rotation = rot_cs;
 
     // For the translation gradients, compute the point for each set of 2 and try to translate
     // the third camera towards the intersection point of the other two cameras.

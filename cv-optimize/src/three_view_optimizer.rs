@@ -23,6 +23,7 @@ fn landmark_deltas(
 pub fn three_view_simple_optimize_l1(
     poses: [CameraToCamera; 2],
     epsilon: f64,
+    optimization_rate: f64,
     iterations: usize,
     landmarks: &[[UnitVector3<f64>; 3]],
 ) -> [CameraToCamera; 2] {
@@ -60,6 +61,7 @@ pub fn three_view_simple_optimize_l1(
         let mut deltas = [Se3TangentSpace::identity(); 2];
         for (delta, (l1sum, ts, rs)) in deltas.iter_mut().zip(nets) {
             *delta = l1sum
+                .scale(optimization_rate)
                 .scale_translation(ts.recip())
                 .scale_rotation(rs.recip());
         }

@@ -377,7 +377,7 @@ impl Default for VSlamSettings {
 }
 
 fn default_akaze_threshold() -> f64 {
-    1e-4
+    1e-3
 }
 
 fn default_maximum_cosine_distance() -> f64 {
@@ -389,15 +389,15 @@ fn default_maximum_sine_distance() -> f64 {
 }
 
 fn default_robust_view_bearing_pair_minimum_cosine_distance() -> f64 {
-    1e-1
+    1e-2
 }
 
 fn default_robust_view_num_robust_bearing_pair() -> usize {
-    16
+    3
 }
 
 fn default_minimum_robust_landmarks() -> usize {
-    1 << 8
+    32
 }
 
 fn default_robust_minimum_observations() -> usize {
@@ -409,7 +409,7 @@ fn default_merge_maximum_cosine_distance() -> f64 {
 }
 
 fn default_robust_observation_incidence_minimum_cosine_distance() -> f64 {
-    1e-3
+    2e-3
 }
 
 fn default_single_view_consensus_threshold() -> f64 {
@@ -511,7 +511,7 @@ fn default_three_view_inlier_ratio_threshold() -> f64 {
 }
 
 fn default_three_view_minimum_robust_matches() -> usize {
-    1 << 8
+    32
 }
 
 fn default_reconstruction_optimization_iterations() -> usize {
@@ -563,7 +563,7 @@ fn default_optimization_minimum_landmarks() -> usize {
 }
 
 fn default_optimization_maximum_landmarks() -> usize {
-    1 << 8
+    64
 }
 
 fn default_optimization_robust_covisibility_minimum_landmarks() -> usize {
