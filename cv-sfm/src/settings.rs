@@ -186,12 +186,6 @@ pub struct VSlamSettings {
         serde(default = "default_three_view_minimum_relative_scales")
     )]
     pub three_view_minimum_relative_scales: usize,
-    /// The threshold of mean cosine distance standard deviation that terminates three-view optimization.
-    #[cfg_attr(
-        feature = "serde-serialize",
-        serde(default = "default_three_view_std_dev_threshold")
-    )]
-    pub three_view_std_dev_threshold: f64,
     /// The maximum iterations to run three-view optimization and filtering
     #[cfg_attr(
         feature = "serde-serialize",
@@ -346,7 +340,6 @@ impl Default for VSlamSettings {
             two_view_optimization_maximum_matches: default_two_view_optimization_maximum_matches(),
             two_view_patience: default_two_view_patience(),
             three_view_patience: default_three_view_patience(),
-            three_view_std_dev_threshold: default_three_view_std_dev_threshold(),
             three_view_filter_loop_iterations: default_three_view_filter_loop_iterations(),
             three_view_optimization_landmarks: default_three_view_optimization_landmarks(),
             three_view_inlier_ratio_threshold: default_three_view_inlier_ratio_threshold(),
@@ -381,11 +374,11 @@ fn default_akaze_threshold() -> f64 {
 }
 
 fn default_maximum_cosine_distance() -> f64 {
-    1e-7
+    1e-5
 }
 
 fn default_maximum_sine_distance() -> f64 {
-    4.5e-4
+    1e-1
 }
 
 fn default_robust_view_bearing_pair_minimum_cosine_distance() -> f64 {
@@ -409,12 +402,12 @@ fn default_merge_maximum_cosine_distance() -> f64 {
 }
 
 fn default_robust_observation_incidence_minimum_cosine_distance() -> f64 {
-    2e-3
+    1e-3
 }
 
 fn default_single_view_consensus_threshold() -> f64 {
     // Cosine distance
-    1e-7
+    1e-5
 }
 
 fn default_single_view_optimization_num_matches() -> usize {
@@ -422,7 +415,7 @@ fn default_single_view_optimization_num_matches() -> usize {
 }
 
 fn default_single_view_filter_loop_iterations() -> usize {
-    3
+    5
 }
 
 fn default_single_view_patience() -> usize {
@@ -454,7 +447,7 @@ fn default_single_view_minimum_robust_landmarks() -> usize {
 }
 
 fn default_single_view_match_better_by() -> u32 {
-    2
+    1
 }
 
 fn default_two_view_consensus_threshold() -> f64 {
@@ -471,7 +464,7 @@ fn default_two_view_minimum_robust_matches() -> usize {
 }
 
 fn default_two_view_match_better_by() -> u32 {
-    2
+    1
 }
 
 fn default_two_view_std_dev_threshold() -> f64 {
@@ -492,10 +485,6 @@ fn default_three_view_patience() -> usize {
 
 fn default_three_view_minimum_relative_scales() -> usize {
     1 << 4
-}
-
-fn default_three_view_std_dev_threshold() -> f64 {
-    1e-16
 }
 
 fn default_three_view_filter_loop_iterations() -> usize {
@@ -523,7 +512,7 @@ fn default_tracking_features() -> usize {
 }
 
 fn default_tracking_similar_frames() -> usize {
-    1 << 5
+    0
 }
 
 fn default_tracking_similar_frame_recent_threshold() -> usize {
@@ -535,7 +524,7 @@ fn default_tracking_similar_frame_search_num() -> usize {
 }
 
 fn default_tracking_recent_frames() -> usize {
-    0
+    32
 }
 
 fn default_optimization_three_view_constraint_patience() -> usize {

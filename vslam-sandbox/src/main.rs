@@ -27,7 +27,7 @@ struct Opt {
     #[structopt(short, long, default_value = "vslam-settings.json")]
     settings: PathBuf,
     /// The maximum cosine distance an observation can have to be exported.
-    #[structopt(long, default_value = "0.0000005")]
+    #[structopt(long, default_value = "0.000001")]
     export_maximum_cosine_distance: f64,
     /// Export required observations
     #[structopt(long, default_value = "3")]
@@ -103,14 +103,15 @@ fn main() {
             settings.single_view_consensus_threshold,
             Xoshiro256PlusPlus::seed_from_u64(0),
         )
-        .max_candidate_hypotheses(4096)
-        .likelyhood_ratio_threshold(1e1),
+        .initialization_hypotheses(16384)
+        .max_candidate_hypotheses(1024)
+        .estimations_per_block(256),
         Arrsac::new(
             settings.two_view_consensus_threshold,
             Xoshiro256PlusPlus::seed_from_u64(0),
         )
-        .max_candidate_hypotheses(8192)
-        .likelyhood_ratio_threshold(1e1),
+        .initialization_hypotheses(8192)
+        .max_candidate_hypotheses(1024),
         LambdaTwist::new(),
         EightPoint::new(),
         LinearEigenTriangulator::new(),
@@ -121,7 +122,6 @@ fn main() {
     let feed = vslam.add_feed(intrinsics);
 
     let mut normalized = HashSet::new();
-    let mut regenerated = HashSet::new();
 
     // Add the frames.
     for frame_path in &opt.images {
@@ -132,12 +132,6 @@ fn main() {
             if normalized.insert(reconstruction) {
                 info!("new reconstruction; normalizing reconstruction");
                 vslam.normalize_reconstruction(reconstruction);
-            }
-            if vslam.data.reconstruction(reconstruction).views.len() >= 10
-                && regenerated.insert(reconstruction)
-            {
-                info!("regenerating reconstruction using new data");
-                vslam.regenerate_reconstruction(reconstruction);
             }
             info!("exporting reconstruction");
             if let Some(path) = &opt.output {

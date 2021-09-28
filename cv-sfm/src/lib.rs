@@ -15,10 +15,7 @@ use cv_core::{
     TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera, WorldToWorld,
 };
 use cv_geom::epipolar;
-use cv_optimize::{
-    single_view_simple_optimize_l1, single_view_simple_optimize_l2, three_view_simple_optimize_l1,
-    three_view_simple_optimize_l2,
-};
+use cv_optimize::{single_view_simple_optimize_l2, three_view_simple_optimize_l2};
 use cv_pinhole::CameraIntrinsicsK1Distortion;
 use float_ord::FloatOrd;
 use hamming_lsh::HammingHasher;
@@ -1080,10 +1077,9 @@ where
                     continue 'outer;
                 }
 
-                let [new_first_pose, new_second_pose] = three_view_simple_optimize_l1(
+                let [new_first_pose, new_second_pose] = three_view_simple_optimize_l2(
                     [first_pose, second_pose],
-                    1e-14,
-                    0.01,
+                    0.001,
                     self.settings.optimization_three_view_constraint_patience,
                     &opti_matches,
                 );
@@ -1132,7 +1128,7 @@ where
 
             let [new_first_pose, new_second_pose] = three_view_simple_optimize_l2(
                 [first_pose, second_pose],
-                0.01,
+                0.001,
                 self.settings.optimization_three_view_constraint_patience,
                 &opti_matches,
             );
@@ -1565,10 +1561,9 @@ where
                 return None;
             }
 
-            pose = single_view_simple_optimize_l1(
+            pose = single_view_simple_optimize_l2(
                 pose,
-                1e-14,
-                0.01,
+                0.001,
                 self.settings.single_view_patience,
                 &matches_3d,
             );
@@ -1607,7 +1602,7 @@ where
 
         pose = single_view_simple_optimize_l2(
             pose,
-            0.01,
+            0.001,
             self.settings.single_view_patience,
             &matches_3d,
         );
@@ -1937,7 +1932,7 @@ where
 
         let [mut first_pose, mut second_pose] = three_view_simple_optimize_l2(
             [first_pose, second_pose],
-            0.01,
+            0.001,
             self.settings.optimization_three_view_constraint_patience,
             &opti_matches,
         );
