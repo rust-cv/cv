@@ -3,14 +3,19 @@
 //! the light came from that hit that pixel. It can also be used to convert backwards from the 3d back to the 2d
 //! using the `uncalibrate` method from the [`cv_core::CameraModel`] trait.
 
-#![no_std]
+// #![cfg_attr(not(test), no_std)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+mod camera;
+pub mod distortion_function;
 mod essential;
+mod root;
 
+pub use camera::{models, Camera};
 pub use essential::*;
+pub(crate) use root::{newton2, root};
 
 use cv_core::{
     nalgebra::{Matrix3, Point2, UnitVector3, Vector2},
@@ -48,6 +53,20 @@ impl CameraIntrinsics {
         }
     }
 
+    pub fn from_matrix(matrix: Matrix3<f64>) -> Self {
+        assert_eq!(
+            matrix,
+            matrix.upper_triangle(),
+            "Camera matrix is not upper triangular"
+        );
+        let s = 1.0 / matrix[(2, 2)];
+        Self {
+            focals: Vector2::new(matrix[(0, 0)], matrix[(1, 1)]) * s,
+            principal_point: Point2::new(matrix[(0, 2)], matrix[(1, 2)]) * s,
+            skew: matrix[(0, 1)] * s,
+        }
+    }
+
     pub fn focals(self, focals: Vector2<f64>) -> Self {
         Self { focals, ..self }
     }
@@ -77,6 +96,12 @@ impl CameraIntrinsics {
             0.0,            self.focals.y,  self.principal_point.y,
             0.0,            0.0,            1.0,
         )
+    }
+}
+
+impl Default for CameraIntrinsics {
+    fn default() -> Self {
+        Self::identity()
     }
 }
 
