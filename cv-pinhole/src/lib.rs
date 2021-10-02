@@ -160,7 +160,7 @@ impl CameraIntrinsicsK1Distortion {
 
 impl CameraModel for CameraIntrinsicsK1Distortion {
     /// Takes in a point from an image in pixel coordinates and
-    /// converts it to a [`NormalizedKeyPoint`].
+    /// converts it to a [`UnitVector3`] bearing.
     ///
     /// ```
     /// use cv_core::{KeyPoint, CameraModel};
@@ -197,7 +197,7 @@ impl CameraModel for CameraIntrinsicsK1Distortion {
         UnitVector3::new_normalize(undistorted.to_homogeneous())
     }
 
-    /// Converts a [`NormalizedKeyPoint`] back into pixel coordinates.
+    /// Converts a [`UnitVector3`] bearing back into pixel coordinates.
     ///
     /// ```
     /// use cv_core::{KeyPoint, CameraModel};

@@ -28,7 +28,7 @@ fn encode_epipolar_equation(matches: impl Iterator<Item = FeatureMatch>) -> OMat
 /// by Richard Hartley and Andrew Zisserman.
 ///
 /// To recondition the matrix produced by estimation, see
-/// [`cv_core::EssentialMatrix::recondition`].
+/// [`cv_pinhole::EssentialMatrix::recondition`].
 #[derive(Copy, Clone, Debug)]
 pub struct EightPoint {
     pub epsilon: f64,

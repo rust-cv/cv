@@ -19,7 +19,7 @@ pub trait ImagePoint {
 ///
 /// For calibrated coordinates, you need to use an appropriate camera model crate (like `cv-pinhole`).
 /// These crates convert image coordinates into bearings. For more information, see the trait definition
-/// [`cv_core::CameraModel`].
+/// [`crate::CameraModel`].
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, AsMut, AsRef, Deref, DerefMut, From, Into)]
 #[cfg_attr(feature = "serde-serialize", derive(Serialize, Deserialize))]
 pub struct KeyPoint(pub Point2<f64>);
