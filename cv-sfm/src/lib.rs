@@ -1060,7 +1060,7 @@ where
 
             for _ in 0..self.settings.three_view_filter_loop_iterations {
                 info!(
-                    "performing L1 optimization on poses using {} three-way matches out of {}",
+                    "performing L2 optimization on poses using {} three-way matches out of {}",
                     opti_matches.len(),
                     common.len()
                 );
@@ -1080,7 +1080,7 @@ where
                 let [new_first_pose, new_second_pose] = three_view_simple_optimize_l2(
                     [first_pose, second_pose],
                     0.001,
-                    self.settings.optimization_three_view_constraint_patience,
+                    self.settings.three_view_patience,
                     &opti_matches,
                 );
                 first_pose = new_first_pose;
@@ -1129,7 +1129,7 @@ where
             let [new_first_pose, new_second_pose] = three_view_simple_optimize_l2(
                 [first_pose, second_pose],
                 0.001,
-                self.settings.optimization_three_view_constraint_patience,
+                self.settings.three_view_patience,
                 &opti_matches,
             );
             first_pose = new_first_pose;
@@ -1236,14 +1236,6 @@ where
                 info!(
                     "need {} robust three-way matches; rejecting three-view match",
                     self.settings.three_view_minimum_robust_matches
-                );
-                continue;
-            }
-
-            if inlier_ratio < self.settings.three_view_inlier_ratio_threshold {
-                info!(
-                    "didn't reach inlier ratio of {}; rejecting three-view match",
-                    self.settings.three_view_inlier_ratio_threshold
                 );
                 continue;
             }
@@ -1384,14 +1376,6 @@ where
             return None;
         }
 
-        if inlier_ratio < self.settings.two_view_inlier_minimum_threshold {
-            info!(
-                "inlier ratio was {}, but it must be above {}; rejecting two-view match",
-                inlier_ratio, self.settings.two_view_inlier_minimum_threshold
-            );
-            return None;
-        }
-
         // Add the new covisibility.
         Some((pose, matches))
     }
@@ -1433,6 +1417,8 @@ where
                         })
                 })
                 .collect_vec();
+
+            // Deduplicate the landmarks such that if the same landmark shows up two times as the best item
 
             // Find the top 2 landmark matches overall.
             // Create an array where the best items will go.
@@ -1551,7 +1537,7 @@ where
 
         for _ in 0..self.settings.single_view_filter_loop_iterations {
             info!(
-                "L1 optimization with {} inliers (capped at {})",
+                "L2 optimization with {} inliers (capped at {})",
                 matches_3d.len(),
                 self.settings.single_view_optimization_num_matches
             );
@@ -1563,7 +1549,7 @@ where
 
             pose = single_view_simple_optimize_l2(
                 pose,
-                0.001,
+                self.settings.single_view_optimization_rate,
                 self.settings.single_view_patience,
                 &matches_3d,
             );
@@ -1602,7 +1588,7 @@ where
 
         pose = single_view_simple_optimize_l2(
             pose,
-            0.001,
+            self.settings.single_view_optimization_rate,
             self.settings.single_view_patience,
             &matches_3d,
         );
@@ -1651,13 +1637,6 @@ where
             final_matches.len(),
             inlier_ratio
         );
-
-        if inlier_ratio < self.settings.single_view_inlier_minimum_threshold {
-            info!(
-                "inlier ratio was less than the threshold for acceptance ({}); rejecting single-view match", self.settings.single_view_inlier_minimum_threshold
-            );
-            return None;
-        }
 
         if final_matches.len() < self.settings.single_view_minimum_robust_landmarks {
             info!(
@@ -1932,8 +1911,8 @@ where
 
         let [mut first_pose, mut second_pose] = three_view_simple_optimize_l2(
             [first_pose, second_pose],
-            0.001,
-            self.settings.optimization_three_view_constraint_patience,
+            self.settings.constraint_optimization_rate,
+            self.settings.constraint_patience,
             &opti_matches,
         );
 
@@ -2286,7 +2265,7 @@ where
                 reconstruction,
                 view,
                 constraints,
-                self.settings.optimization_convergence_rate,
+                self.settings.graph_optimization_rate,
             ) {
                 pose.0
             } else {
