@@ -310,17 +310,16 @@ impl Default for VSlamSettings {
             tracking_similar_frame_search_num: default_tracking_similar_frame_search_num(),
             tracking_recent_frames: default_tracking_recent_frames(),
             optimization_maximum_three_view_constraints:
-            default_optimization_maximum_three_view_constraints(),
+                default_optimization_maximum_three_view_constraints(),
             optimization_minimum_new_constraints: default_optimization_minimum_new_constraints(),
             optimization_iterations: default_optimization_iterations(),
             optimization_minimum_landmarks: default_optimization_minimum_landmarks(),
             optimization_maximum_landmarks: default_optimization_maximum_landmarks(),
             optimization_robust_covisibility_minimum_landmarks:
-            default_optimization_robust_covisibility_minimum_landmarks(),
+                default_optimization_robust_covisibility_minimum_landmarks(),
             graph_optimization_rate: default_graph_optimization_rate(),
             constraint_optimization_rate: default_constraint_optimization_rate(),
-            constraint_patience:
-                default_constraint_patience(),
+            constraint_patience: default_constraint_patience(),
         }
     }
 }
