@@ -2,13 +2,19 @@
 //!
 //! Batteries-included pure-Rust computer vision crate
 //!
-//! All of the basic computer vision types are included in the root of the crate.
+//! This crate should only be used for documentation/reference and for quickly creating and
+//! running a computer vision sample/routine. It is useful for tutorials and also for
+//! experts who want to run something once as a script. It also stores all of the
+//! things useful for computer vision in the Rust ecosystem in one place for
+//! discoverability. If you are making a production application, import the dependencies
+//! from this crate individually so that you don't have an explosive number of dependencies.
+//! Although not recommended, you can also disable default features on this crate and
+//! enable specific features on this crate just to get the functionality you want.
+//!
+//! All of the basic computer vision types/dependencies are included in the root of the crate.
 //! Modules are created to store algorithms and data structures which may or may not be used.
 //! Almost all of the things in these modules come from optional libraries.
 //! These modules comprise the core functionality required to perform computer vision tasks.
-//!
-//! Some crates are re-exported to ensure that you can use the same version of the crate
-//! that `cv` is using.
 //!
 //! ## Modules
 //! * [`camera`] - camera models to convert image coordinates into bearings (and back)
