@@ -81,6 +81,7 @@ pub mod feature {
 pub mod image {
     /// Re-export of [`image`] to open and save images
     #[cfg(feature = "image")]
+    #[allow(clippy::module_inception)]
     pub mod image {
         pub use image::*;
     }

@@ -393,12 +393,12 @@ impl VSlamData {
             .chain(combined_matches.iter().map(|&(c, f, _)| (f, c)))
             .map(|(f, c)| (f, self.observation_landmark(reconstruction, center_view, c)))
             .collect();
-        // Add frame B to new reconstruction using the extracted landmark, bix pairs.
+        // Add frame B to new reconstruction using the extracted landmark, b-index pairs.
         let first_view = self.add_view(
             reconstruction,
             first,
             first_pose.isometry().into(),
-            |feature| first_landmarks.get(&feature).copied(),
+            |feature| first_landmarks.get(&feature).copied().map(landmark_avec),
         );
         // Create a map for second landmarks.
         let second_landmarks: HashMap<usize, LandmarkKey> = second_matches
@@ -412,7 +412,7 @@ impl VSlamData {
             reconstruction,
             second,
             second_pose.isometry().into(),
-            |feature| second_landmarks.get(&feature).copied(),
+            |feature| second_landmarks.get(&feature).copied().map(landmark_avec),
         );
         self.reconstructions[reconstruction]
             .constraints
@@ -431,7 +431,7 @@ impl VSlamData {
         reconstruction: ReconstructionKey,
         frame: FrameKey,
         pose: WorldToCamera,
-        existing_landmark: impl Fn(usize) -> Option<LandmarkKey>,
+        existing_landmark: impl Fn(usize) -> Option<ArrayVec<LandmarkKey, 2>>,
     ) -> ViewKey {
         let view = self.reconstructions[reconstruction].views.insert(View {
             frame,
@@ -440,10 +440,26 @@ impl VSlamData {
         });
         self.frames[frame].view = Some((reconstruction, view));
 
+        let mut num_merged_landmarks = 0usize;
+
         // Add all of the view's features to the reconstruction.
         for feature in 0..self.frame(frame).descriptor_features.len() {
             // Check if the feature is part of an existing landmark.
-            let landmark = if let Some(landmark) = existing_landmark(feature) {
+            let landmark = if let Some(landmarks) = existing_landmark(feature) {
+                // First, merge the landmarks if there are two.
+                // Get the resulting landmark in all cases.
+                let landmark = match &landmarks[..] {
+                    &[landmark] => landmark,
+                    &[landmark_a, landmark_b] => {
+                        num_merged_landmarks += 1;
+                        self.merge_landmarks(reconstruction, landmark_a, landmark_b)
+                    }
+                    landmarks => unreachable!(
+                        "we should never have {} landmarks matched to a feature at this point",
+                        landmarks.len()
+                    ),
+                };
+
                 // Add this observation to the observations of this landmark.
                 self.landmark_mut(reconstruction, landmark)
                     .observations
@@ -456,6 +472,10 @@ impl VSlamData {
             // Add the Reconstruction::landmark index to the feature landmarks vector for this view.
             self.view_mut(reconstruction, view).landmarks.push(landmark);
         }
+        info!(
+            "merged {} landmarks during registration",
+            num_merged_landmarks
+        );
         view
     }
 
@@ -668,6 +688,33 @@ impl VSlamData {
             self.frames[view.frame].view = None;
         }
         self.reconstructions.remove(reconstruction);
+    }
+
+    /// Merges two landmarks unconditionally. Returns the new landmark ID.
+    ///
+    /// This will choose the best observation among any two from the same view.
+    pub fn merge_landmarks(
+        &mut self,
+        reconstruction: ReconstructionKey,
+        landmark_a: LandmarkKey,
+        landmark_b: LandmarkKey,
+    ) -> LandmarkKey {
+        // At this point, we are now sure that we have no duplicate views as they have been removed.
+        let old_landmark = self.reconstructions[reconstruction]
+            .landmarks
+            .remove(landmark_b)
+            .expect("landmark_b didnt exist");
+        for (view, feature) in old_landmark.observations {
+            // We must start by updating the landmark in the view for this feature.
+            self.view_mut(reconstruction, view).landmarks[feature] = landmark_a;
+            // Add the observation to landmark A.
+            assert!(self
+                .landmark_mut(reconstruction, landmark_a)
+                .observations
+                .insert(view, feature)
+                .is_none());
+        }
+        landmark_a
     }
 }
 
@@ -1395,7 +1442,7 @@ where
             .collect_vec();
         self.data
             .landmark_observations(reconstruction, b)
-            .any(|(view, _)| first.contains(view))
+            .any(|(view, _)| first.contains(&view))
     }
 
     /// Attempts to register the frame into the given reconstruction using a specific number of features.
@@ -1406,7 +1453,7 @@ where
         view_matches: &[ViewKey],
         add_features: Range<usize>,
         original_matches: &mut Vec<(ArrayVec<LandmarkKey, 2>, usize)>,
-    ) -> Option<(WorldToCamera, HashMap<usize, LandmarkKey>)> {
+    ) -> Option<(WorldToCamera, HashMap<usize, ArrayVec<LandmarkKey, 2>>)> {
         let reconstruction = self.data.reconstruction(reconstruction_key);
         let new_frame = self.data.frame(new_frame_key);
 
@@ -1440,7 +1487,7 @@ where
             let mut landmark_matches: HashMap<LandmarkKey, u32> = HashMap::new();
             for (landmark, distance) in raw_landmark_matches {
                 match landmark_matches.entry(landmark) {
-                    Entry::Occupied(o) => {
+                    Entry::Occupied(mut o) => {
                         if *o.get() > distance {
                             o.insert(distance);
                         }
@@ -1480,9 +1527,7 @@ where
             if best[0].1 + self.settings.single_view_match_better_by <= best[1].1 {
                 // In this case the best one is uniquely good, thus we can ignore the second
                 // and third matches.
-                let mut a = ArrayVec::new();
-                a.push(best[0].0);
-                original_matches.push((a, self_feature));
+                original_matches.push((landmark_avec(best[0].0), self_feature));
             } else if best[1].1 + self.settings.single_view_match_better_by <= best[2].1 {
                 // In this case the best and second best are too close, but the second best
                 // match is sufficiently distant from the third match that a merge can be attempted.
@@ -1503,23 +1548,28 @@ where
         let mut original_matches = original_matches.clone();
         let landmark_counts = original_matches
             .iter()
-            .flat_map(|&(landmarks, _)| landmarks)
+            .flat_map(|(landmarks, _)| landmarks.clone())
             .counts();
         // If two separate features match to the landmark, that is always 100% incorrect.
         // This is not true of multiple landmarks matching to one feature, which may indicate they should be merged.
         original_matches.retain(|(landmarks, _)| {
             landmarks
                 .iter()
-                .all(|&landmark| landmark_counts[landmark] == 1)
+                .all(|landmark| landmark_counts[landmark] == 1)
         });
         // Sort this in a stable way to preserve the order. Landmarks near the beginning have more observations.
-        original_matches.sort_by_key(|&(landmarks, _)| {
-            cmp::Reverse(landmarks.iter().sum::<usize>(|&landmark| {
-                self.data
-                    .landmark(reconstruction_key, landmark)
-                    .observations
-                    .len()
-            }))
+        original_matches.sort_by_key(|(landmarks, _)| {
+            cmp::Reverse(
+                landmarks
+                    .iter()
+                    .map(|&landmark| {
+                        self.data
+                            .landmark(reconstruction_key, landmark)
+                            .observations
+                            .len()
+                    })
+                    .sum::<usize>(),
+            )
         });
 
         info!("found {} initial feature matches", original_matches.len());
@@ -1529,13 +1579,20 @@ where
         // Extract the FeatureWorldMatch for each of the features.
         let matches_3d: Vec<FeatureWorldMatch> = original_matches
             .iter()
-            .filter_map(|&(landmarks, feature)| {
+            .filter_map(|(landmarks, feature)| {
                 Some(FeatureWorldMatch(
-                    new_frame.bearing(feature),
-                    match landmarks.len() {
-                        1 => self.triangulate_landmark_robust(reconstruction_key, landmarks[0])?,
-                        2 => self.triangulate_merged_landmark_robust(reconstruction_key, [landmarks[0], landmarks[1]])?
-                        num => unreachable!("we should never have {} landmarks matched to a feature at this point", num),
+                    new_frame.bearing(*feature),
+                    match &landmarks[..] {
+                        &[landmark] => {
+                            self.triangulate_landmark_robust(reconstruction_key, landmark)?
+                        }
+                        &[a, b] => {
+                            self.triangulate_merged_landmark_robust(reconstruction_key, [a, b])?
+                        }
+                        landmarks => unreachable!(
+                            "we should never have {} landmarks matched to a feature at this point",
+                            landmarks.len()
+                        ),
                     },
                 ))
             })
@@ -1602,18 +1659,30 @@ where
             // Take only the consistent 3d matches which are also robust.
             matches_3d = original_matches
                 .iter()
-                .filter_map(|&(landmark, feature)| {
-                    let bearing = new_frame.bearing(feature);
+                .filter_map(|(landmarks, feature)| {
+                    let bearing = new_frame.bearing(*feature);
                     self.is_observation_consistent(
                         pose,
                         bearing,
-                        self.data
-                            .landmark_pose_bearings(reconstruction_key, landmark),
+                        landmarks.iter().flat_map(|&landmark| {
+                            self.data
+                                .landmark_pose_bearings(reconstruction_key, landmark)
+                        }),
                     )
                     .then(|| ())?;
                     Some(FeatureWorldMatch(
-                        new_frame.bearing(feature),
-                        self.triangulate_landmark_robust(reconstruction_key, landmark)?,
+                        new_frame.bearing(*feature),
+                        match &landmarks[..] {
+                            &[landmark] => self.triangulate_landmark_robust(reconstruction_key, landmark)?,
+                            &[a, b] => self.triangulate_merged_landmark_robust(
+                                reconstruction_key,
+                                [a, b],
+                            )?,
+                            landmarks => unreachable!(
+                                "we should never have {} landmarks matched to a feature at this point",
+                                landmarks.len()
+                            ),
+                        },
                     ))
                 })
                 .take(self.settings.single_view_optimization_num_matches)
@@ -1640,16 +1709,24 @@ where
 
         let final_num_robust_matches = original_matches
             .iter()
-            .filter(|&&(landmark, feature)| {
-                let bearing = new_frame.bearing(feature);
+            .filter(|&(landmarks, feature)| {
+                let bearing = new_frame.bearing(*feature);
                 self.is_observation_consistent(
                     pose,
                     bearing,
-                    self.data
-                        .landmark_pose_bearings(reconstruction_key, landmark),
-                ) && self
-                    .triangulate_landmark_robust(reconstruction_key, landmark)
-                    .is_some()
+                    landmarks.iter().flat_map(|&landmark| {
+                        self.data
+                            .landmark_pose_bearings(reconstruction_key, landmark)
+                    }),
+                ) && match &landmarks[..] {
+                    &[landmark] => self.triangulate_landmark_robust(reconstruction_key, landmark),
+                    &[a, b] => self.triangulate_merged_landmark_robust(reconstruction_key, [a, b]),
+                    landmarks => unreachable!(
+                        "we should never have {} landmarks matched to a feature at this point",
+                        landmarks.len()
+                    ),
+                }
+                .is_some()
             })
             .count();
 
@@ -1662,18 +1739,20 @@ where
 
         let original_matches_len = original_matches.len();
         // Extract the final matches which will be used to add observations.
-        let final_matches: HashMap<usize, LandmarkKey> = original_matches
+        let final_matches: HashMap<usize, ArrayVec<LandmarkKey, 2>> = original_matches
             .into_iter()
-            .filter(|&(landmark, feature)| {
-                let bearing = new_frame.bearing(feature);
+            .filter(|(landmarks, feature)| {
+                let bearing = new_frame.bearing(*feature);
                 self.is_observation_consistent(
                     pose,
                     bearing,
-                    self.data
-                        .landmark_pose_bearings(reconstruction_key, landmark),
+                    landmarks.iter().flat_map(|&landmark| {
+                        self.data
+                            .landmark_pose_bearings(reconstruction_key, landmark)
+                    }),
                 )
             })
-            .map(|(landmark, feature)| (feature, landmark))
+            .map(|(landmarks, feature)| (feature, landmarks))
             .collect();
 
         let inlier_ratio = final_matches.len() as f64 / original_matches_len as f64;
@@ -1701,7 +1780,7 @@ where
         reconstruction: ReconstructionKey,
         frame: FrameKey,
         view_matches: Vec<ViewKey>,
-    ) -> Option<(WorldToCamera, HashMap<usize, LandmarkKey>)> {
+    ) -> Option<(WorldToCamera, HashMap<usize, ArrayVec<LandmarkKey, 2>>)> {
         info!("trying to register frame into existing reconstruction");
 
         let mut original_matches: Vec<(ArrayVec<LandmarkKey, 2>, usize)> = vec![];
@@ -1994,7 +2073,7 @@ where
             .or_else(opeek(|| info!("failed to register frame")))?;
 
         let view = self.data.add_view(reconstruction, frame, pose, |feature| {
-            matches.get(&feature).copied()
+            matches.get(&feature).cloned()
         });
 
         if self.record_view_constraints(reconstruction, view) {
@@ -2056,7 +2135,7 @@ where
         let dest_view = self
             .data
             .add_view(dest_reconstruction, frame, dest_pose, |feature| {
-                matches.get(&feature).copied()
+                matches.get(&feature).cloned()
             });
 
         // Try to record the view constraints. If this step fails, the merger fails.
@@ -2077,10 +2156,13 @@ where
         // landmarks for the view.
         let landmark_to_landmark: HashMap<LandmarkKey, LandmarkKey> = matches
             .iter()
-            .map(|(&src_feature, &dest_landmark)| {
+            .map(|(&src_feature, dest_landmarks)| {
                 (
                     self.data.view(src_reconstruction, src_view).landmarks[src_feature],
-                    dest_landmark,
+                    // TODO: This ignores the situation in which the landmarks are slated to be
+                    // merged. This is actually okay, but long term it would be better to also merge
+                    // the landmarks in the destination reconstruction when the reconstructions are merged.
+                    dest_landmarks[0],
                 )
             })
             .collect();
@@ -2723,7 +2805,9 @@ where
     }
 
     /// Merges two landmarks unconditionally. Returns the new landmark ID.
-    pub fn merge_landmarks(
+    ///
+    /// This will choose the best observation among any two from the same view.
+    pub fn merge_landmarks_dedup(
         &mut self,
         reconstruction: ReconstructionKey,
         landmark_a: LandmarkKey,
@@ -2773,24 +2857,10 @@ where
             }
         }
         // Only continue if successful.
-        success.then(|| ())?;
-        // At this point, we are now sure that we have no duplicate views as they have been removed.
-        let old_landmark = self.data.reconstructions[reconstruction]
-            .landmarks
-            .remove(landmark_b)
-            .expect("landmark_b didnt exist");
-        for (view, feature) in old_landmark.observations {
-            // We must start by updating the landmark in the view for this feature.
-            self.data.view_mut(reconstruction, view).landmarks[feature] = landmark_a;
-            // Add the observation to landmark A.
-            assert!(self
-                .data
-                .landmark_mut(reconstruction, landmark_a)
-                .observations
-                .insert(view, feature)
-                .is_none());
-        }
-        Some(landmark_a)
+        success.then(|| {
+            self.data
+                .merge_landmarks(reconstruction, landmark_a, landmark_b)
+        })
     }
 
     pub fn triangulate_landmark(
@@ -3068,4 +3138,11 @@ fn opeek<T>(mut f: impl FnMut()) -> impl FnOnce() -> Option<T> {
         f();
         None
     }
+}
+
+/// Creates an ArrayVec with one item in it.
+fn landmark_avec(landmark: LandmarkKey) -> ArrayVec<LandmarkKey, 2> {
+    let mut a = ArrayVec::new();
+    a.push(landmark);
+    a
 }
