@@ -26,7 +26,7 @@ use cv_core::{
 /// ```
 /// use cv_core::nalgebra::{Vector3, Point3, Rotation3};
 /// use cv_core::{TriangulatorRelative, CameraToCamera, CameraPoint, Pose, Projective};
-/// use cv_geom::LinearEigenTriangulator;
+/// use cv_geom::triangulation::LinearEigenTriangulator;
 ///
 /// let point = CameraPoint::from_point(Point3::new(0.3, 0.1, 2.0));
 /// let pose = CameraToCamera::from_parts(Vector3::new(0.1, 0.1, 0.1), Rotation3::new(Vector3::new(0.1, 0.1, 0.1)));
@@ -148,7 +148,7 @@ impl TriangulatorObservations for LinearEigenTriangulator {
 /// ```
 /// use cv_core::nalgebra::{Vector3, Point3, Rotation3};
 /// use cv_core::{TriangulatorRelative, CameraToCamera, CameraPoint, Pose, Projective};
-/// use cv_geom::SineL1Triangulator;
+/// use cv_geom::triangulation::SineL1Triangulator;
 ///
 /// let point = CameraPoint::from_point(Point3::new(0.3, 0.1, 2.0));
 /// let pose = CameraToCamera::from_parts(Vector3::new(0.1, 0.1, 0.1), Rotation3::new(Vector3::new(0.1, 0.1, 0.1)));
@@ -370,7 +370,7 @@ impl TriangulatorRelative for RelativeDltTriangulator {
 ///
 /// # Example
 /// ```
-/// use cv_geom::MeanMeanTriangulator;
+/// use cv_geom::triangulation::MeanMeanTriangulator;
 /// use cv_core::{nalgebra::{Vector3, Rotation3}, CameraToCamera, Pose, Projective, CameraPoint, TriangulatorRelative};
 /// // Create a pose.
 /// let pose = CameraToCamera::from_parts(Vector3::new(0.1, 0.1, 0.1), Rotation3::from_scaled_axis(Vector3::new(0.1, 0.1, 0.1)));
@@ -450,7 +450,7 @@ impl TriangulatorObservations for MeanMeanTriangulator {
 ///
 /// # Example
 /// ```
-/// use cv_geom::AngularL1Triangulator;
+/// use cv_geom::triangulation::AngularL1Triangulator;
 /// use cv_core::{nalgebra::{Vector3, Rotation3}, CameraToCamera, Pose, Projective, CameraPoint, TriangulatorRelative};
 /// // Create a pose.
 /// let pose = CameraToCamera::from_parts(Vector3::new(0.1, 0.1, 0.1), Rotation3::from_scaled_axis(Vector3::new(0.1, 0.1, 0.1)));
@@ -536,7 +536,7 @@ impl TriangulatorRelative for AngularL1Triangulator {
 ///
 /// # Example
 /// ```
-/// use cv_geom::AngularLInfinityTriangulator;
+/// use cv_geom::triangulation::AngularLInfinityTriangulator;
 /// use cv_core::{nalgebra::{Vector3, Rotation3}, CameraToCamera, Pose, Projective, CameraPoint, TriangulatorRelative};
 /// // Create a pose.
 /// let pose = CameraToCamera::from_parts(Vector3::new(0.1, 0.1, 0.1), Rotation3::from_scaled_axis(Vector3::new(0.1, 0.1, 0.1)));
