@@ -16,13 +16,13 @@
 //!
 //! ## Triangulation
 //!
-//! Several of the traits with in `cv-core`, such as [`TriangulatorObservances`], must perform a process
+//! Several of the traits with in `cv-core`, such as [`TriangulatorObservations`], must perform a process
 //! called [triangulation](https://en.wikipedia.org/wiki/Triangulation). In computer vision, this problem
 //! occurs quite often, as we often have some of the following data:
 //!
 //! * [The pose of a camera](WorldToCamera)
 //! * [The relative pose of a camera](CameraToCamera)
-//! * [A bearing direction at which lies a feature](Bearing)
+//! * [A bearing direction at which lies a feature](nalgebra::UnitVector3)
 //!
 //! We have to take this data and produce a 3d point. Cameras have an optical center which all bearings protrude from.
 //! This is often refered to as the focal point in a standard camera, but in computer vision the term optical center

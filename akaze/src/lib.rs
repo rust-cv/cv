@@ -54,9 +54,9 @@ impl ImagePoint for KeyPoint {
 /// Contains the configuration parameters of AKAZE.
 ///
 /// The most important parameter to pay attention to is `detector_threshold`.
-/// [`Config::new`] can be used to set this threshold and let all other parameters
-/// remain default. You can also use the helpers [`Config::sparse`] and
-/// [`Config::dense`]. The default value of `detector_threshold` is `0.001`.
+/// [`Akaze::new`] can be used to set this threshold and let all other parameters
+/// remain default. You can also use the helpers [`Akaze::sparse`] and
+/// [`Akaze::dense`]. The default value of `detector_threshold` is `0.001`.
 ///
 #[derive(Debug, Copy, Clone)]
 pub struct Akaze {

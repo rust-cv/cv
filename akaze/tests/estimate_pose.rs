@@ -60,7 +60,7 @@ fn estimate_pose() {
 
     // Run ARRSAC with the eight-point algorithm.
     info!("Running ARRSAC");
-    let mut arrsac = Arrsac::new(0.001, Pcg64::from_seed([1; 32]));
+    let mut arrsac = Arrsac::new(0.1, Pcg64::from_seed([1; 32]));
     let eight_point = eight_point::EightPoint::new();
     let (_, inliers) = arrsac
         .model_inliers(&eight_point, matches.iter().copied())

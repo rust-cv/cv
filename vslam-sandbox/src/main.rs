@@ -1,11 +1,11 @@
-use cv::{
-    camera::pinhole::{CameraIntrinsics, CameraIntrinsicsK1Distortion},
-    consensus::Arrsac,
-    estimate::{EightPoint, LambdaTwist},
-    geom::triangulation::LinearEigenTriangulator,
-    nalgebra::{Point2, Vector2},
-    sfm::{VSlam, VSlamSettings},
-};
+use arrsac::Arrsac;
+use cv_core::nalgebra::{Point2, Vector2};
+use cv_geom::triangulation::LinearEigenTriangulator;
+use cv_pinhole::{CameraIntrinsics, CameraIntrinsicsK1Distortion};
+use cv_sfm::{VSlam, VSlamSettings};
+use eight_point::EightPoint;
+use lambda_twist::LambdaTwist;
+
 use log::*;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256PlusPlus;

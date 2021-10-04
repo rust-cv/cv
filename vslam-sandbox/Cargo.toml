@@ -8,7 +8,13 @@ edition = "2018"
 unstable-512-bit-simd = ["bitarray/unstable-512-bit-simd"]
 
 [dependencies]
-cv = { version = "0.6.0", path = "../cv", features = ["serde-serialize"] }
+cv-core = { version = "0.15.0", path = "../cv-core" }
+cv-sfm = { version = "0.1.0", path = "../cv-sfm", features = ["serde-serialize"] }
+cv-geom = { version = "0.7.0", path = "../cv-geom" }
+cv-pinhole = { version = "0.6.0", path = "../cv-pinhole" }
+lambda-twist = { version = "0.7.0", path = "../lambda-twist" }
+eight-point = { version = "0.8.0", path = "../eight-point" }
+arrsac = "0.9.0"
 structopt = "0.3.22"
 serde = { version = "1.0.126", features = ["derive"] }
 image = "0.23.14"

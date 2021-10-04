@@ -160,7 +160,7 @@ impl CameraIntrinsicsK1Distortion {
 
 impl CameraModel for CameraIntrinsicsK1Distortion {
     /// Takes in a point from an image in pixel coordinates and
-    /// converts it to a [`NormalizedKeyPoint`].
+    /// converts it to a [`UnitVector3`] bearing.
     ///
     /// ```
     /// use cv_core::{KeyPoint, CameraModel};
@@ -197,7 +197,7 @@ impl CameraModel for CameraIntrinsicsK1Distortion {
         UnitVector3::new_normalize(undistorted.to_homogeneous())
     }
 
-    /// Converts a [`NormalizedKeyPoint`] back into pixel coordinates.
+    /// Converts a [`UnitVector3`] bearing back into pixel coordinates.
     ///
     /// ```
     /// use cv_core::{KeyPoint, CameraModel};
@@ -300,7 +300,7 @@ impl CameraSpecification {
 /// let nkpb = point_b.bearing();
 ///
 /// // Create a triangulator.
-/// let triangulator = cv_geom::LinearEigenTriangulator::new();
+/// let triangulator = cv_geom::triangulation::LinearEigenTriangulator::new();
 ///
 /// // Since the normalized keypoints were computed exactly, there should be no reprojection error.
 /// let errors = cv_pinhole::pose_reprojection_error(pose, FeatureMatch(nkpa, nkpb), triangulator).unwrap();
@@ -352,7 +352,7 @@ pub fn pose_reprojection_error(
 /// let nkpb = point_b.bearing();
 ///
 /// // Create a triangulator.
-/// let triangulator = cv_geom::LinearEigenTriangulator::new();
+/// let triangulator = cv_geom::triangulation::LinearEigenTriangulator::new();
 ///
 /// // Since the normalized keypoints were computed exactly, there should be no reprojection error.
 /// let average_error = cv_pinhole::average_pose_reprojection_error(pose, FeatureMatch(nkpa, nkpb), triangulator).unwrap();
