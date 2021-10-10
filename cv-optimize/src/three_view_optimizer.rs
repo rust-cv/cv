@@ -1,10 +1,10 @@
 use cv_core::{
-    nalgebra::{IsometryMatrix3, UnitVector3},
+    nalgebra::{IsometryMatrix3, SVector, UnitVector3},
     CameraToCamera, Pose, Se3TangentSpace,
 };
 use cv_geom::epipolar;
 
-fn landmark_deltas(
+fn landmark_gradients(
     poses: [IsometryMatrix3<f64>; 2],
     observations: [UnitVector3<f64>; 3],
 ) -> [Se3TangentSpace; 2] {
@@ -47,7 +47,7 @@ pub fn three_view_simple_optimize_l1(
             .map(|pose| pose.translation.vector.norm())
             .sum::<f64>();
         for &observations in landmarks {
-            let deltas = landmark_deltas(poses, observations);
+            let deltas = landmark_gradients(poses, observations);
 
             for ((l1sum, ts, rs), &delta) in nets.iter_mut().zip(deltas.iter()) {
                 *ts += (delta.translation.norm() + tscale * epsilon).recip();
@@ -137,21 +137,18 @@ pub fn three_view_simple_optimize_l2(
     let mut bests = [[f64::INFINITY; 2]; 2];
     let mut no_improve_for = 0;
     for iteration in 0..iterations {
-        // For the sums here, we use a VERY small number.
-        // This is so that if the gradient is zero for every data point (we are 100% perfect),
-        // then it will not turn the delta into NaN by taking the reciprocal of 0 (infinity) and multiplying
-        // it by 0.
+        // Collect the sums of all the L2 distances.
         let mut nets = [Se3TangentSpace::identity(), Se3TangentSpace::identity()];
         for &observations in landmarks {
-            let deltas = landmark_deltas(poses, observations);
+            let deltas = landmark_gradients(poses, observations);
 
             for (l2sum, &delta) in nets.iter_mut().zip(deltas.iter()) {
                 *l2sum += delta;
             }
         }
 
-        // Apply the harmonic mean as per the Weiszfeld algorithm from the paper
-        // "Sur le point pour lequel la somme des distances de n points donn ́es est minimum."
+        // Compute the delta by applying the L2 distance with the inverse landmark length to
+        // get the average length times the rate.
         let mut deltas = [Se3TangentSpace::identity(); 2];
         for (delta, l2sum) in deltas.iter_mut().zip(nets) {
             *delta = l2sum.scale(inv_landmark_len * optimization_rate);
@@ -198,6 +195,130 @@ pub fn three_view_simple_optimize_l2(
             log::info!("second rotation magnitude: {}", deltas[1].rotation.norm());
             break;
         }
+    }
+    poses.map(|pose| pose.inverse().into())
+}
+
+/// Performs adaptive optimization (via)
+pub fn three_view_adaptive_optimize_l2(
+    poses: [CameraToCamera; 2],
+    optimization_rate: f64,
+    mean_momentum: f64,
+    variance_momentum: f64,
+    iterations: usize,
+    epsilon: f64,
+    landmarks: &[[UnitVector3<f64>; 3]],
+) -> [CameraToCamera; 2] {
+    if landmarks.is_empty() {
+        return poses;
+    }
+    let inv_landmark_len = (landmarks.len() as f64).recip();
+    let mut poses = poses.map(|pose| pose.isometry().inverse());
+    let mut ema_mean = SVector::<f64, 12>::zeros();
+    let mut ema_variance = SVector::<f64, 12>::zeros();
+    // let mut max_ema_variance = SVector::<f64, 12>::zeros();
+    let mut bests = [[f64::INFINITY; 2]; 2];
+    let mut no_improve_for = 0;
+    for iteration in 0..iterations {
+        // For the sums here, we use a VERY small number.
+        // This is so that if the gradient is zero for every data point (we are 100% perfect),
+        // then it will not turn the delta into NaN by taking the reciprocal of 0 (infinity) and multiplying
+        // it by 0.
+        let mut nets = [Se3TangentSpace::identity(), Se3TangentSpace::identity()];
+        for &observations in landmarks {
+            let gradients = landmark_gradients(poses, observations);
+
+            for (l2sum, &delta) in nets.iter_mut().zip(gradients.iter()) {
+                *l2sum += delta;
+            }
+        }
+
+        // Keep track of whether there was any improvement or not in the nets.
+        no_improve_for += 1;
+        for ([best_t, best_r], l2sum) in bests.iter_mut().zip(nets.iter()) {
+            let t = l2sum.translation.norm();
+            let r = l2sum.rotation.norm();
+            if *best_t > t {
+                *best_t = t;
+                no_improve_for = 0;
+            }
+            if *best_r > r {
+                *best_r = r;
+                no_improve_for = 0;
+            }
+        }
+
+        // Apply the harmonic mean as per the Weiszfeld algorithm from the paper
+        // "Sur le point pour lequel la somme des distances de n points donn ́es est minimum."
+        let mut gradients = [Se3TangentSpace::identity(); 2];
+        for (gradient, l2sum) in gradients.iter_mut().zip(nets) {
+            *gradient = l2sum.scale(inv_landmark_len);
+        }
+
+        // Check if all of the optimizers reached stability.
+        if no_improve_for >= 50 {
+            log::info!(
+                "terminating three-view optimization due to stabilizing on iteration {}",
+                iteration
+            );
+            log::info!("first rotation magnitude: {}", gradients[0].rotation.norm());
+            log::info!(
+                "second rotation magnitude: {}",
+                gradients[1].rotation.norm()
+            );
+            break;
+        }
+
+        // Convert the gradients into vector form.
+        let gradient = SVector::from_iterator(gradients.iter().flat_map(|gradient| {
+            let a: [f64; 6] = gradient.to_vec().into();
+            std::array::IntoIter::new(a)
+        }));
+
+        ema_mean = mean_momentum * ema_mean + (1.0 - mean_momentum) * gradient;
+        // The variance step from AdaMax.
+        ema_variance.zip_apply(&gradient, |old, new_unsquared| {
+            let new = new_unsquared * new_unsquared;
+            let old = old * variance_momentum;
+            if old > new {
+                old
+            } else {
+                new
+            }
+        });
+        // ema_variance = variance_momentum * ema_variance + (1.0 - variance_momentum) * gradient.map(|v| v * v);
+        // Max variance step from AMSGrad.
+        // max_ema_variance.zip_apply(&ema_variance, |max, v| if max > v { max } else { v });
+
+        // Compute the delta as per AMSGrad update rule.
+        let deltas = optimization_rate
+            * ema_mean.zip_map(&ema_variance, |mean, variance| {
+                mean / (variance.sqrt() + epsilon)
+            });
+
+        // Update the poses using the delta.
+        for (ix, pose) in poses.iter_mut().enumerate() {
+            *pose = Se3TangentSpace::from_vec(deltas.fixed_rows::<6>(ix * 6).into_owned())
+                .isometry()
+                * *pose;
+        }
+
+        // If we are on the last iteration, print some logs indicating so.
+        if iteration == iterations - 1 {
+            log::info!("terminating three-view optimization due to reaching maximum iterations");
+            log::info!("first rotation magnitude: {}", gradients[0].rotation.norm());
+            log::info!(
+                "second rotation magnitude: {}",
+                gradients[1].rotation.norm()
+            );
+            break;
+        }
+
+        log::info!("first rotation magnitude: {}", gradients[0].rotation.norm());
+        log::info!(
+            "second rotation magnitude: {}",
+            gradients[1].rotation.norm()
+        );
     }
     poses.map(|pose| pose.inverse().into())
 }

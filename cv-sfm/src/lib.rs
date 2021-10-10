@@ -16,7 +16,9 @@ use cv_core::{
     TriangulatorObservations, TriangulatorRelative, WorldPoint, WorldToCamera, WorldToWorld,
 };
 use cv_geom::epipolar;
-use cv_optimize::{single_view_simple_optimize_l2, three_view_simple_optimize_l2};
+use cv_optimize::{
+    single_view_simple_optimize_l2, three_view_adaptive_optimize_l2, three_view_simple_optimize_l2,
+};
 use cv_pinhole::CameraIntrinsicsK1Distortion;
 use float_ord::FloatOrd;
 use hamming_lsh::HammingHasher;
@@ -2033,10 +2035,13 @@ where
             opti_matches.len()
         );
 
-        let [mut first_pose, mut second_pose] = three_view_simple_optimize_l2(
+        let [mut first_pose, mut second_pose] = three_view_adaptive_optimize_l2(
             [first_pose, second_pose],
             self.settings.constraint_optimization_rate,
+            0.9,
+            0.99,
             self.settings.constraint_patience,
+            1e-16,
             &opti_matches,
         );
 
