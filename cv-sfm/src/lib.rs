@@ -2038,12 +2038,7 @@ where
 
         let [mut first_pose, mut second_pose] = three_view_adaptive_optimize_l2(
             [first_pose, second_pose],
-            self.settings.constraint_optimization_rate,
-            1.0,
-            0.9,
-            0.999,
             self.settings.constraint_patience,
-            1e-16,
             &opti_matches,
         );
 

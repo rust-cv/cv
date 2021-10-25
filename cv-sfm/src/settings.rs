@@ -255,12 +255,6 @@ pub struct VSlamSettings {
         serde(default = "default_graph_optimization_rate")
     )]
     pub graph_optimization_rate: f64,
-    /// The optimization rate for solving three-view constraints
-    #[cfg_attr(
-        feature = "serde-serialize",
-        serde(default = "default_constraint_optimization_rate")
-    )]
-    pub constraint_optimization_rate: f64,
     /// The maximum number of iterations to optimize three-view constraints.
     #[cfg_attr(
         feature = "serde-serialize",
@@ -318,7 +312,6 @@ impl Default for VSlamSettings {
             optimization_robust_covisibility_minimum_landmarks:
                 default_optimization_robust_covisibility_minimum_landmarks(),
             graph_optimization_rate: default_graph_optimization_rate(),
-            constraint_optimization_rate: default_constraint_optimization_rate(),
             constraint_patience: default_constraint_patience(),
         }
     }
@@ -458,10 +451,6 @@ fn default_tracking_recent_frames() -> usize {
     32
 }
 
-fn default_constraint_patience() -> usize {
-    1 << 16
-}
-
 fn default_optimization_maximum_three_view_constraints() -> usize {
     1 << 6
 }
@@ -490,6 +479,6 @@ fn default_graph_optimization_rate() -> f64 {
     0.001
 }
 
-fn default_constraint_optimization_rate() -> f64 {
-    0.001
+fn default_constraint_patience() -> usize {
+    1 << 10
 }
