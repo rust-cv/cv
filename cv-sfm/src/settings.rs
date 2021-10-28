@@ -387,8 +387,7 @@ fn default_single_view_match_better_by() -> u32 {
 }
 
 fn default_two_view_consensus_threshold() -> f64 {
-    // Sine distance
-    4.5e-4
+    1e-7
 }
 
 fn default_two_view_minimum_robust_matches() -> usize {
@@ -480,5 +479,5 @@ fn default_graph_optimization_rate() -> f64 {
 }
 
 fn default_constraint_patience() -> usize {
-    1 << 10
+    1 << 12
 }
