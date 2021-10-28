@@ -17,8 +17,7 @@ use cv_core::{
 };
 use cv_geom::epipolar;
 use cv_optimize::{
-    single_view_simple_optimize_l2, three_view_adaptive_optimize_l1,
-    three_view_adaptive_optimize_l2, three_view_simple_optimize_l2,
+    single_view_simple_optimize_l2, three_view_adaptive_optimize_l2, three_view_simple_optimize_l2,
 };
 use cv_pinhole::CameraIntrinsicsK1Distortion;
 use float_ord::FloatOrd;
