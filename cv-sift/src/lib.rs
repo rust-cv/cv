@@ -6,7 +6,7 @@ pub mod pyramid;
 
 // Expose all utils.
 pub mod utils;
-
+pub mod extrema;
 
 // pub use crate::sift::{
 //     SIFTConfig
@@ -37,10 +37,22 @@ mod tests {
     use crate::utils::{assert_similar};
     use crate::sift::{SIFTConfig};
     use nalgebra::{DMatrix};
+    use nalgebra::base::coordinates::{M3x3};
+    use crate::extrema;
 
 
     fn get_box_image_f64() -> SimpleRGBAImage<f64> {
         let img = ImageReader::open("/home/aalekh/Documents/projects/cv-rust/res/box.png")
+        .unwrap()
+        .decode()
+        .unwrap()
+        .to_rgba8();
+        let d_img = DynamicImage::ImageRgba8(img);
+        SimpleRGBAImage::<f64>::from_dynamic(&d_img)
+    }
+
+    fn get_image_f64(path: &str) -> SimpleRGBAImage<f64> {
+        let img = ImageReader::open(path)
         .unwrap()
         .decode()
         .unwrap()
@@ -209,8 +221,44 @@ mod tests {
         for (row_idx, row) in result.iter().enumerate() {
             for (entry_idx, _entry) in row.iter().enumerate() {
                 let _path = format!("{}/diff_of_gauss_oct_{}_level_{}.png", out, row_idx, entry_idx);
-                _entry.save(&_path).unwrap();
+                // _entry.save(&_path).unwrap();
             }
         }
     }
+
+    #[test]
+    fn gray_channel_f64_for_box_image() {
+        let img = get_box_image_f64();
+        let mat = img.to_gray_channel();
+        assert_eq!(mat.shape(), (img.shape().0 as usize, img.shape().1 as usize));
+    }
+
+    #[test]
+    fn pixel_cube_construction() {
+        let img1 = get_box_image_f64().to_gray_channel();
+        let box_cube_initial = M3x3 {
+            m11: 21.0,
+            m12: 18.0,
+            m13: 25.0,
+            m21: 22.0,
+            m22: 20.0,
+            m23: 18.0,
+            m31: 18.0,
+            m32: 20.0,
+            m33: 12.0,
+        };
+
+        let img2 = get_image_f64("/home/aalekh/Documents/projects/cv-rust/res/0000000014.png").to_gray_channel();
+        let img3 = get_box_image_f64().to_gray_channel();
+
+        let mut cube = extrema::PixelCube::<f64>::new(&[img1, img2, img3]);
+        
+        assert_eq!(cube.top._inner, box_cube_initial);
+        assert_eq!(cube.bottom._inner, box_cube_initial);
+
+        // cube.step_right().unwrap();
+        
+        println!("{:#?}", cube);
+    }
+
 }
