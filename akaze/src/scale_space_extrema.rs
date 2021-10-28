@@ -330,8 +330,8 @@ fn do_subpixel_refinement(
         result.len(),
         in_keypoints.len()
     );
-    for mut keypoint in result.iter_mut() {
-        compute_main_orientation(&mut keypoint, evolutions);
+    for keypoint in result.iter_mut() {
+        compute_main_orientation(keypoint, evolutions);
     }
     result
 }
