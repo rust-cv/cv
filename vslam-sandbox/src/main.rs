@@ -50,6 +50,9 @@ struct Opt {
     /// The K1 radial distortion for "The Zurich Urban Micro Aerial Vehicle Dataset"
     #[structopt(long, default_value = "-0.28052513")]
     radial_distortion: f64,
+    /// If true, will use actual PLY faces for cameras rather than just points.
+    #[structopt(long)]
+    no_camera_faces: bool,
     /// Output directory for reconstruction PLY files
     #[structopt(short, long)]
     output: Option<PathBuf>,
@@ -151,7 +154,7 @@ fn main() {
                         frame_path.file_name().unwrap().to_str().unwrap(),
                         reconstruction.data().as_ffi()
                     ));
-                    vslam.export_reconstruction(reconstruction, &path);
+                    vslam.export_reconstruction(reconstruction, &path, !opt.no_camera_faces);
                     info!("exported {}", path.display());
                     // Restore the pre-export settings.
                     vslam.settings = old_settings;

@@ -2281,7 +2281,12 @@ where
         }
     }
 
-    pub fn export_reconstruction(&self, reconstruction: ReconstructionKey, path: impl AsRef<Path>) {
+    pub fn export_reconstruction(
+        &self,
+        reconstruction: ReconstructionKey,
+        path: impl AsRef<Path>,
+        camera_faces: bool,
+    ) {
         // Output point cloud.
         let points_and_colors = self
             .data
@@ -2329,6 +2334,7 @@ where
             std::fs::File::create(path).unwrap(),
             points_and_colors,
             cameras,
+            camera_faces,
         );
     }
 
