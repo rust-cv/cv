@@ -17,7 +17,10 @@ image = { version = "0.23.14", default-features = false }
 log = { version = "0.4.14", default-features = false }
 primal = { version = "0.3.0", default-features = false }
 derive_more = { version = "0.99.16", default-features = false }
-nshare = { version = "0.7.0", features = ["ndarray", "image"] }
+nshare = { version = "0.8.0", default-features = false, features = [
+    "ndarray",
+    "image",
+] }
 ndarray = { version = "0.15.3", default-features = false }
 float-ord = { version = "0.3.2", default-features = false }
 space = "0.17.0"
