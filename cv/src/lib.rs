@@ -145,7 +145,4 @@ pub mod video {
 }
 
 /// Visualization utilities
-pub mod vis {
-    #[cfg(feature = "show-image")]
-    pub use show_image;
-}
+pub mod vis {}
