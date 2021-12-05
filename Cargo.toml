@@ -15,6 +15,7 @@ members = [
     "kpdraw",
     "tutorial-code/chapter2-first-program",
     "tutorial-code/chapter3-akaze-feature-extraction",
+    "tutorial-code/chapter4-feature-matching",
 ]
 
 [profile.dev]

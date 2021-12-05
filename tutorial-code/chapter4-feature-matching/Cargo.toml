@@ -1,7 +1,6 @@
 [package]
-name = "chapter3-akaze-feature-extraction"
+name = "chapter4-feature-matching"
 version = "0.1.0"
-authors = ["codec-abc <viot.camille@outlook.com>"]
 edition = "2021"
 
 [dependencies]
@@ -10,3 +9,5 @@ image = "0.23.14"
 imageproc = "0.22.0"
 open = "2.0.1"
 tempfile = "3.2.0"
+itertools = "0.10.1"
+palette = "0.6.0"
