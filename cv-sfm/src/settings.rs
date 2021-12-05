@@ -383,7 +383,7 @@ fn default_single_view_minimum_robust_landmarks() -> usize {
 }
 
 fn default_single_view_match_better_by() -> u32 {
-    1
+    24
 }
 
 fn default_two_view_consensus_threshold() -> f64 {
@@ -395,7 +395,7 @@ fn default_two_view_minimum_robust_matches() -> usize {
 }
 
 fn default_two_view_match_better_by() -> u32 {
-    1
+    24
 }
 
 fn default_two_view_optimization_maximum_matches() -> usize {
