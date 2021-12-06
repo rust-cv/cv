@@ -36,7 +36,7 @@ If all went well you should have a window and see this:
     let src_image = image::open("res/0000000000.png").expect("failed to open image file");
 ```
 
-We saw this in [chapter 2](./ch2-first-program.md). This will open the image. Make sure you run this from the correct location.
+We saw this in [chapter 2](./chapter2-first-program.md). This will open the image. Make sure you run this from the correct location.
 
 ### Create an AKAZE feature extractor
 
@@ -67,7 +67,7 @@ This line extacts the features from the image. In this case, we will not be usin
     }
 ```
 
-Almost all of the rest of the code is the same as what we saw in [chapter 2](./ch2-first-program.md). However, the above snippet is slightly different. Rather than randomly generating points, we are now using the X and Y components of the keypoints AKAZE extracted. The output image actually shows the keypoints of the features AKAZE found.
+Almost all of the rest of the code is the same as what we saw in [chapter 2](./chapter2-first-program.md). However, the above snippet is slightly different. Rather than randomly generating points, we are now using the X and Y components of the keypoints AKAZE extracted. The output image actually shows the keypoints of the features AKAZE found.
 
 ## End
 

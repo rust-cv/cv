@@ -6,7 +6,7 @@ In this chapter, we will be matching AKAZE features and displaying the matches.
 
 ### Binary Features
 
-As explained in the [previous chapter](./ch3-akaze-feature-extraction.md), AKAZE's feature descriptors are comprised of bits. Each bit describes one comparison made between two points around the feature. These descriptors are generally designed so that similar features have similar descriptors. In this case, that means that similar features will have similar bit patterns. For AKAZE features, the number of bits that are different between two descriptors is the distance between them, and the number of bits in common is the similarity between them.
+As explained in the [previous chapter](./chapter3-akaze-feature-extraction.md), AKAZE's feature descriptors are comprised of bits. Each bit describes one comparison made between two points around the feature. These descriptors are generally designed so that similar features have similar descriptors. In this case, that means that similar features will have similar bit patterns. For AKAZE features, the number of bits that are different between two descriptors is the distance between them, and the number of bits in common is the similarity between them.
 
 The primary reason that we use binary features is because computing the distance between two features is blazingly fast on modern computers. This allows us to get real-time performance. The amount of time that it takes to compare two binary features in practice is typically a few nanoseconds. Compare this to computing the distance between high dimensional (e.g., 128 dimensional for SIFT) floating point vectors, which typically takes much longer, even with modern SIMD instruction sets or the use of GPUs. How is this achieved?
 
@@ -85,7 +85,7 @@ We already opened an image in the other chapters, but this time we are opening t
     let matches = symmetric_matching(&descriptors_a, &descriptors_b);
 ```
 
-We created an `Akaze` instance in the [last chapter](./ch3-akaze-feature-extraction.md). We also extracted features as well, but this time two things are different. For one, this time we are keeping the descriptors and not just throwing them away. Secondly, we are extracting features from both images.
+We created an `Akaze` instance in the [last chapter](./chapter3-akaze-feature-extraction.md). We also extracted features as well, but this time two things are different. For one, this time we are keeping the descriptors and not just throwing them away. Secondly, we are extracting features from both images.
 
 The next part is the most critical. This is where we match the features. We perform symmetric matching just as is explained above. The tutorial code has the full code for the symmetric matching procedure, and you can read through it if you are interested, but for now we will just assume it works as described. It also performs the "Lowe's distance test" mentioned above with the binary features. It is using a distance of `48` bits, which is quite large, but this results in highly accurate output data. Feel free to mess around with this number and see what kinds of results you get with different values.
 
