@@ -45,8 +45,6 @@ fn main() {
     // Render image b just to the right of image a (in the top right).
     render_image_onto_canvas_x_offset(&rgba_image_b, rgba_image_a.dimensions().0);
 
-    drop(render_image_onto_canvas_x_offset);
-
     // Draw a translucent line for every match.
     for (ix, &[kpa, kpb]) in matches.iter().enumerate() {
         // Compute a color by rotating through a color wheel on only the most saturated colors.

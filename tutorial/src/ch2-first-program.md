@@ -1,81 +1,84 @@
-## Your first Rust-CV program
+# First program
 
-In this section, we will be doing our first program. It will be very basic and not even really related to computer vision. We will just be loading an image, drawing random points on it and displaying it. This will be very basic but at least you can make sure you have everything set up correctly before attacking more ambitious problems.
+In this chapter, we will be reviewing our first program. It is not even really related to computer vision, but it will help you get started with some basic tools that will be used again later and get familiar with the tutorial process. We will just be loading an image, drawing random points on it, and displaying it. This is very basic, but at least you can make sure you have everything set up correctly before attacking more ambitious problems.
 
-### Creating the project
+## Running the program
 
-In order to start, we will be creating a new project using `cargo`. Let's run ``cargo new --bin chapter2-first-program`` to get a simple binary project.
+In order to start, we will clone the [Rust CV mono-repo](https://github.com/rust-cv/cv). Change into the repository directory. Run the following:
 
-Then we will add the `image` crate to load an image. We will also add the `imgshow` to display images as well as the `imageproc` crates to modify images. Finally, we will add the ``rand`` crate to generate random pixel coordinates.
-
-So in the `cargo.toml` file we add the following to the `[dependencies]` section:
-```toml
-[dependencies]
-imgshow = { git = "https://github.com/rust-cv/cv.git" }
-image = "0.23.7"
-imageproc = "0.21.0"
-rand = "0.7.3"
-```
-### Adding an image
-
-To get something to display and to work on, we will add an image to our project. Create a `res` directory in the parent directory of the project. In this repository put a png named `0000000000.png`. You can use the same as the tutorial is using by downloading the same [image](https://raw.githubusercontent.com/rust-cv/cv/c7540dccf45af310c7f7dfa12ac31a2b04b26224/akaze/res/0000000000.png).
-
-### Adding the use statements
-
-As you can expect, we to bring into views the crates we have declared as dependencies. So we start our file with a vew use statements:
-```rs
-use image::{DynamicImage, Rgba, GenericImageView};
-use imageproc::drawing;
-use rand::Rng;
+```bash
+cargo run --release --bin chapter2-first-program
 ```
 
-### Loading the image
-
-Let's start by loading the image: 
-```rs
-let src_image = 
-    image::open("../res/0000000000.png").expect("failed to open image file");
-```
-
-Nothing fancy here. we just call `image::open` with a relative path to get an image. As we don't want to handle errors, we use the `expect` function to panic on failure while displaying a nice error message.
-
-### Drawing random points on our image
-
-To draw random points on our image, we start by initializing our random generator:
-
-```rs
-let mut rng = rand::thread_rng();
-```
-
-Then, we create a canvas with is initialized with our existing image:
-```rs
-let mut canvas = drawing::Blend(src_image.to_rgba());
-```
-And here we can draw 50 random points :
-```rs
-for _ in 0..50 {
-    let x : i32 = rng.gen_range(0, src_image.width() - 1) as i32;
-    let y : i32 = rng.gen_range(0, src_image.height() - 1) as i32;
-    drawing::draw_cross_mut(&mut canvas, Rgba([0, 255, 255, 128]), x as i32, y as i32);
-}
-```
-For each iteration of the loop, we generate a random value for x and y which represent our point location. Then we paint a new point in our canvas.
-
-### Displaying the image
-
-At this point we just need to convert back our canvas to an image and the we can display it:
-
-```rs
-let out_img = DynamicImage::ImageRgba8(canvas.0);
-imgshow::imgshow(&out_img);
-```
-
-### Result
-
-If the compile you should obtain something similar as the image below:
+You should see a grayscale image (from the Kitti dataset) with thousands of small blue translucent crosses drawn on it. If you see this, then everything is working on your computer. Here is what it should look like:
 
 ![Random points](https://rust-cv.github.io/res/tutorial-images/random-points.png)
 
-### Code
+We are now going to go through the code in `tutorial-code/chapter2-first-program/src/main.rs` piece-by-piece. We will do this for each chapter of the book and its relevant example. It is recommended to tweak the code in every chapter to get a better idea of how the code works. All of the code samples can be found in `tutorial-code`. We will skip talking about the imports unless they are relevant at any point. Comments will also be omitted since we will be discussing the code in this tutorial.
 
-You can also find the whole project [here](https://github.com/rust-cv/cv/tree/master/tutorial-code/chapter2-first-program). The dependencies of the code are sightly different in the repository, as it utilizes the dependencies within the mono-repo to ensure compatibility with master.
+## The code
+
+### Load the image
+
+```rust
+    let src_image = image::open("res/0000000000.png").expect("failed to open image file");
+```
+
+This code will load an image called `res/0000000000.png` relative to the current directory you are running this program from. This will only work when you are in the root of the Rust CV mono-repo, which is where the `res` directory is located.
+
+### Create a random number generator
+
+```rust
+    let mut rng = rand::thread_rng();
+```
+
+This code creates a random number generator (RNG) using the `rand` crate. This random number generator will use entropy information from the OS to seed a fairly robust PRNG on a regular basis, and it is used here because it is very simple to create one.
+
+### Drawing the crosses
+
+```rust
+    let mut image_canvas = drawing::Blend(src_image.to_rgba8());
+    for _ in 0..5000 {
+        let x = rng.gen_range(0..src_image.width()) as i32;
+        let y = rng.gen_range(0..src_image.height()) as i32;
+        drawing::draw_cross_mut(&mut image_canvas, Rgba([0, 255, 255, 128]), x, y);
+    }
+```
+
+This section of code is going to iterate `5000` times. Each iteration it is going to generate a random x and y position that is on the image. We then use the `imageproc::drawing` module to draw a cross on the spot in question. Note that the `image_canvas` is created by making an RGBA version of the original grayscale image and then wrapping it in the `imageproc::drawing::Blend` adapter. This is done so that when we draw the cross onto the canvas that it will use the alpha value (which we set to `128`) to make the cross translucent. This is useful so that we can see through the cross a little bit so that it doesn't totally obscure the underlying image.
+
+### Changing the image back into DynamicImage
+
+```rust
+    let out_image = DynamicImage::ImageRgba8(image_canvas.0);
+```
+
+We now take the `RgbaImage` and turn it into a `DynamicImage`. This is done because `DynamicImage` is a wrapper around all image types that has convenient save and load methods, and we actually used it when we originally loaded the image.
+
+### Write the image to a temporary file
+
+```rust
+    let image_file_path = tempfile::Builder::new()
+        .suffix(".png")
+        .tempfile()
+        .unwrap()
+        .into_temp_path();
+    out_image.save(&image_file_path).unwrap();
+```
+
+Here we use the `tempfile` crate to create a temporary file. The benefit of a temporary file is that it can be deleted automatically for us when we are done with it. In this case it may not get deleted automatically because the OS image viewer will later be used and it may prevent the file from being deleted, but it is good practice to create temporary files to store image.
+
+After we create the temporary file path, we write to the path by saving the output image to it.
+
+### Open the image
+
+```rust
+    open::that(&image_file_path).unwrap();
+    std::thread::sleep(std::time::Duration::from_secs(5));
+```
+
+We use the `open` crate here to open the image file. This will automatically use the program configured on your computer for viewing images to open the image. Since the image program does not open the file right away, we have to sleep for some period of time to ensure we don't delete the temporary file.
+
+## End
+
+This is the end of this chapter.

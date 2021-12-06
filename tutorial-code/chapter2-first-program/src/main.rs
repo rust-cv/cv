@@ -17,7 +17,7 @@ fn main() {
     let mut image_canvas = drawing::Blend(src_image.to_rgba8());
 
     // Loop 50 times.
-    for _ in 0..50 {
+    for _ in 0..5000 {
         // Generate a random pixel coordinate on the image.
         let x = rng.gen_range(0..src_image.width()) as i32;
         let y = rng.gen_range(0..src_image.height()) as i32;
