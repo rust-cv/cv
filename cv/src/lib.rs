@@ -37,7 +37,7 @@ pub use cv_core::{sample_consensus::*, *};
 pub use space::Metric;
 
 #[cfg(feature = "bitarray")]
-pub use bitarray::BitArray;
+pub use bitarray;
 
 /// Camera models (see [`video`] for camera capture)
 pub mod camera {
