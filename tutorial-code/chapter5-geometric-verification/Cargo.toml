@@ -1,0 +1,15 @@
+[package]
+name = "chapter5-geometric-verification"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cv = { version = "0.6.0", path = "../../cv" }
+image = "0.23.14"
+imageproc = "0.22.0"
+open = "2.0.1"
+tempfile = "3.2.0"
+itertools = "0.10.1"
+palette = "0.6.0"
+rand = "0.8.4"
+rand_xoshiro = "0.6.0"

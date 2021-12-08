@@ -1,0 +1,7 @@
+This data is from collection 2011_09_26_drive_0035 of the Kitti dataset. It was accessed at:
+
+https://s3.eu-central-1.amazonaws.com/avg-kitti/raw_data/2011_09_26_drive_0035/2011_09_26_drive_0035_extract.zip
+
+You can also find the original calibration data source here:
+
+https://s3.eu-central-1.amazonaws.com/avg-kitti/raw_data/2011_09_26_calib.zip

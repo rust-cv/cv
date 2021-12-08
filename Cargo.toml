@@ -16,6 +16,7 @@ members = [
     "tutorial-code/chapter2-first-program",
     "tutorial-code/chapter3-akaze-feature-extraction",
     "tutorial-code/chapter4-feature-matching",
+    "tutorial-code/chapter5-geometric-verification",
 ]
 
 [profile.dev]

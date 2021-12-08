@@ -1,15 +1,23 @@
 use cv::{
     bitarray::{BitArray, Hamming},
+    camera::pinhole::{CameraIntrinsics, CameraIntrinsicsK1Distortion},
+    consensus::Arrsac,
+    estimate::EightPoint,
     feature::akaze::Akaze,
     image::{
         image::{self, DynamicImage, GenericImageView, Rgba, RgbaImage},
         imageproc::drawing,
     },
     knn::{Knn, LinearKnn},
+    nalgebra::{Point2, Vector2},
+    sample_consensus::Consensus,
+    CameraModel, FeatureMatch, KeyPoint, Pose,
 };
 use imageproc::pixelops;
 use itertools::Itertools;
 use palette::{FromColor, Hsv, RgbHue, Srgb};
+use rand::SeedableRng;
+use rand_xoshiro::Xoshiro256PlusPlus;
 
 fn main() {
     // Load the image.
@@ -23,6 +31,58 @@ fn main() {
     let (key_points_a, descriptors_a) = akaze.extract(&src_image_a);
     let (key_points_b, descriptors_b) = akaze.extract(&src_image_b);
     let matches = symmetric_matching(&descriptors_a, &descriptors_b);
+
+    // The camera calibration data for 2011_09_26_drive_0035 camera 0 of the Kitti dataset.
+    let camera = CameraIntrinsicsK1Distortion::new(
+        CameraIntrinsics::identity()
+            .focals(Vector2::new(9.842439e+02, 9.808141e+02))
+            .principal_point(Point2::new(6.900000e+02, 2.331966e+02)),
+        -3.728755e-01,
+    );
+
+    // Create an instance of ARRSAC, the consensus algorithm that will find
+    // a model that best fits the data. We need to pass in an RNG with good statistical properties
+    // for the random sampling process, and xoshiro256++ is an excellent PRNG for this purpose.
+    // It is prefered for this example to use a PRNG so we get the same result every time.
+    // Note that the inlier threshold is set to 1e-7. This is specific to the dataset.
+    let mut consensus = Arrsac::new(1e-7, Xoshiro256PlusPlus::seed_from_u64(0));
+
+    // Create the estimator. In this case it is the well-known Eight-Point algorithm.
+    let estimator = EightPoint::new();
+
+    // Take all of the original matches and use the camera model to compute the bearing
+    // of each keypoint. The bearing is the direction that the light came from in the camera's
+    // reference frame.
+    let matches = matches
+        .iter()
+        .map(|&[a, b]| {
+            FeatureMatch(
+                camera.calibrate(key_points_a[a]),
+                camera.calibrate(key_points_b[b]),
+            )
+        })
+        .collect_vec();
+
+    // Run the consensus process. This will use the estimator to estimate the pose of the camera
+    // from random data repeatedly. It does this in an intelligent way to maximize the number of
+    // inliers to the model. For convenience, we use .expect() since we expect to get a pose back,
+    // but this should not be used in real code.
+    let (pose, inliers) = consensus
+        .model_inliers(&estimator, matches.iter().copied())
+        .expect("we expect to get a pose");
+
+    // Print out the direction the camera moved.
+    // Note that the translation of the pose is in the final camera's reference frame
+    // and describes the direction that the point cloud (the world) moves to become that reference
+    // frame. Therefore, the negation of the translation of the isometry is the actual
+    // translation of the camera.
+    let translation = -pose.isometry().translation.vector;
+    println!("camera moved forward: {}", translation.z);
+    println!("camera moved right: {}", translation.x);
+    println!("camera moved down: {}", translation.y);
+
+    // Only keep the inlier matches.
+    let matches = inliers.iter().map(|&inlier| matches[inlier]).collect_vec();
 
     // Make a canvas with the `imageproc::drawing` module.
     // We use the blend mode so that we can draw with translucency on the image.
@@ -46,7 +106,7 @@ fn main() {
     render_image_onto_canvas_x_offset(&rgba_image_b, rgba_image_a.dimensions().0);
 
     // Draw a translucent line for every match.
-    for (ix, &[kpa, kpb]) in matches.iter().enumerate() {
+    for (ix, &FeatureMatch(a_bearing, b_bearing)) in matches.iter().enumerate() {
         // Compute a color by rotating through a color wheel on only the most saturated colors.
         let ix = ix as f64;
         let hsv = Hsv::new(RgbHue::from_radians(ix * 0.1), 1.0, 1.0);
@@ -54,11 +114,14 @@ fn main() {
 
         // Draw the line between the keypoints in the two images.
         let point_to_i32_tup =
-            |point: (f32, f32), off: u32| (point.0 as i32 + off as i32, point.1 as i32);
+            |point: KeyPoint, off: u32| (point.x as i32 + off as i32, point.y as i32);
         drawing::draw_antialiased_line_segment_mut(
             &mut canvas,
-            point_to_i32_tup(key_points_a[kpa].point, 0),
-            point_to_i32_tup(key_points_b[kpb].point, rgba_image_a.dimensions().0),
+            point_to_i32_tup(camera.uncalibrate(a_bearing).unwrap(), 0),
+            point_to_i32_tup(
+                camera.uncalibrate(b_bearing).unwrap(),
+                rgba_image_a.dimensions().0,
+            ),
             Rgba([
                 (rgb.red * 255.0) as u8,
                 (rgb.green * 255.0) as u8,
