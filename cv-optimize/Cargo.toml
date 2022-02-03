@@ -10,3 +10,4 @@ cv-geom = { version = "0.7.0", path = "../cv-geom" }
 itertools = "0.10.1"
 log = { version = "0.4.14", default-features = false }
 float-ord = { version = "0.3.2", default-features = false }
+levenberg-marquardt = "0.11.1"
