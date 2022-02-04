@@ -6,6 +6,6 @@ edition = "2021"
 
 [dependencies]
 cv = { version = "0.6.0", path = "../../cv" }
-open = "2.0.1"
+open = "2.0.2"
 rand = "0.8.4"
-tempfile = "3.2.0"
+tempfile = "3.3.0"

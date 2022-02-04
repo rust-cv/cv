@@ -6,6 +6,6 @@ edition = "2018"
 
 [dependencies]
 akaze = { version = "0.7.0", path = "../akaze" }
-structopt = "0.3.25"
-image = { version = "0.23.14", features = ["png", "jpeg"] }
+structopt = "0.3.26"
+image = { version = "0.23.0", features = ["png", "jpeg"] }
 imageproc = "0.22.0"

@@ -13,15 +13,15 @@ readme = "README.md"
 
 [dependencies]
 cv-core = { version = "0.15.0", path = "../cv-core" }
-image = { version = "0.23.14", default-features = false }
+image = { version = "0.23.0", default-features = false }
 log = { version = "0.4.14", default-features = false }
 primal = { version = "0.3.0", default-features = false }
-derive_more = { version = "0.99.16", default-features = false }
-nshare = { version = "0.8.0", default-features = false, features = [
+derive_more = { version = "0.99.17", default-features = false }
+nshare = { git = "https://github.com/rust-cv/nshare.git", rev = "f743711c9dd298ebf8dfd0886986cc58a600982e", default-features = false, features = [
     "ndarray",
     "image",
 ] }
-ndarray = { version = "0.15.3", default-features = false }
+ndarray = { version = "0.15.4", default-features = false }
 float-ord = { version = "0.3.2", default-features = false }
 space = "0.17.0"
 bitarray = "0.9.0"
@@ -30,12 +30,12 @@ bitarray = "0.9.0"
 [dev-dependencies]
 eight-point = { version = "0.8.0", path = "../eight-point" }
 cv-pinhole = { version = "0.6.0", path = "../cv-pinhole" }
-arrsac = "0.9.0"
+arrsac = "0.10.0"
 rand = "0.8.4"
 rand_pcg = "0.3.1"
 criterion = "0.3.5"
 pretty_env_logger = "0.4.0"
-image = "0.23.14"
+image = "0.23.0"
 bitarray = { version = "0.9.0", features = ["space"] }
 
 [[bench]]
