@@ -6,6 +6,7 @@ members = [
     "cv-geom",
     "cv-pinhole",
     "cv-optimize",
+    "cv-pointclouds",
     "cv-sfm",
     "akaze",
     "eight-point",
