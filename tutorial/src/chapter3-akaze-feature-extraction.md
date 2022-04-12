@@ -26,7 +26,7 @@ cargo run --release --bin chapter3-akaze-feature-extraction
 
 If all went well you should have a window and see this:
 
-![Akaze result](https://rust-cv.github.io/res/tutorial-images/akaze-result.png)
+![Akaze result](https://user-images.githubusercontent.com/12800090/163041475-32c8e58d-8086-4f08-9cac-7bcb9165b7b9.png)
 
 ## The code
 
