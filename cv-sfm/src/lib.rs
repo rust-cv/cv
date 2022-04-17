@@ -175,7 +175,8 @@ impl ThreeViewConstraint {
             (views[1], (views[2], first_to_second.inverse())),
             (views[2], (views[1], first_to_second)),
             (views[2], (views[0], second)),
-        ].into_iter()
+        ]
+        .into_iter()
     }
 }
 
