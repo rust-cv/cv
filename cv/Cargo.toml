@@ -2,7 +2,7 @@
 name = "cv"
 version = "0.6.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "Batteries-included pure-Rust computer vision crate"
 keywords = ["computer", "vision", "photogrammetry", "camera"]
 categories = ["computer-vision"]

@@ -2,7 +2,7 @@
 name = "cv-optimize"
 version = "0.1.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 cv-core = { version = "0.15.0", path = "../cv-core" }

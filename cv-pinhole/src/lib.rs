@@ -48,10 +48,12 @@ impl CameraIntrinsics {
         }
     }
 
+    #[must_use]
     pub fn focals(self, focals: Vector2<f64>) -> Self {
         Self { focals, ..self }
     }
 
+    #[must_use]
     pub fn focal(self, focal: f64) -> Self {
         Self {
             focals: Vector2::new(focal, focal),
@@ -59,6 +61,7 @@ impl CameraIntrinsics {
         }
     }
 
+    #[must_use]
     pub fn principal_point(self, principal_point: Point2<f64>) -> Self {
         Self {
             principal_point,
@@ -66,6 +69,7 @@ impl CameraIntrinsics {
         }
     }
 
+    #[must_use]
     pub fn skew(self, skew: f64) -> Self {
         Self { skew, ..self }
     }

@@ -53,6 +53,7 @@ impl LinearEigenTriangulator {
     /// Set the epsilon used in the symmetric eigen solver.
     ///
     /// Default is `1e-12`.
+    #[must_use]
     pub fn epsilon(self, epsilon: f64) -> Self {
         Self { epsilon, ..self }
     }
@@ -60,6 +61,7 @@ impl LinearEigenTriangulator {
     /// Set the maximum number of iterations for the symmetric eigen solver.
     ///
     /// Default is `1000`.
+    #[must_use]
     pub fn max_iterations(self, max_iterations: usize) -> Self {
         Self {
             max_iterations,
@@ -291,6 +293,7 @@ impl RelativeDltTriangulator {
     /// Set the epsilon used in the SVD solver.
     ///
     /// Default is `1e-9`.
+    #[must_use]
     pub fn epsilon(self, epsilon: f64) -> Self {
         Self { epsilon, ..self }
     }
@@ -298,6 +301,7 @@ impl RelativeDltTriangulator {
     /// Set the maximum number of iterations for the SVD solver.
     ///
     /// Default is `100`.
+    #[must_use]
     pub fn max_iterations(self, max_iterations: usize) -> Self {
         Self {
             max_iterations,

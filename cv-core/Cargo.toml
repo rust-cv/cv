@@ -2,7 +2,7 @@
 name = "cv-core"
 version = "0.15.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "Contains core primitives used in computer vision applications"
 documentation = "https://docs.rs/cv-core/"
 repository = "https://github.com/rust-cv/cv"

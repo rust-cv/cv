@@ -2,7 +2,7 @@
 name = "akaze"
 version = "0.7.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "AKAZE feature extraction algorithm for computer vision"
 keywords = ["keypoint", "descriptor", "vision", "sfm", "slam"]
 categories = ["computer-vision", "science::robotics"]

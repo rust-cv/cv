@@ -168,14 +168,14 @@ impl ThreeViewConstraint {
         let views = self.views;
         let [first, second] = self.poses;
         let first_to_second = second * first.inverse();
-        std::array::IntoIter::new([
+        [
             (views[0], (views[2], second.inverse())),
             (views[0], (views[1], first.inverse())),
             (views[1], (views[0], first)),
             (views[1], (views[2], first_to_second.inverse())),
             (views[2], (views[1], first_to_second)),
             (views[2], (views[0], second)),
-        ])
+        ].into_iter()
     }
 }
 
@@ -1327,10 +1327,10 @@ where
         incidence_minimum_cosine_distance: f64,
     ) -> bool {
         // Triangulate the point
-        let point = if let Some(point) = self.triangulator.triangulate_observations_to_camera(
-            c,
-            core::array::IntoIter::new([(first_pose, f), (second_pose, s)]),
-        ) {
+        let point = if let Some(point) = self
+            .triangulator
+            .triangulate_observations_to_camera(c, [(first_pose, f), (second_pose, s)].into_iter())
+        {
             point
         } else {
             return false;

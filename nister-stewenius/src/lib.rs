@@ -331,7 +331,7 @@ impl Estimator<FeatureMatch> for NisterStewenius {
             .filter_map(|essential| {
                 essential.possible_unscaled_poses(self.epsilon, self.iterations)
             })
-            .flat_map(core::array::IntoIter::new)
+            .flat_map(IntoIterator::into_iter)
             .collect()
     }
 }

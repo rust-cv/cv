@@ -72,6 +72,7 @@ impl LambdaTwist {
     }
 
     /// Sets the [`LambdaTwist::gauss_newton_iterations`].
+    #[must_use]
     pub fn gauss_newton_iterations(self, gauss_newton_iterations: usize) -> Self {
         Self {
             gauss_newton_iterations,
@@ -80,6 +81,7 @@ impl LambdaTwist {
     }
 
     /// Sets the [`LambdaTwist::rotation_convergence_iterations`].
+    #[must_use]
     pub fn rotation_convergence_iterations(self, rotation_convergence_iterations: usize) -> Self {
         Self {
             rotation_convergence_iterations,
@@ -88,6 +90,7 @@ impl LambdaTwist {
     }
 
     /// Sets the [`LambdaTwist::rotation_convergence_epsilon`].
+    #[must_use]
     pub fn rotation_convergence_epsilon(self, rotation_convergence_epsilon: f64) -> Self {
         Self {
             rotation_convergence_epsilon,

@@ -33,6 +33,7 @@ pub trait Pose: From<IsometryMatrix3<f64>> + Clone + Copy {
     }
 
     /// Applies a scale factor to the pose (scales the translation component)
+    #[must_use]
     fn scale(self, scale: f64) -> Self {
         let mut isometry = self.isometry();
         isometry.translation.vector *= scale;

@@ -2,7 +2,7 @@
 name = "vslam-sandbox"
 version = "0.1.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [features]
 unstable-512-bit-simd = ["bitarray/unstable-512-bit-simd"]

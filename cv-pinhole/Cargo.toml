@@ -2,7 +2,7 @@
 name = "cv-pinhole"
 version = "0.6.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "Pinhole camera model for comptuer vision"
 documentation = "https://docs.rs/cv-pinhole/"
 repository = "https://github.com/rust-cv/cv"

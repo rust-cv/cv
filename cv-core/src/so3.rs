@@ -119,6 +119,7 @@ impl Se3TangentSpace {
 
     /// Assumes an L2 tangent space is provided as input and returns the L1 tangent space.
     #[inline(always)]
+    #[must_use]
     pub fn l1(&self) -> Self {
         Self::new(self.translation.normalize(), self.rotation.normalize())
     }
@@ -202,6 +203,7 @@ impl Skew3 {
     }
 
     /// Computes the lie bracket [self, rhs].
+    #[must_use]
     pub fn bracket(self, rhs: Self) -> Self {
         Self::vee(self.hat() * rhs.hat() - rhs.hat() * self.hat())
     }

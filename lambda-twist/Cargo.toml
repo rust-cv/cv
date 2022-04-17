@@ -2,7 +2,7 @@
 name = "lambda-twist"
 version = "0.7.0"
 authors = ["Matthieu Pizenberg <matthieu.pizenberg@gmail.com>", "Geordon Worley <vadixidav@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "p3p pose estimation given world points and feature bearings"
 documentation = "https://docs.rs/lambda-twist/"
 repository = "https://github.com/rust-cv/cv"

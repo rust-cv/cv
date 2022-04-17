@@ -2,7 +2,7 @@
 name = "kpdraw"
 version = "0.1.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 akaze = { version = "0.7.0", path = "../akaze" }

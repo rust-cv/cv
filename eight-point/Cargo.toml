@@ -2,7 +2,7 @@
 name = "eight-point"
 version = "0.8.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "Eight-point algorithm for essential matrix estimation"
 documentation = "https://docs.rs/eight-point/"
 repository = "https://github.com/rust-cv/cv"
