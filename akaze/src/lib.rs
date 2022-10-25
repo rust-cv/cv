@@ -207,7 +207,7 @@ impl Akaze {
     /// # Return Value
     /// The resulting keypoints.
     ///
-    pub fn find_image_keypoints(&self, evolutions: &mut Vec<EvolutionStep>) -> Vec<KeyPoint> {
+    pub fn find_image_keypoints(&self, evolutions: &mut [EvolutionStep]) -> Vec<KeyPoint> {
         self.detector_response(evolutions);
         trace!("Computing detector response finished.");
         self.detect_keypoints(evolutions)

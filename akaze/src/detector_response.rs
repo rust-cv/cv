@@ -2,7 +2,7 @@ use crate::{derivatives, evolution::EvolutionStep, image::GrayFloatImage, Akaze}
 use ndarray::azip;
 
 impl Akaze {
-    fn compute_multiscale_derivatives(&self, evolutions: &mut Vec<EvolutionStep>) {
+    fn compute_multiscale_derivatives(&self, evolutions: &mut [EvolutionStep]) {
         for evolution in evolutions.iter_mut() {
             // The image decreases in size by a factor which is 2^octave.
             let ratio = 2.0f64.powi(evolution.octave as i32);
@@ -19,7 +19,7 @@ impl Akaze {
     /// * `evolutions` - The computed evolutions.
     /// * `options` - The options
     #[allow(non_snake_case, clippy::suspicious_operation_groupings)]
-    pub fn detector_response(&self, evolutions: &mut Vec<EvolutionStep>) {
+    pub fn detector_response(&self, evolutions: &mut [EvolutionStep]) {
         self.compute_multiscale_derivatives(evolutions);
         for evolution in evolutions.iter_mut() {
             let ratio = f64::powi(2.0, evolution.octave as i32);

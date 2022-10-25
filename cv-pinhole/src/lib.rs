@@ -132,7 +132,7 @@ impl CameraModel for CameraIntrinsics {
     /// assert!((kp.0 - ukp.0).norm() < 1e-6);
     /// ```
     fn uncalibrate(&self, projection: UnitVector3<f64>) -> Option<KeyPoint> {
-        projection.z.is_sign_positive().then(|| ())?;
+        projection.z.is_sign_positive().then_some(())?;
         let projection = projection.xy() / projection.z;
         let y = projection.y * self.focals.y;
         let x = projection.x * self.focals.x + self.skew * projection.y;
@@ -222,7 +222,7 @@ impl CameraModel for CameraIntrinsicsK1Distortion {
     /// assert!((kp.0 - ukp.0).norm() < 1e-6, "{:?}", (kp.0 - ukp.0).norm());
     /// ```
     fn uncalibrate(&self, projection: UnitVector3<f64>) -> Option<KeyPoint> {
-        projection.z.is_sign_positive().then(|| ())?;
+        projection.z.is_sign_positive().then_some(())?;
         let undistorted = projection.xy() / projection.z;
         // You can set up a quadratic to solve for r^2 with the undistorted keypoint. This is the result.
         let u2 = undistorted.norm_squared();

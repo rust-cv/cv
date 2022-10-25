@@ -8,7 +8,7 @@ impl Akaze {
     /// # Argument
     /// * `evolutions` - evolutions to mutate in place.
     /// * `options` - options to use.
-    fn find_scale_space_extrema(&self, evolutions: &mut Vec<EvolutionStep>) -> Vec<KeyPoint> {
+    fn find_scale_space_extrema(&self, evolutions: &mut [EvolutionStep]) -> Vec<KeyPoint> {
         let mut keypoint_cache: Vec<KeyPoint> = vec![];
         let smax = 10.0f32 * f32::sqrt(2.0f32);
         for (e_id, evolution) in evolutions.iter_mut().enumerate() {
@@ -138,7 +138,7 @@ impl Akaze {
     /// * `options` - The options to use.
     /// # Return value
     /// The resulting keypoints.
-    pub fn detect_keypoints(&self, evolutions: &mut Vec<EvolutionStep>) -> Vec<KeyPoint> {
+    pub fn detect_keypoints(&self, evolutions: &mut [EvolutionStep]) -> Vec<KeyPoint> {
         let mut keypoints = self.find_scale_space_extrema(evolutions);
         keypoints = do_subpixel_refinement(&keypoints, evolutions);
         keypoints

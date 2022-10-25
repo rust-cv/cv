@@ -1018,7 +1018,7 @@ where
                         self.settings
                             .robust_observation_incidence_minimum_cosine_distance,
                     )
-                    .then(|| ())?;
+                    .then_some(())?;
                     let fp = self
                         .triangulator
                         .triangulate_relative(*first_pose, c, f)?
@@ -1077,7 +1077,7 @@ where
                         self.settings
                             .robust_observation_incidence_minimum_cosine_distance,
                     )
-                    .then(|| [c, f, s])
+                    .then_some([c, f, s])
                 })
                 .take(self.settings.three_view_optimization_landmarks)
                 .collect::<Vec<_>>();
@@ -1153,7 +1153,7 @@ where
                             self.settings
                                 .robust_observation_incidence_minimum_cosine_distance,
                         )
-                        .then(|| [c, f, s])
+                        .then_some([c, f, s])
                     })
                     .take(self.settings.three_view_optimization_landmarks)
                     .collect::<Vec<_>>();
@@ -1672,7 +1672,7 @@ where
                                 .landmark_pose_bearings(reconstruction_key, landmark)
                         }),
                     )
-                    .then(|| ())?;
+                    .then_some(())?;
                     Some(FeatureWorldMatch(
                         new_frame.bearing(*feature),
                         match &landmarks[..] {
@@ -2962,7 +2962,7 @@ where
     ) -> Option<WorldPoint> {
         // Retrieve the observations.
         self.is_merged_landmark_robust(reconstruction, landmarks)
-            .then(|| ())?;
+            .then_some(())?;
         // Lastly, triangulate the point, failing if that fails.
         self.triangulate_pose_bearings(
             landmarks
@@ -2994,7 +2994,7 @@ where
     ) -> Option<WorldPoint> {
         // Retrieve the observations.
         self.is_landmark_robust(reconstruction, landmark)
-            .then(|| ())?;
+            .then_some(())?;
         // Lastly, triangulate the point, failing if that fails.
         self.triangulate_pose_bearings(self.data.landmark_pose_bearings(reconstruction, landmark))
     }
@@ -3034,7 +3034,7 @@ where
     ) -> Option<WorldPoint> {
         // Retrieve the observations.
         self.is_landmark_robust_without_view(reconstruction, landmark, without_view)
-            .then(|| ())?;
+            .then_some(())?;
         // Lastly, triangulate the point, failing if that fails.
         self.triangulate_pose_bearings(self.data.landmark_pose_bearings_without_view(
             reconstruction,
