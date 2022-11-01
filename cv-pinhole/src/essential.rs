@@ -62,24 +62,7 @@ impl EssentialMatrix {
     /// that the two singular values are averaged and the null singular value is
     /// forced to zero.
     pub fn recondition(self, epsilon: f64, max_iterations: usize) -> Option<Self> {
-        let old_svd = self.try_svd(true, true, epsilon, max_iterations)?;
-        // We need to sort the singular values in the SVD.
-        let mut sources = [0, 1, 2];
-        sources.sort_unstable_by_key(|&ix| float_ord::FloatOrd(-old_svd.singular_values[ix]));
-        let mut svd = old_svd;
-        for (dest, &source) in sources.iter().enumerate() {
-            svd.singular_values[dest] = old_svd.singular_values[source];
-            svd.u
-                .as_mut()
-                .unwrap()
-                .column_mut(dest)
-                .copy_from(&old_svd.u.as_ref().unwrap().column(source));
-            svd.v_t
-                .as_mut()
-                .unwrap()
-                .row_mut(dest)
-                .copy_from(&old_svd.v_t.as_ref().unwrap().row(source));
-        }
+        let mut svd = self.try_svd(true, true, epsilon, max_iterations)?;
         // Now that the singular values are sorted, find the closest
         // essential matrix to E in frobenius form.
         // This consists of averaging the two non-zero singular values
@@ -145,27 +128,10 @@ impl EssentialMatrix {
         let svd = SVD::try_new(essential, true, true, epsilon, max_iterations);
         // Extract only the U and V matrix from the SVD.
         let u_v_t = svd.map(|svd| {
-            if let SVD {
-                u: Some(u),
-                v_t: Some(v_t),
-                singular_values,
-            } = svd
-            {
-                // Sort the singular vectors in U and V*.
-                let mut sources: [usize; 3] = [0, 1, 2];
-                sources.sort_unstable_by_key(|&ix| float_ord::FloatOrd(-singular_values[ix]));
-                let mut sorted_u = Matrix3::zeros();
-                let mut sorted_v_t = Matrix3::zeros();
-                for (&ix, mut column) in sources.iter().zip(sorted_u.column_iter_mut()) {
-                    column.copy_from(&u.column(ix));
-                }
-                for (&ix, mut row) in sources.iter().zip(sorted_v_t.row_iter_mut()) {
-                    row.copy_from(&v_t.row(ix));
-                }
-                (sorted_u, sorted_v_t)
-            } else {
-                panic!("Didn't get U and V matrix in SVD");
-            }
+            (
+                svd.u.expect("Didn't get U and V matrix in SVD"),
+                svd.v_t.expect("Didn't get U and V matrix in SVD"),
+            )
         });
         // Force the determinants to be positive. This is done to ensure the
         // handedness of the rotation matrix is correct.
@@ -305,5 +271,131 @@ impl Model<FeatureMatch> for EssentialMatrix {
 
         // The result is a 1x1 matrix which we must get element 0 from.
         Float::abs((normalized(b).transpose() * mat * normalized(a))[0])
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn old_recondition(
+        mat: EssentialMatrix,
+        epsilon: f64,
+        max_iterations: usize,
+    ) -> Option<EssentialMatrix> {
+        let old_svd = mat.try_svd_unordered(true, true, epsilon, max_iterations)?;
+        let mut sources = [0, 1, 2];
+        sources.sort_unstable_by_key(|&ix| float_ord::FloatOrd(-old_svd.singular_values[ix]));
+        let mut svd = old_svd;
+        for (dest, &source) in sources.iter().enumerate() {
+            svd.singular_values[dest] = old_svd.singular_values[source];
+            svd.u
+                .as_mut()
+                .unwrap()
+                .column_mut(dest)
+                .copy_from(&old_svd.u.as_ref().unwrap().column(source));
+            svd.v_t
+                .as_mut()
+                .unwrap()
+                .row_mut(dest)
+                .copy_from(&old_svd.v_t.as_ref().unwrap().row(source));
+        }
+        svd.singular_values[2] = 0.0;
+        let new_singular = (svd.singular_values[0] + svd.singular_values[1]) / 2.0;
+        svd.singular_values[0] = new_singular;
+        svd.singular_values[1] = new_singular;
+        let mat = svd.recompose().unwrap();
+        Some(EssentialMatrix(mat))
+    }
+
+    fn old_possible_rotations_unscaled_translation(
+        mat: &EssentialMatrix,
+        epsilon: f64,
+        max_iterations: usize,
+    ) -> Option<(Rotation3<f64>, Rotation3<f64>, Vector3<f64>)> {
+        let EssentialMatrix(essential) = *mat;
+        let essential = essential;
+
+        // `W` from https://en.wikipedia.org/wiki/Essential_matrix#Finding_one_solution.
+        let w = Matrix3::new(0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0);
+        // Transpose of `W` from https://en.wikipedia.org/wiki/Essential_matrix#Finding_one_solution.
+        let wt = w.transpose();
+
+        // Perform SVD.
+        let svd = SVD::try_new_unordered(essential, true, true, epsilon, max_iterations);
+        // Extract only the U and V matrix from the SVD.
+        let u_v_t = svd.map(|svd| {
+            if let SVD {
+                u: Some(u),
+                v_t: Some(v_t),
+                singular_values,
+            } = svd
+            {
+                // Sort the singular vectors in U and V*.
+                let mut sources: [usize; 3] = [0, 1, 2];
+                sources.sort_unstable_by_key(|&ix| float_ord::FloatOrd(-singular_values[ix]));
+                let mut sorted_u = Matrix3::zeros();
+                let mut sorted_v_t = Matrix3::zeros();
+                for (&ix, mut column) in sources.iter().zip(sorted_u.column_iter_mut()) {
+                    column.copy_from(&u.column(ix));
+                }
+                for (&ix, mut row) in sources.iter().zip(sorted_v_t.row_iter_mut()) {
+                    row.copy_from(&v_t.row(ix));
+                }
+                (sorted_u, sorted_v_t)
+            } else {
+                panic!("Didn't get U and V matrix in SVD");
+            }
+        });
+        // Force the determinants to be positive. This is done to ensure the
+        // handedness of the rotation matrix is correct.
+        let u_v_t = u_v_t.map(|(mut u, mut v_t)| {
+            // Last column of U is undetermined since d = (a a 0).
+            if u.determinant() < 0.0 {
+                for n in u.column_mut(2).iter_mut() {
+                    *n *= -1.0;
+                }
+            }
+            // Last row of Vt is undetermined since d = (a a 0).
+            if v_t.determinant() < 0.0 {
+                for n in v_t.row_mut(2).iter_mut() {
+                    *n *= -1.0;
+                }
+            }
+            // Return positive determinant U and V*.
+            (u, v_t)
+        });
+        // Compute the possible rotations and the bearing with no normalization.
+        u_v_t.map(|(u, v_t)| {
+            (
+                Rotation3::from_matrix_unchecked(u * w * v_t),
+                Rotation3::from_matrix_unchecked(u * wt * v_t),
+                u.column(2).into_owned(),
+            )
+        })
+    }
+
+    #[test]
+    fn test_recondition() {
+        for _ in 0..100 {
+            let mat = EssentialMatrix(Matrix3::new_random());
+            let old = old_recondition(mat, 1e-6, 100);
+            let new = mat.recondition(1e-6, 100);
+            assert_eq!(old, new);
+        }
+    }
+
+    #[test]
+    fn test_possible_rotations_unscaled_translation() {
+        for _ in 0..100 {
+            let mat = EssentialMatrix(Matrix3::new_random());
+            let (r1, r2, t) = old_possible_rotations_unscaled_translation(&mat, 1e-6, 100).unwrap();
+            let (r1_new, r2_new, t_new) = mat
+                .possible_rotations_unscaled_translation(1e-6, 100)
+                .unwrap();
+            assert_eq!(r1_new, r1);
+            assert_eq!(r2_new, r2);
+            assert_eq!(t_new, t);
+        }
     }
 }
