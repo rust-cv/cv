@@ -9,7 +9,7 @@ mod nonlinear_diffusion;
 mod scale_space_extrema;
 
 use crate::image::{gaussian_blur, GrayFloatImage};
-use ::image::{DynamicImage, GenericImageView, ImageResult};
+use ::image::{DynamicImage, ImageResult};
 use bitarray::BitArray;
 use cv_core::{nalgebra::Point2, ImagePoint};
 use evolution::*;

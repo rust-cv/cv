@@ -1,5 +1,8 @@
 use image::ImageOutputFormat;
-use std::path::PathBuf;
+use std::{
+    io::{Cursor, Write},
+    path::PathBuf,
+};
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -31,8 +34,13 @@ fn main() {
     if let Some(path) = opt.output {
         image.save(path).expect("failed to write image to stdout");
     } else {
+        let mut output = Cursor::new(Vec::new());
         image
-            .write_to(&mut stdout.lock(), ImageOutputFormat::Png)
+            .write_to(&mut output, ImageOutputFormat::Png)
+            .expect("failed to write image to stdout");
+        stdout
+            .lock()
+            .write_all(&output.into_inner())
             .expect("failed to write image to stdout");
     }
 }
