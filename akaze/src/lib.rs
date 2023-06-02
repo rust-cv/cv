@@ -215,13 +215,10 @@ impl Akaze {
 
     /// Extract features using the Akaze feature extractor.
     ///
-    /// This performs all operations end-to-end. The client might be only interested
-    /// in certain portions of the process, all of which are exposed in public functions,
-    /// but this function can document how the various parts fit together.
+    /// This performs all operations end-to-end.
     ///
     /// # Arguments
     /// * `image` - The input image for which to extract features.
-    /// * `options` - The options for the algorithm. Set this to `None` for default options.
     ///
     /// Returns the keypoints and the descriptors.
     ///
@@ -235,8 +232,25 @@ impl Akaze {
     ///
     pub fn extract(&self, image: &DynamicImage) -> (Vec<KeyPoint>, Vec<BitArray<64>>) {
         let float_image = GrayFloatImage::from_dynamic(image);
-        let mut evolutions = self.allocate_evolutions(image.width(), image.height());
-        self.create_nonlinear_scale_space(&mut evolutions, &float_image);
+        self.extract_from_gray_float_image(&float_image)
+    }
+
+    /// Extract features using the Akaze feature extractor.
+    ///
+    /// This performs all operations end-to-end.
+    ///
+    /// # Arguments
+    /// * `float_image` - The input image for which to extract features, already in float grayscale.
+    ///
+    /// Returns the keypoints and the descriptors.
+    ///
+    pub fn extract_from_gray_float_image(
+        &self,
+        float_image: &GrayFloatImage,
+    ) -> (Vec<KeyPoint>, Vec<BitArray<64>>) {
+        let mut evolutions =
+            self.allocate_evolutions(float_image.0.width(), float_image.0.height());
+        self.create_nonlinear_scale_space(&mut evolutions, float_image);
         trace!("Finding image keypoints.");
         let mut keypoints = self.find_image_keypoints(&mut evolutions);
         trace!("Sorting keypoints by response and truncating the worst keypoints based on the set maximum");

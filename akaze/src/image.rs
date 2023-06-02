@@ -1,5 +1,5 @@
 use derive_more::{Deref, DerefMut};
-use image::{imageops, DynamicImage, ImageBuffer, Luma};
+use image::{imageops, DynamicImage, ImageBuffer, Luma, Pixel};
 use log::*;
 use ndarray::{Array2, ArrayView2, ArrayViewMut2};
 use nshare::{MutNdarray2, RefNdarray2};
@@ -61,7 +61,27 @@ impl GrayFloatImage {
                     Luma([f32::from(gray_image[(x, y)][0]) / 65535f32])
                 })
             }
-            _ => unreachable!(),
+            DynamicImage::ImageRgb32F(float_image) => {
+                info!(
+                    "Loaded a {} x {} 32-bit RGB float image",
+                    input_image.width(),
+                    input_image.height()
+                );
+                ImageBuffer::from_fn(float_image.width(), float_image.height(), |x, y| {
+                    Luma([float_image[(x, y)].to_luma()[0]])
+                })
+            }
+            DynamicImage::ImageRgba32F(float_image) => {
+                info!(
+                    "Loaded a {} x {} 32-bit RGBA float image",
+                    input_image.width(),
+                    input_image.height()
+                );
+                ImageBuffer::from_fn(float_image.width(), float_image.height(), |x, y| {
+                    Luma([float_image[(x, y)].to_luma()[0]])
+                })
+            }
+            _ => panic!("DynamicImage::grayscale() returned unexpected type"),
         })
     }
 
