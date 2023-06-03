@@ -652,8 +652,8 @@ impl VSlamData {
         }
 
         let mut reconstruction_view_counts = reconstruction_frames
-            .iter()
-            .map(|(_, views)| views.len())
+            .values()
+            .map(|views| views.len())
             .collect_vec();
 
         reconstruction_view_counts.sort_unstable_by_key(|&count| Reverse(count));

@@ -37,10 +37,10 @@ impl Akaze {
         let mut output = BitArray::zeros();
         let max_channels = 3usize;
         debug_assert!(self.descriptor_channels <= max_channels);
-        let mut values: Vec<f32> = vec![0f32; (16 * max_channels) as usize];
+        let mut values: Vec<f32> = vec![0f32; 16 * max_channels];
         let size_mult = [1.0f32, 2.0f32 / 3.0f32, 1.0f32 / 2.0f32];
         let ratio = (1u32 << keypoint.octave) as f32;
-        let scale = f32::round(0.5f32 * (keypoint.size as f32) / ratio);
+        let scale = f32::round(0.5f32 * keypoint.size / ratio);
         let xf = keypoint.point.0 / ratio;
         let yf = keypoint.point.1 / ratio;
         let co = f32::cos(keypoint.angle);
