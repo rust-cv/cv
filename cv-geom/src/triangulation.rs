@@ -408,7 +408,7 @@ impl TriangulatorObservations for MeanMeanTriangulator {
                 (sum_center + position, sum_bearings + bearing.into_inner())
             },
         );
-        let average_center = sum_center / total as f64;
+        let average_center = sum_center / total;
         let average_bearing = sum_bearings.normalize();
 
         let average_projection_distance = pairs

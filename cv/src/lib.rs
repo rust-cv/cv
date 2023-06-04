@@ -116,7 +116,7 @@ pub mod knn {
     #[cfg(all(feature = "space", feature = "alloc"))]
     pub use space::{KnnInsert, KnnMap, KnnPoints, LinearKnn};
 
-    #[cfg(all(feature = "space"))]
+    #[cfg(feature = "space")]
     pub use space::{Knn, Metric, Neighbor};
 }
 

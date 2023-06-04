@@ -279,7 +279,7 @@ impl CameraSpecification {
     pub fn intrinsics_centered(&self, focal: f64) -> CameraIntrinsics {
         CameraIntrinsics::identity()
             .focal(focal)
-            .principal_point(self.pixel_dimensions.map(|p| p as f64 / 2.0 - 0.5).into())
+            .principal_point(self.pixel_dimensions.map(|p| p / 2.0 - 0.5).into())
     }
 }
 
