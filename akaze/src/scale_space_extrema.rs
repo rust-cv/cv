@@ -234,23 +234,22 @@ fn compute_main_orientation(keypoint: &mut KeyPoint, evolutions: &[EvolutionStep
                 let gweight = GAUSS25[id[(i + 6) as usize]][id[(j + 6) as usize]];
                 res_x[idx] = gweight * evolutions[level].Lx.get(ix, iy);
                 res_y[idx] = gweight * evolutions[level].Ly.get(ix, iy);
-                angs[idx] = res_y[idx].atan2(res_y[idx]);
+                angs[idx] = res_y[idx].atan2(res_x[idx]);
                 idx += 1;
             }
         }
     }
     // Loop slides pi/3 window around feature point
     let mut ang1 = 0f32;
-    let mut sum_x = 0f32;
-    let mut sum_y = 0f32;
     let mut max = 0f32;
     while ang1 < 2.0f32 * PI {
+        let mut sum_x = 0f32;
+        let mut sum_y = 0f32;
         let ang2 = if ang1 + PI / 3.0f32 > 2.0f32 * PI {
             ang1 - 5.0f32 * PI / 3.0f32
         } else {
             ang1 + PI / 3.0f32
         };
-        ang1 += 0.15f32;
         for k in 0..109 {
             let ang = angs[k];
             if (ang1 < ang2 && ang1 < ang && ang < ang2)
@@ -268,6 +267,7 @@ fn compute_main_orientation(keypoint: &mut KeyPoint, evolutions: &[EvolutionStep
             max = val;
             keypoint.angle = sum_y.atan2(sum_x);
         }
+        ang1 += 0.15f32;
     }
 }
 
@@ -318,10 +318,13 @@ fn do_subpixel_refinement(
         if f32::abs(dst[0]) <= 1.0 && f32::abs(dst[1]) <= 1.0 {
             let mut keypoint_clone = *keypoint;
             keypoint_clone.point = ((x as f32) + dst[0], (y as f32) + dst[1]);
+            let power = f32::powf(2.0f32, evolutions[keypoint.class_id].octave as f32);
             keypoint_clone.point = (
-                keypoint_clone.point.0 * ratio + 0.5f32 * (ratio - 1f32),
-                keypoint_clone.point.1 * ratio + 0.5f32 * (ratio - 1f32),
+                keypoint_clone.point.0 * power + 0.5f32 * (power - 1f32),
+                keypoint_clone.point.1 * power + 0.5f32 * (power - 1f32),
             );
+            assert_eq!(keypoint_clone.angle, 0.);
+            keypoint_clone.size *= 2.;
             result.push(keypoint_clone);
         }
     }
