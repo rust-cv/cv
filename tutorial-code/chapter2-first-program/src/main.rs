@@ -1,5 +1,5 @@
 use cv::image::{
-    image::{self, DynamicImage, GenericImageView, Rgba},
+    image::{self, DynamicImage, Rgba},
     imageproc::drawing,
 };
 use rand::Rng;

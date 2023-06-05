@@ -1,5 +1,5 @@
 use derive_more::{Deref, DerefMut};
-use image::{imageops, DynamicImage, GenericImageView, ImageBuffer, Luma};
+use image::{imageops, DynamicImage, ImageBuffer, Luma};
 use log::*;
 use ndarray::{Array2, ArrayView2, ArrayViewMut2};
 use nshare::{MutNdarray2, RefNdarray2};
