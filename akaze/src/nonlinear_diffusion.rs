@@ -25,7 +25,7 @@ pub fn calculate_step(evolution_step: &mut EvolutionStep, step_size: f32) {
         &ca in conductivities.slice(s![.., ..-1]),
         &cb in conductivities.slice(s![.., 1..]),
     ) {
-        *flow = step_size * ca * cb * (b - a);
+        *flow = 0.5 * step_size * (ca + cb) * (b - a);
     });
     // Vertical flow.
     let mut vertical_flow = Array2::<f32>::zeros((dim.0 - 1, dim.1));
@@ -36,7 +36,7 @@ pub fn calculate_step(evolution_step: &mut EvolutionStep, step_size: f32) {
         &ca in conductivities.slice(s![..-1, ..]),
         &cb in conductivities.slice(s![1.., ..]),
     ) {
-        *flow = step_size * ca * cb * (b - a);
+        *flow = 0.5 * step_size * (ca + cb) * (b - a);
     });
 
     // Left
