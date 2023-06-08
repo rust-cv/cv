@@ -168,7 +168,7 @@ impl Akaze {
             self.base_scale_offset
         );
         let mut contrast_factor = contrast_factor::compute_contrast_factor(
-            &evolutions[0].Lsmooth,
+            image,
             self.contrast_percentile,
             1.0f64,
             self.contrast_factor_num_bins,
