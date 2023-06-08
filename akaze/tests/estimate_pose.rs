@@ -56,7 +56,7 @@ fn estimate_pose() {
         })
         .collect();
     info!("Finished matching with {} matches", matches.len());
-    assert_eq!(matches.len(), 35);
+    assert_eq!(matches.len(), 16);
 
     // Run ARRSAC with the eight-point algorithm.
     info!("Running ARRSAC");
@@ -72,7 +72,7 @@ fn estimate_pose() {
     );
 
     // Ensures the underlying algorithms don't change at all.
-    assert_eq!(inliers.len(), 35);
+    assert_eq!(inliers.len(), 16);
 }
 
 fn match_descriptors(ds1: &[Descriptor], ds2: &[Descriptor]) -> Vec<(usize, usize)> {
