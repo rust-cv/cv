@@ -1,4 +1,4 @@
-use crate::{Akaze, EvolutionStep, KeyPoint};
+use crate::{Akaze, EvolutionStep, KeyPoint, Error};
 use bitarray::BitArray;
 
 impl Akaze {
@@ -14,11 +14,11 @@ impl Akaze {
         &self,
         evolutions: &[EvolutionStep],
         keypoints: &[KeyPoint],
-    ) -> Vec<BitArray<64>> {
+    ) -> (Vec<KeyPoint>, Vec<BitArray<64>>) {
         keypoints
             .iter()
-            .map(|keypoint| self.get_mldb_descriptor(keypoint, evolutions))
-            .collect()
+            .filter_map(|&keypoint| Some((keypoint, self.get_mldb_descriptor(&keypoint, evolutions).ok()?)))
+            .unzip()
     }
 
     /// Computes the rotation invariant M-LDB binary descriptor (maximum descriptor length)
@@ -33,7 +33,7 @@ impl Akaze {
         &self,
         keypoint: &KeyPoint,
         evolutions: &[EvolutionStep],
-    ) -> BitArray<64> {
+    ) -> Result<BitArray<64>, Error> {
         let mut output = BitArray::zeros();
         let max_channels = 3usize;
         debug_assert!(self.descriptor_channels <= max_channels);
@@ -60,7 +60,7 @@ impl Akaze {
                 si,
                 scale,
                 evolutions,
-            );
+            )?;
             mldb_binary_comparisons(
                 &values,
                 output.bytes_mut(),
@@ -69,7 +69,7 @@ impl Akaze {
                 self.descriptor_channels,
             );
         }
-        output
+        Ok(output)
     }
 
     /// Fill the comparison values for the MLDB rotation invariant descriptor
@@ -85,7 +85,7 @@ impl Akaze {
         si: f32,
         scale: f32,
         evolutions: &[EvolutionStep],
-    ) {
+    ) -> Result<(), Error> {
         let pattern_size = self.descriptor_pattern_size;
         let nr_channels = self.descriptor_channels;
         let mut valuepos = 0;
@@ -103,6 +103,9 @@ impl Akaze {
                         let sample_x = xf + (-l * si * scale + k * co * scale);
                         let y1 = f32::round(sample_y) as isize;
                         let x1 = f32::round(sample_x) as isize;
+                        if !(0..evolutions[level].Lt.width() as isize).contains(&x1) || !(0..evolutions[level].Lt.height() as isize).contains(&y1) {
+                            return Err(Error::SampleOutOfBounds { x: x1, y: y1, width: evolutions[level].Lt.width(), height: evolutions[level].Lt.height() });
+                        }
                         let y1 = y1 as usize;
                         let x1 = x1 as usize;
                         let ri = evolutions[level].Lt.get(x1, y1);
@@ -138,6 +141,7 @@ impl Akaze {
                 valuepos += nr_channels;
             }
         }
+        Ok(())
     }
 }
 

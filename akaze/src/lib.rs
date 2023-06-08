@@ -18,6 +18,17 @@ use log::*;
 use nonlinear_diffusion::pm_g2;
 use std::{cmp::Reverse, path::Path};
 
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("tried to sample ({x},{y}) out of image bounds ({width}, {height})")]
+    SampleOutOfBounds{
+        x: isize,
+        y: isize,
+        width: usize,
+        height: usize,
+    },
+}
+
 /// A point of interest in an image.
 /// This pretty much follows from OpenCV conventions.
 #[derive(Debug, Clone, Copy)]
@@ -257,7 +268,7 @@ impl Akaze {
         keypoints.sort_unstable_by_key(|kp| Reverse(FloatOrd(kp.response)));
         keypoints.truncate(self.maximum_features);
         trace!("Extracting descriptors.");
-        let descriptors = self.extract_descriptors(&evolutions, &keypoints);
+        let (keypoints, descriptors) = self.extract_descriptors(&evolutions, &keypoints);
         trace!("Computing descriptors finished.");
         info!("Extracted {} features", keypoints.len());
         (keypoints, descriptors)
