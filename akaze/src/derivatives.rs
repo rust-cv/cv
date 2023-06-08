@@ -1,6 +1,24 @@
 use crate::image::{fill_border, GrayFloatImage};
 use ndarray::{s, Array2, ArrayView2, ArrayViewMut2};
 
+pub fn simple_scharr_horizontal(image: &GrayFloatImage) -> GrayFloatImage {
+    // similar to cv::Scharr with xorder=1, yorder=0, scale=1, delta=0
+    GrayFloatImage(imageproc::filter::separable_filter(
+        &image.0,
+        &[-1., 0., 1.],
+        &[3., 10., 3.],
+    ))
+}
+
+pub fn simple_scharr_vertical(image: &GrayFloatImage) -> GrayFloatImage {
+    // similar to cv::Scharr with xorder=0, yorder=1, scale=1, delta=0
+    GrayFloatImage(imageproc::filter::separable_filter(
+        &image.0,
+        &[3., 10., 3.],
+        &[-1., 0., 1.],
+    ))
+}
+
 /// Compute the Scharr derivative horizontally
 ///
 /// The implementation of this function is using a separable kernel, for speed.

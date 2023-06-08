@@ -195,9 +195,9 @@ impl Akaze {
             }
             evolutions[i].Lsmooth = gaussian_blur(&evolutions[i].Lt, 1.0f32);
             trace!("Gaussian blur finished.");
-            evolutions[i].Lx = derivatives::scharr_horizontal(&evolutions[i].Lsmooth, 1);
+            evolutions[i].Lx = derivatives::simple_scharr_horizontal(&evolutions[i].Lsmooth);
             trace!("Computing derivative Lx done.");
-            evolutions[i].Ly = derivatives::scharr_vertical(&evolutions[i].Lsmooth, 1);
+            evolutions[i].Ly = derivatives::simple_scharr_vertical(&evolutions[i].Lsmooth);
             trace!("Computing derivative Ly done.");
             evolutions[i].Lflow = pm_g2(&evolutions[i].Lx, &evolutions[i].Ly, contrast_factor);
             trace!("Lflow finished.");

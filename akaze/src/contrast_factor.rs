@@ -22,8 +22,8 @@ pub fn compute_contrast_factor(
     let mut num_points: f64 = 0.0;
     let mut histogram = vec![0; num_bins];
     let gaussian = gaussian_blur(image, gradient_histogram_scale as f32);
-    let Lx = crate::derivatives::scharr_horizontal(&gaussian, 1);
-    let Ly = crate::derivatives::scharr_vertical(&gaussian, 1);
+    let Lx = crate::derivatives::simple_scharr_horizontal(&gaussian);
+    let Ly = crate::derivatives::simple_scharr_vertical(&gaussian);
     let hmax = (1..gaussian.height() - 1)
         .flat_map(|y| (1..gaussian.width() - 1).map(move |x| (x, y)))
         .map(|(x, y)| Lx.get(x, y).powi(2) as f64 + Ly.get(x, y).powi(2) as f64)
