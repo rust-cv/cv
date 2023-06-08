@@ -1,5 +1,6 @@
 use derive_more::{Deref, DerefMut};
 use image::{DynamicImage, ImageBuffer, Luma};
+use imageproc::filter::separable_filter_equal;
 use log::*;
 use ndarray::{azip, s, Array2, ArrayView2, ArrayViewMut2};
 use nshare::{MutNdarray2, RefNdarray2};
@@ -290,11 +291,11 @@ fn gaussian_kernel(r: f32, kernel_size: usize) -> Vec<f32> {
 /// # Return value
 /// The resulting image after the filter was applied.
 pub fn gaussian_blur(image: &GrayFloatImage, r: f32) -> GrayFloatImage {
-    // a separable Gaussian kernel
-    let kernel_size = (f32::ceil(r) as usize) * 2 + 1usize;
+    assert!(r > 0.0, "sigma must be > 0.0");
+    let kernel_radius = (2.0 * r).ceil() as usize;
+    let kernel_size = kernel_radius * 2 + 1;
     let kernel = gaussian_kernel(r, kernel_size);
-    let img_horizontal = horizontal_filter(image, &kernel);
-    vertical_filter(&img_horizontal, &kernel)
+    GrayFloatImage(separable_filter_equal(image, &kernel))
 }
 
 #[cfg(test)]
