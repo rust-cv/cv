@@ -1,4 +1,4 @@
-use crate::{Akaze, EvolutionStep, KeyPoint, Error};
+use crate::{Akaze, Error, EvolutionStep, KeyPoint};
 use bitarray::BitArray;
 
 impl Akaze {
@@ -17,7 +17,12 @@ impl Akaze {
     ) -> (Vec<KeyPoint>, Vec<BitArray<64>>) {
         keypoints
             .iter()
-            .filter_map(|&keypoint| Some((keypoint, self.get_mldb_descriptor(&keypoint, evolutions).ok()?)))
+            .filter_map(|&keypoint| {
+                Some((
+                    keypoint,
+                    self.get_mldb_descriptor(&keypoint, evolutions).ok()?,
+                ))
+            })
             .unzip()
     }
 
@@ -103,8 +108,15 @@ impl Akaze {
                         let sample_x = xf + (-l * si * scale + k * co * scale);
                         let y1 = f32::round(sample_y) as isize;
                         let x1 = f32::round(sample_x) as isize;
-                        if !(0..evolutions[level].Lt.width() as isize).contains(&x1) || !(0..evolutions[level].Lt.height() as isize).contains(&y1) {
-                            return Err(Error::SampleOutOfBounds { x: x1, y: y1, width: evolutions[level].Lt.width(), height: evolutions[level].Lt.height() });
+                        if !(0..evolutions[level].Lt.width() as isize).contains(&x1)
+                            || !(0..evolutions[level].Lt.height() as isize).contains(&y1)
+                        {
+                            return Err(Error::SampleOutOfBounds {
+                                x: x1,
+                                y: y1,
+                                width: evolutions[level].Lt.width(),
+                                height: evolutions[level].Lt.height(),
+                            });
                         }
                         let y1 = y1 as usize;
                         let x1 = x1 as usize;

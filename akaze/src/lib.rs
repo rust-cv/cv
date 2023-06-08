@@ -21,7 +21,7 @@ use std::{cmp::Reverse, path::Path};
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("tried to sample ({x},{y}) out of image bounds ({width}, {height})")]
-    SampleOutOfBounds{
+    SampleOutOfBounds {
         x: isize,
         y: isize,
         width: usize,
