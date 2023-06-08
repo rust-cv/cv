@@ -1,7 +1,7 @@
 use derive_more::{Deref, DerefMut};
-use image::{imageops, DynamicImage, ImageBuffer, Luma};
+use image::{DynamicImage, ImageBuffer, Luma};
 use log::*;
-use ndarray::{Array2, ArrayView2, ArrayViewMut2};
+use ndarray::{azip, s, Array2, ArrayView2, ArrayViewMut2};
 use nshare::{MutNdarray2, RefNdarray2};
 use std::f32;
 
@@ -111,12 +111,48 @@ impl GrayFloatImage {
     pub fn half_size(&self) -> Self {
         let width = self.width() / 2;
         let height = self.height() / 2;
-        Self(imageops::resize(
-            &self.0,
-            width as u32,
-            height as u32,
-            imageops::FilterType::Nearest,
-        ))
+        let mut half = Array2::zeros((height, width));
+
+        // 2x2 tiles for everything except the bottom, right, and bottom right corner.
+        azip!((
+            out in &mut half,
+            window in self.ref_array2().slice(s![..height * 2, ..width * 2]).exact_chunks((2, 2)),
+        ) {
+            *out = window.sum() * 0.25;
+        });
+
+        // Bottom (only if not divisible!)
+        if height * 2 != self.height() {
+            azip!((
+                out in half.slice_mut(s![-1.., ..]),
+                window in self.ref_array2().slice(s![-1.., ..width * 2]).exact_chunks((1, 2)),
+            ) {
+                *out = window.sum() * 0.5;
+            });
+        }
+
+        // Right (only if not divisible!)
+        if width * 2 != self.width() {
+            azip!((
+                out in half.slice_mut(s![.., -1..]),
+                window in self.ref_array2().slice(s![..height * 2, -1..]).exact_chunks((2, 1)),
+            ) {
+                *out = window.sum() * 0.5;
+            });
+        }
+
+        // Bottom right corner (only if not divisible by both)
+        if width * 2 != self.width() && height * 2 != self.height() {
+            // This is overkill, but it just copies the bottom right corner pixel.
+            azip!((
+                out in half.slice_mut(s![-1.., -1..]),
+                &pixel in self.ref_array2().slice(s![-1.., -1..]),
+            ) {
+                *out = pixel;
+            });
+        }
+
+        Self::from_array2(half)
     }
 }
 
