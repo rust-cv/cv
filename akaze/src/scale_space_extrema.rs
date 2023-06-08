@@ -14,30 +14,46 @@ impl Akaze {
         for (e_id, evolution) in evolutions.iter_mut().enumerate() {
             let w = evolution.Ldet.width();
             let h = evolution.Ldet.height();
-            // maintain 5 iterators, one for the current pixel and one
+            // maintain 9 iterators, one for the current pixel and one
             // for each cardinal pixel. Iterate through all non-border
             // pixels
-            let mut x_m_iter = evolution.Ldet.iter();
-            let mut x_m_i = x_m_iter.nth(w).unwrap(); // 0, 1
-            let mut x_iter = evolution.Ldet.iter();
-            let mut x_i = x_iter.nth(w + 1).unwrap(); // 1, 1
-            let mut x_p_iter = evolution.Ldet.iter();
-            let mut x_p_i = x_p_iter.nth(w + 2).unwrap(); // 2, 1
-            let mut y_m_iter = evolution.Ldet.iter();
-            let mut y_m_i = y_m_iter.nth(1).unwrap(); // 1, 0
-            let mut y_p_iter = evolution.Ldet.iter();
-            let mut y_p_i = y_p_iter.nth(2 * w + 1).unwrap(); // 1, 2
-                                                              // Iterate from 1,1 to the second-to-last pixel of the second-to-last row
+            let mut y_m_x_m_iter = evolution.Ldet.iter(); // 0, 0
+            let mut y_m_iter = evolution.Ldet.iter().skip(1); // 1, 0
+            let mut y_m_x_p_iter = evolution.Ldet.iter().skip(2); // 2, 0
+            let mut x_m_iter = evolution.Ldet.iter().skip(w); // 0, 1
+            let mut x_iter = evolution.Ldet.iter().skip(w + 1); // 1, 1
+            let mut x_p_iter = evolution.Ldet.iter().skip(w + 2); // 2, 1
+            let mut y_p_x_m_iter = evolution.Ldet.iter().skip(2 * w); // 0, 2
+            let mut y_p_iter = evolution.Ldet.iter().skip(2 * w + 1); // 1, 2
+            let mut y_p_x_p_iter = evolution.Ldet.iter().skip(2 * w + 2); // 2, 2
+
+            // Iterate from 1,1 to the second-to-last pixel of the second-to-last row
             for i in (w + 1)..(evolution.Ldet.len() - w - 1) {
                 let x = i % w;
                 let y = i / w;
+
+                // Fetch value and increment iterators
+                let y_m_x_m_i = y_m_x_m_iter.next().unwrap();
+                let y_m_i = y_m_iter.next().unwrap();
+                let y_m_x_p_i = y_m_x_p_iter.next().unwrap();
+                let x_m_i = x_m_iter.next().unwrap();
+                let x_i = x_iter.next().unwrap();
+                let x_p_i = x_p_iter.next().unwrap();
+                let y_p_x_m_i = y_p_x_m_iter.next().unwrap();
+                let y_p_i = y_p_iter.next().unwrap();
+                let y_p_x_p_i = y_p_x_p_iter.next().unwrap();
+
                 // Apply detector threshold
-                if x != 0 && x != w && // do nothing for border pixels we will encounter in the iteration range
+                if x != 0 && x != w-1 && // do nothing for border pixels we will encounter in the iteration range
                 *x_i > (self.detector_threshold as f32) &&
-                *x_i > *x_p_i &&
-                *x_i > *x_m_i &&
+                *x_i > *y_m_x_m_i &&
                 *x_i > *y_m_i &&
-                *x_i > *y_p_i
+                *x_i > *y_m_x_p_i &&
+                *x_i > *x_m_i &&
+                *x_i > *x_p_i &&
+                *x_i > *y_p_x_m_i &&
+                *x_i > *y_p_i &&
+                *x_i > *y_p_x_p_i
                 {
                     let mut keypoint = KeyPoint {
                         response: f32::abs(*x_i),
@@ -58,10 +74,9 @@ impl Akaze {
                             || (keypoint.class_id != 0
                                 && keypoint.class_id - 1 == prev_keypoint.class_id)
                         {
-                            let dist = (keypoint.point.0 * ratio - prev_keypoint.point.0)
-                                * (keypoint.point.0 * ratio - prev_keypoint.point.0)
-                                + (keypoint.point.1 * ratio - prev_keypoint.point.1)
-                                    * (keypoint.point.1 * ratio - prev_keypoint.point.1);
+                            let dx = keypoint.point.0 * ratio - prev_keypoint.point.0;
+                            let dy = keypoint.point.1 * ratio - prev_keypoint.point.1;
+                            let dist = dx * dx + dy * dy;
                             if dist <= keypoint.size * keypoint.size {
                                 if keypoint.response > prev_keypoint.response {
                                     id_repeated = k;
@@ -97,13 +112,6 @@ impl Akaze {
                         }
                     }
                 }
-
-                // increment iterators
-                x_i = x_iter.next().unwrap();
-                x_m_i = x_m_iter.next().unwrap();
-                x_p_i = x_p_iter.next().unwrap();
-                y_m_i = y_m_iter.next().unwrap();
-                y_p_i = y_p_iter.next().unwrap();
             }
         }
         // Now filter points with the upper scale level
@@ -111,12 +119,13 @@ impl Akaze {
         for i in 0..keypoint_cache.len() {
             let mut is_repeated = false;
             let kp_i = keypoint_cache[i];
-            for kp_j in &keypoint_cache[i..] {
+            for kp_j in &keypoint_cache[i+1..] {
                 // Compare response with the upper scale
                 if (kp_i.class_id + 1) == kp_j.class_id {
-                    let dist = (kp_i.point.0 - kp_j.point.0) * (kp_i.point.0 - kp_j.point.0)
-                        + (kp_i.point.1 - kp_j.point.1) * (kp_i.point.1 - kp_j.point.1);
-                    if dist <= kp_i.size * kp_i.size {
+                    let dx = kp_i.point.0 - kp_j.point.0;
+                    let dy = kp_i.point.1 - kp_j.point.1;
+                    let dist = dx * dx + dy * dy;
+                    if dist <= kp_i.size * kp_i.size && kp_i.response <= kp_j.response {
                         is_repeated = true;
                         break;
                     }
