@@ -228,11 +228,11 @@ fn compute_main_orientation(keypoint: &mut KeyPoint, evolutions: &[EvolutionStep
     let mut res_y: [f32; 109usize] = [0f32; 109usize];
     let mut angs: [f32; 109usize] = [0f32; 109usize];
     let id: [usize; 13usize] = [6, 5, 4, 3, 2, 1, 0, 1, 2, 3, 4, 5, 6];
-    let ratio = (1 << evolutions[keypoint.class_id].octave) as f32;
+    let level = keypoint.class_id;
+    let ratio = (1 << evolutions[level].octave) as f32;
     let s = f32::round(0.5f32 * keypoint.size / ratio);
     let xf = keypoint.point.0 / ratio;
     let yf = keypoint.point.1 / ratio;
-    let level = keypoint.class_id;
     // Open CV fast atan2 returns values in the range [0, 2*pi[ in degrees,
     // while f32::atan2 returns in the range [-pi, pi].
     // As the functions below assume the former, we need to convert the range.

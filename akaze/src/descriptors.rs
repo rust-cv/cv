@@ -44,14 +44,16 @@ impl Akaze {
         debug_assert!(self.descriptor_channels <= max_channels);
         let mut values: Vec<f32> = vec![0f32; 16 * max_channels];
         let size_mult = [1.0f32, 2.0f32 / 3.0f32, 1.0f32 / 2.0f32];
+
         let ratio = (1u32 << keypoint.octave) as f32;
         let scale = f32::round(0.5f32 * keypoint.size / ratio);
         let xf = keypoint.point.0 / ratio;
         let yf = keypoint.point.1 / ratio;
         let co = f32::cos(keypoint.angle);
         let si = f32::sin(keypoint.angle);
-        let mut dpos = 0usize;
         let pattern_size = self.descriptor_pattern_size as f32;
+
+        let mut dpos = 0usize;
         for (lvl, multiplier) in size_mult.iter().enumerate() {
             let val_count = (lvl + 2usize) * (lvl + 2usize);
             let sample_size = f32::ceil(pattern_size * multiplier) as usize;
@@ -102,8 +104,8 @@ impl Akaze {
                 let mut nsamples = 0usize;
                 for k in i..(i + (sample_step as i32)) {
                     for l in j..(j + (sample_step as i32)) {
-                        let l = l as f32 + 0.5;
-                        let k = k as f32 + 0.5;
+                        let l = l as f32;
+                        let k = k as f32;
                         let sample_y = yf + (l * co * scale + k * si * scale);
                         let sample_x = xf + (-l * si * scale + k * co * scale);
                         let y1 = f32::round(sample_y) as isize;
