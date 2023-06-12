@@ -18,27 +18,29 @@ impl Akaze {
         evolutions: &[EvolutionStep],
         keypoints: &[KeyPoint],
     ) -> (Vec<KeyPoint>, Vec<BitArray<64>>) {
-        #[cfg(not(feature = "rayon"))] {
-        keypoints
-            .iter()
-            .filter_map(|&keypoint| {
-                Some((
-                    keypoint,
-                    self.get_mldb_descriptor(&keypoint, evolutions).ok()?,
-                ))
-            })
-            .unzip()
+        #[cfg(not(feature = "rayon"))]
+        {
+            keypoints
+                .iter()
+                .filter_map(|&keypoint| {
+                    Some((
+                        keypoint,
+                        self.get_mldb_descriptor(&keypoint, evolutions).ok()?,
+                    ))
+                })
+                .unzip()
         }
-        #[cfg(feature = "rayon")] {
-        keypoints
-            .par_iter()
-            .filter_map(|&keypoint| {
-                Some((
-                    keypoint,
-                    self.get_mldb_descriptor(&keypoint, evolutions).ok()?,
-                ))
-            })
-            .unzip()
+        #[cfg(feature = "rayon")]
+        {
+            keypoints
+                .par_iter()
+                .filter_map(|&keypoint| {
+                    Some((
+                        keypoint,
+                        self.get_mldb_descriptor(&keypoint, evolutions).ok()?,
+                    ))
+                })
+                .unzip()
         }
     }
 

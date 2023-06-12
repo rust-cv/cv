@@ -347,10 +347,7 @@ fn do_subpixel_refinement(
         }
     };
     #[cfg(not(feature = "rayon"))]
-    let result: Vec<_> = in_keypoints
-        .iter()
-        .filter_map(process_keypoint)
-        .collect();
+    let result: Vec<_> = in_keypoints.iter().filter_map(process_keypoint).collect();
     #[cfg(feature = "rayon")]
     let result: Vec<_> = in_keypoints
         .par_iter()

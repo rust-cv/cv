@@ -58,24 +58,28 @@ impl Akaze {
 }
 
 fn compute_multiscale_derivatives_for_evolution(evolution: &mut EvolutionStep, sigma_size: u32) {
-    #[cfg(not(feature = "rayon"))] {
+    #[cfg(not(feature = "rayon"))]
+    {
         evolution.Lx = derivatives::scharr_horizontal(&evolution.Lsmooth, sigma_size);
         evolution.Ly = derivatives::scharr_vertical(&evolution.Lsmooth, sigma_size);
         evolution.Lxx = derivatives::scharr_horizontal(&evolution.Lx, sigma_size);
         evolution.Lyy = derivatives::scharr_vertical(&evolution.Ly, sigma_size);
         evolution.Lxy = derivatives::scharr_vertical(&evolution.Lx, sigma_size);
     }
-    #[cfg(feature = "rayon")] {
+    #[cfg(feature = "rayon")]
+    {
         (evolution.Lx, evolution.Ly) = rayon::join(
             || derivatives::scharr_horizontal(&evolution.Lsmooth, sigma_size),
             || derivatives::scharr_vertical(&evolution.Lsmooth, sigma_size),
         );
         (evolution.Lxx, (evolution.Lyy, evolution.Lxy)) = rayon::join(
             || derivatives::scharr_horizontal(&evolution.Lx, sigma_size),
-            || rayon::join(
-                || derivatives::scharr_vertical(&evolution.Ly, sigma_size),
-                || derivatives::scharr_vertical(&evolution.Lx, sigma_size),
-            )
+            || {
+                rayon::join(
+                    || derivatives::scharr_vertical(&evolution.Ly, sigma_size),
+                    || derivatives::scharr_vertical(&evolution.Lx, sigma_size),
+                )
+            },
         )
     }
 }

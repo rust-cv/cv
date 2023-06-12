@@ -201,13 +201,15 @@ impl Akaze {
             }
             evolutions[i].Lsmooth = gaussian_blur(&evolutions[i].Lt, 1.0f32);
             trace!("Gaussian blur finished.");
-            #[cfg(not(feature = "rayon"))] {
+            #[cfg(not(feature = "rayon"))]
+            {
                 evolutions[i].Lx = derivatives::simple_scharr_horizontal(&evolutions[i].Lsmooth);
                 trace!("Computing derivative Lx done.");
                 evolutions[i].Ly = derivatives::simple_scharr_vertical(&evolutions[i].Lsmooth);
                 trace!("Computing derivative Ly done.");
             }
-            #[cfg(feature = "rayon")] {
+            #[cfg(feature = "rayon")]
+            {
                 (evolutions[i].Lx, evolutions[i].Ly) = rayon::join(
                     || derivatives::simple_scharr_horizontal(&evolutions[i].Lsmooth),
                     || derivatives::simple_scharr_vertical(&evolutions[i].Lsmooth),
