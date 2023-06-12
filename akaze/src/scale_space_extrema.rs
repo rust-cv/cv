@@ -242,12 +242,12 @@ fn compute_main_orientation(keypoint: &mut KeyPoint, evolutions: &[EvolutionStep
     let cv_fast_atan2_equiv = |y: f32, x: f32| (y.atan2(x) + 2. * PI).rem_euclid(2. * PI);
     // Calculate derivatives responses for points within radius of 6*scale
     let mut idx = 0;
-    for i in -6..=6 {
-        for j in -6..=6 {
+    for j in -6..=6 {
+        for i in -6..=6 {
             if i * i + j * j < 36 {
                 let iy = f32::round(yf + (j as f32) * s) as usize;
                 let ix = f32::round(xf + (i as f32) * s) as usize;
-                let gweight = GAUSS25[id[(i + 6) as usize]][id[(j + 6) as usize]];
+                let gweight = GAUSS25[id[(j + 6) as usize]][id[(i + 6) as usize]];
                 res_x[idx] = gweight * evolutions[level].Lx.get(ix, iy);
                 res_y[idx] = gweight * evolutions[level].Ly.get(ix, iy);
                 angs[idx] = cv_fast_atan2_equiv(res_y[idx], res_x[idx]);
