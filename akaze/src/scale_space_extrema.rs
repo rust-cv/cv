@@ -233,6 +233,10 @@ fn compute_main_orientation(keypoint: &mut KeyPoint, evolutions: &[EvolutionStep
     let xf = keypoint.point.0 / ratio;
     let yf = keypoint.point.1 / ratio;
     let level = keypoint.class_id;
+    // Open CV fast atan2 returns values in the range [0, 2*pi[ in degrees,
+    // while f32::atan2 returns in the range [-pi, pi].
+    // As the functions below assume the former, we need to convert the range.
+    let cv_fast_atan2_equiv = |y: f32, x: f32| (y.atan2(x) + 2. * PI).rem_euclid(2. * PI);
     // Calculate derivatives responses for points within radius of 6*scale
     let mut idx = 0;
     for i in -6..=6 {
@@ -243,7 +247,7 @@ fn compute_main_orientation(keypoint: &mut KeyPoint, evolutions: &[EvolutionStep
                 let gweight = GAUSS25[id[(i + 6) as usize]][id[(j + 6) as usize]];
                 res_x[idx] = gweight * evolutions[level].Lx.get(ix, iy);
                 res_y[idx] = gweight * evolutions[level].Ly.get(ix, iy);
-                angs[idx] = res_y[idx].atan2(res_x[idx]);
+                angs[idx] = cv_fast_atan2_equiv(res_y[idx], res_x[idx]);
                 idx += 1;
             }
         }
@@ -274,7 +278,7 @@ fn compute_main_orientation(keypoint: &mut KeyPoint, evolutions: &[EvolutionStep
         if val > max {
             // store largest orientation
             max = val;
-            keypoint.angle = sum_y.atan2(sum_x);
+            keypoint.angle = cv_fast_atan2_equiv(sum_y, sum_x);
         }
         ang1 += 0.15f32;
     }
