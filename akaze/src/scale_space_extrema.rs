@@ -2,6 +2,9 @@ use crate::{evolution::EvolutionStep, Akaze, KeyPoint};
 use log::*;
 use std::f32::consts::PI;
 
+#[cfg(feature = "rayon")]
+use rayon::prelude::*;
+
 impl Akaze {
     /// Compute scale space extrema to get the detector response.
     ///
@@ -295,8 +298,7 @@ fn do_subpixel_refinement(
     in_keypoints: &[KeyPoint],
     evolutions: &[EvolutionStep],
 ) -> Vec<KeyPoint> {
-    let mut result: Vec<KeyPoint> = vec![];
-    for keypoint in in_keypoints.iter() {
+    let process_keypoint = |keypoint: &KeyPoint| {
         let ratio = f32::powf(2.0f32, keypoint.octave as f32);
         let x = f32::round(keypoint.point.0 / ratio) as usize;
         let y = f32::round(keypoint.point.1 / ratio) as usize;
@@ -338,16 +340,26 @@ fn do_subpixel_refinement(
             );
             assert_eq!(keypoint_clone.angle, 0.);
             keypoint_clone.size *= 2.;
-            result.push(keypoint_clone);
+            compute_main_orientation(&mut keypoint_clone, evolutions);
+            Some(keypoint_clone)
+        } else {
+            None
         }
-    }
+    };
+    #[cfg(not(feature = "rayon"))]
+    let result: Vec<_> = in_keypoints
+        .iter()
+        .filter_map(process_keypoint)
+        .collect();
+    #[cfg(feature = "rayon")]
+    let result: Vec<_> = in_keypoints
+        .par_iter()
+        .filter_map(process_keypoint)
+        .collect();
     debug!(
         "{}/{} remain after subpixel refinement.",
         result.len(),
         in_keypoints.len()
     );
-    for keypoint in result.iter_mut() {
-        compute_main_orientation(keypoint, evolutions);
-    }
     result
 }

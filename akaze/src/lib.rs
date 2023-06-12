@@ -20,6 +20,8 @@ use std::{cmp::Reverse, path::Path, time::Instant};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "rayon")]
+use rayon::prelude::*;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -199,16 +201,25 @@ impl Akaze {
             }
             evolutions[i].Lsmooth = gaussian_blur(&evolutions[i].Lt, 1.0f32);
             trace!("Gaussian blur finished.");
-            evolutions[i].Lx = derivatives::simple_scharr_horizontal(&evolutions[i].Lsmooth);
-            trace!("Computing derivative Lx done.");
-            evolutions[i].Ly = derivatives::simple_scharr_vertical(&evolutions[i].Lsmooth);
-            trace!("Computing derivative Ly done.");
+            #[cfg(not(feature = "rayon"))] {
+                evolutions[i].Lx = derivatives::simple_scharr_horizontal(&evolutions[i].Lsmooth);
+                trace!("Computing derivative Lx done.");
+                evolutions[i].Ly = derivatives::simple_scharr_vertical(&evolutions[i].Lsmooth);
+                trace!("Computing derivative Ly done.");
+            }
+            #[cfg(feature = "rayon")] {
+                (evolutions[i].Lx, evolutions[i].Ly) = rayon::join(
+                    || derivatives::simple_scharr_horizontal(&evolutions[i].Lsmooth),
+                    || derivatives::simple_scharr_vertical(&evolutions[i].Lsmooth),
+                );
+            }
             evolutions[i].Lflow = pm_g2(&evolutions[i].Lx, &evolutions[i].Ly, contrast_factor);
             trace!("Lflow finished.");
-            for j in 0..evolutions[i].fed_tau_steps.len() {
+            let evolution = &mut evolutions[i];
+            for j in 0..evolution.fed_tau_steps.len() {
                 trace!("Starting diffusion step.");
-                let step_size = evolutions[i].fed_tau_steps[j];
-                nonlinear_diffusion::calculate_step(&mut evolutions[i], step_size as f32);
+                let step_size = evolution.fed_tau_steps[j];
+                nonlinear_diffusion::calculate_step(evolution, step_size as f32);
                 trace!("Diffusion step finished with step size {}", step_size);
             }
         }
