@@ -14,7 +14,7 @@ impl Akaze {
     fn find_scale_space_extrema(&self, evolutions: &mut [EvolutionStep]) -> Vec<KeyPoint> {
         let mut keypoint_cache: Vec<KeyPoint> = vec![];
         let smax = 10.0f32 * f32::sqrt(2.0f32);
-        for (e_id, evolution) in evolutions.iter_mut().enumerate() {
+        for (e_id, evolution) in evolutions.iter().enumerate() {
             let w = evolution.Ldet.width();
             let h = evolution.Ldet.height();
             // maintain 9 iterators, one for the current pixel and one
