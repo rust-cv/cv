@@ -16,7 +16,7 @@ use evolution::*;
 use float_ord::FloatOrd;
 use log::*;
 use nonlinear_diffusion::pm_g2;
-use std::{cmp::Reverse, path::Path};
+use std::{cmp::Reverse, path::Path, time::Instant};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -223,9 +223,14 @@ impl Akaze {
     /// The resulting keypoints.
     ///
     pub fn find_image_keypoints(&self, evolutions: &mut [EvolutionStep]) -> Vec<KeyPoint> {
+        let start = Instant::now();
         self.detector_response(evolutions);
+        info!("Computed detector response in: {:?}", start.elapsed());
         trace!("Computing detector response finished.");
-        self.detect_keypoints(evolutions)
+        let start = Instant::now();
+        let keypoints = self.detect_keypoints(evolutions);
+        info!("Detected keypoints in: {:?}", start.elapsed());
+        keypoints
     }
 
     /// Extract features using the Akaze feature extractor.
@@ -263,16 +268,25 @@ impl Akaze {
         &self,
         float_image: &GrayFloatImage,
     ) -> (Vec<KeyPoint>, Vec<BitArray<64>>) {
-        let mut evolutions =
-            self.allocate_evolutions(float_image.0.width(), float_image.0.height());
-        self.create_nonlinear_scale_space(&mut evolutions, float_image);
+        let start = Instant::now();
+        let mut evolutions = self.allocate_evolutions(float_image.0.width(), float_image.0.height());
+        info!("Allocated evolutions in: {:?}", start.elapsed());
+        let start = Instant::now();
+        self.create_nonlinear_scale_space(&mut evolutions, &float_image);
+        info!("Created non-linear scale space in: {:?}", start.elapsed());
         trace!("Finding image keypoints.");
+        let start = Instant::now();
         let mut keypoints = self.find_image_keypoints(&mut evolutions);
+        info!("Found keypoints in: {:?}", start.elapsed());
         trace!("Sorting keypoints by response and truncating the worst keypoints based on the set maximum");
+        let start = Instant::now();
         keypoints.sort_unstable_by_key(|kp| Reverse(FloatOrd(kp.response)));
         keypoints.truncate(self.maximum_features);
+        info!("Keypoints storted in: {:?}", start.elapsed());
         trace!("Extracting descriptors.");
+        let start = Instant::now();
         let (keypoints, descriptors) = self.extract_descriptors(&evolutions, &keypoints);
+        info!("Extracted keypoints in: {:?}", start.elapsed());
         trace!("Computing descriptors finished.");
         info!("Extracted {} features", keypoints.len());
         (keypoints, descriptors)
