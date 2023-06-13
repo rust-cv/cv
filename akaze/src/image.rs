@@ -1,5 +1,5 @@
 use derive_more::{Deref, DerefMut};
-use image::{DynamicImage, ImageBuffer, Luma};
+use image::{DynamicImage, ImageBuffer, Luma, Pixel};
 use imageproc::filter::separable_filter_equal;
 use log::*;
 use ndarray::{azip, s, Array2, ArrayView2, ArrayViewMut2};
