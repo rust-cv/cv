@@ -1,10 +1,11 @@
 use derive_more::{Deref, DerefMut};
 use image::{DynamicImage, ImageBuffer, Luma, Pixel};
-use imageproc::filter::separable_filter_equal;
 use log::*;
 use ndarray::{azip, s, Array2, ArrayView2, ArrayViewMut2};
 use nshare::{MutNdarray2, RefNdarray2};
 use std::f32;
+
+type GrayImageBuffer = ImageBuffer<Luma<f32>, Vec<f32>>;
 
 /// The image type we use in this library.
 ///
@@ -31,7 +32,7 @@ use std::f32;
 /// like using a separable filter, and using the filters implemented
 /// here ended up speeding up everything a lot.
 #[derive(Debug, Clone, Deref, DerefMut)]
-pub struct GrayFloatImage(pub ImageBuffer<Luma<f32>, Vec<f32>>);
+pub struct GrayFloatImage(pub GrayImageBuffer);
 
 impl GrayFloatImage {
     /// Create a unit float image from the image crate's DynamicImage type.
@@ -177,6 +178,104 @@ impl GrayFloatImage {
     }
 }
 
+fn horizontal_filter(image: &GrayImageBuffer, kernel: &[f32]) -> GrayImageBuffer {
+    let kernel_size = kernel.len();
+    debug_assert!(kernel_size % 2 == 1);
+    let kernel_half_size = kernel_size / 2;
+    let width = image.width() as usize;
+    let height = image.height() as usize;
+    let mut output = vec![0.0; width * height];
+    // Process each row independently.
+    let row_in_it = image.as_raw().chunks_exact(width);
+    let row_out_it = output.chunks_exact_mut(width);
+    let mut scratch = vec![0f32; width + kernel_half_size * 2];
+    for (row_in, row_out) in row_in_it.zip(row_out_it) {
+        // Prefill extended buffer with center and edge values.
+        scratch[0..kernel_half_size].fill(row_in[0]);
+        scratch[kernel_half_size..kernel_half_size + width].copy_from_slice(row_in);
+        scratch[kernel_half_size + width..].fill(row_in[width - 1]);
+        // Apply kernel.
+        scratch
+            .windows(kernel_size)
+            .zip(row_out)
+            .for_each(|(window, output)| {
+                *output = window
+                    .iter()
+                    .zip(kernel.iter())
+                    .map(|(a, b)| a * b)
+                    .sum::<f32>()
+            });
+    }
+    GrayImageBuffer::from_raw(width as u32, height as u32, output).unwrap()
+}
+
+fn vertical_filter(image: &GrayImageBuffer, kernel: &[f32]) -> GrayImageBuffer {
+    let kernel_size = kernel.len();
+    debug_assert!(kernel_size % 2 == 1);
+    let kernel_half_size = kernel_size / 2;
+    let width = image.width() as usize;
+    let height = image.height() as usize;
+    let mut output = vec![0.0; width * height];
+    // We use a scratch buffer of L1 cache width (64 bytes) to optimize memory access.
+    const SCRATCH_WIDTH: usize = 16;
+    let scratch_height = height + kernel_half_size * 2;
+    let mut scratch = vec![0f32; SCRATCH_WIDTH * scratch_height];
+    let image = image.as_raw();
+    for x_s in (0..width).step_by(SCRATCH_WIDTH) {
+        // Fill the scratch buffer with the column values.
+        // First paddings.
+        let x_e: usize = (x_s + SCRATCH_WIDTH).min(width);
+        for x in x_s..x_e {
+            let scratch_col_start = (x - x_s) * scratch_height;
+            for i in 0..kernel_half_size {
+                scratch[scratch_col_start + i] = image[x];
+            }
+            let scratch_end_col_start = scratch_col_start + kernel_half_size + height;
+            let image_last_row_start = (height - 1) * width;
+            for i in 0..kernel_half_size {
+                scratch[scratch_end_col_start + i] = image[image_last_row_start + x];
+            }
+        }
+        // Then main content.
+        for y in 0..height {
+            let image_row_start = y * width;
+            for x in x_s..x_e {
+                scratch[(x - x_s) * scratch_height + y + kernel_half_size] =
+                    image[image_row_start + x];
+            }
+        }
+        // Apply kernel.
+        let col_count = x_e - x_s;
+        scratch
+            .chunks(scratch_height)
+            .take(col_count)
+            .enumerate()
+            .for_each(|(dx, col)| {
+                let x = x_s + dx;
+                col.windows(kernel_size)
+                    .enumerate()
+                    .for_each(|(y, window)| {
+                        let value = window
+                            .iter()
+                            .zip(kernel.iter())
+                            .map(|(a, b)| a * b)
+                            .sum::<f32>();
+                        output[y * width + x] = value;
+                    });
+            });
+    }
+    GrayImageBuffer::from_raw(width as u32, height as u32, output).unwrap()
+}
+
+pub(crate) fn separable_filter(
+    image: &GrayImageBuffer,
+    h_kernel: &[f32],
+    v_kernel: &[f32],
+) -> GrayImageBuffer {
+    let h = horizontal_filter(image, h_kernel);
+    vertical_filter(&h, v_kernel)
+}
+
 /// The Gaussian function.
 ///
 /// # Arguments
@@ -222,7 +321,7 @@ pub fn gaussian_blur(image: &GrayFloatImage, r: f32) -> GrayFloatImage {
     let kernel_radius = (2.0 * r).ceil() as usize;
     let kernel_size = kernel_radius * 2 + 1;
     let kernel = gaussian_kernel(r, kernel_size);
-    GrayFloatImage(separable_filter_equal(image, &kernel))
+    GrayFloatImage(separable_filter(image, &kernel, &kernel))
 }
 
 #[cfg(test)]
@@ -245,5 +344,25 @@ mod tests {
             let (i, j) = it;
             assert!(f32::abs(*i - *j) < 0.0001);
         }
+    }
+
+    #[test]
+    fn horizontal_filter() {
+        let image = image::open("../res/0000000000.png").unwrap();
+        let image = super::GrayFloatImage::from_dynamic(&image);
+        let kernel = gaussian_kernel(3.0, 7);
+        let filtered_ours = super::horizontal_filter(&image.0, &kernel);
+        let filtered_imageproc = imageproc::filter::horizontal_filter(&image.0, &kernel);
+        imageproc::assert_pixels_eq!(filtered_ours, filtered_imageproc);
+    }
+
+    #[test]
+    fn vertical_filter() {
+        let image = image::open("../res/0000000000.png").unwrap();
+        let image = super::GrayFloatImage::from_dynamic(&image);
+        let kernel = gaussian_kernel(3.0, 7);
+        let filtered_ours = super::vertical_filter(&image.0, &kernel);
+        let filtered_imageproc = imageproc::filter::vertical_filter(&image.0, &kernel);
+        imageproc::assert_pixels_eq!(filtered_ours, filtered_imageproc);
     }
 }
