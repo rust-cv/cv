@@ -8,7 +8,7 @@ fn image_to_kps(path: impl AsRef<Path>) -> (Vec<akaze::KeyPoint>, Vec<BitArray<6
 }
 
 fn extract(c: &mut Criterion) {
-    c.bench_function("extract", |b| b.iter(|| image_to_kps("res/0000000000.png")));
+    c.bench_function("extract", |b| b.iter(|| image_to_kps("../res/0000000000.png")));
 }
 
 criterion_group!(
