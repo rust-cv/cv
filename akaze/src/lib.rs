@@ -282,10 +282,11 @@ impl Akaze {
         float_image: &GrayFloatImage,
     ) -> (Vec<KeyPoint>, Vec<BitArray<64>>) {
         let start = Instant::now();
-        let mut evolutions = self.allocate_evolutions(float_image.0.width(), float_image.0.height());
+        let mut evolutions =
+            self.allocate_evolutions(float_image.0.width(), float_image.0.height());
         info!("Allocated evolutions in: {:?}", start.elapsed());
         let start = Instant::now();
-        self.create_nonlinear_scale_space(&mut evolutions, &float_image);
+        self.create_nonlinear_scale_space(&mut evolutions, float_image);
         info!("Created non-linear scale space in: {:?}", start.elapsed());
         trace!("Finding image keypoints.");
         let start = Instant::now();
