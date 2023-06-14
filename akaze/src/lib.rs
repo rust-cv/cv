@@ -4,7 +4,7 @@ mod descriptors;
 mod detector_response;
 mod evolution;
 mod fed_tau;
-mod image;
+pub mod image;
 mod nonlinear_diffusion;
 mod scale_space_extrema;
 
