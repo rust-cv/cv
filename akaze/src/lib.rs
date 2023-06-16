@@ -18,6 +18,9 @@ use log::*;
 use nonlinear_diffusion::pm_g2;
 use std::{cmp::Reverse, path::Path};
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("tried to sample ({x},{y}) out of image bounds ({width}, {height})")]
@@ -32,6 +35,7 @@ pub enum Error {
 /// A point of interest in an image.
 /// This pretty much follows from OpenCV conventions.
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct KeyPoint {
     /// The horizontal coordinate in a coordinate system is
     /// defined s.t. +x faces right and starts from the top
