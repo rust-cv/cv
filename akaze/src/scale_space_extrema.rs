@@ -14,30 +14,46 @@ impl Akaze {
         for (e_id, evolution) in evolutions.iter_mut().enumerate() {
             let w = evolution.Ldet.width();
             let h = evolution.Ldet.height();
-            // maintain 5 iterators, one for the current pixel and one
+            // maintain 9 iterators, one for the current pixel and one
             // for each cardinal pixel. Iterate through all non-border
             // pixels
-            let mut x_m_iter = evolution.Ldet.iter();
-            let mut x_m_i = x_m_iter.nth(w).unwrap(); // 0, 1
-            let mut x_iter = evolution.Ldet.iter();
-            let mut x_i = x_iter.nth(w + 1).unwrap(); // 1, 1
-            let mut x_p_iter = evolution.Ldet.iter();
-            let mut x_p_i = x_p_iter.nth(w + 2).unwrap(); // 2, 1
-            let mut y_m_iter = evolution.Ldet.iter();
-            let mut y_m_i = y_m_iter.nth(1).unwrap(); // 1, 0
-            let mut y_p_iter = evolution.Ldet.iter();
-            let mut y_p_i = y_p_iter.nth(2 * w + 1).unwrap(); // 1, 2
-                                                              // Iterate from 1,1 to the second-to-last pixel of the second-to-last row
+            let mut y_m_x_m_iter = evolution.Ldet.iter(); // 0, 0
+            let mut y_m_iter = evolution.Ldet.iter().skip(1); // 1, 0
+            let mut y_m_x_p_iter = evolution.Ldet.iter().skip(2); // 2, 0
+            let mut x_m_iter = evolution.Ldet.iter().skip(w); // 0, 1
+            let mut x_iter = evolution.Ldet.iter().skip(w + 1); // 1, 1
+            let mut x_p_iter = evolution.Ldet.iter().skip(w + 2); // 2, 1
+            let mut y_p_x_m_iter = evolution.Ldet.iter().skip(2 * w); // 0, 2
+            let mut y_p_iter = evolution.Ldet.iter().skip(2 * w + 1); // 1, 2
+            let mut y_p_x_p_iter = evolution.Ldet.iter().skip(2 * w + 2); // 2, 2
+
+            // Iterate from 1,1 to the second-to-last pixel of the second-to-last row
             for i in (w + 1)..(evolution.Ldet.len() - w - 1) {
                 let x = i % w;
                 let y = i / w;
+
+                // Fetch value and increment iterators
+                let y_m_x_m_i = y_m_x_m_iter.next().unwrap();
+                let y_m_i = y_m_iter.next().unwrap();
+                let y_m_x_p_i = y_m_x_p_iter.next().unwrap();
+                let x_m_i = x_m_iter.next().unwrap();
+                let x_i = x_iter.next().unwrap();
+                let x_p_i = x_p_iter.next().unwrap();
+                let y_p_x_m_i = y_p_x_m_iter.next().unwrap();
+                let y_p_i = y_p_iter.next().unwrap();
+                let y_p_x_p_i = y_p_x_p_iter.next().unwrap();
+
                 // Apply detector threshold
-                if x != 0 && x != w && // do nothing for border pixels we will encounter in the iteration range
+                if x != 0 && x != w-1 && // do nothing for border pixels we will encounter in the iteration range
                 *x_i > (self.detector_threshold as f32) &&
-                *x_i > *x_p_i &&
-                *x_i > *x_m_i &&
+                *x_i > *y_m_x_m_i &&
                 *x_i > *y_m_i &&
-                *x_i > *y_p_i
+                *x_i > *y_m_x_p_i &&
+                *x_i > *x_m_i &&
+                *x_i > *x_p_i &&
+                *x_i > *y_p_x_m_i &&
+                *x_i > *y_p_i &&
+                *x_i > *y_p_x_p_i
                 {
                     let mut keypoint = KeyPoint {
                         response: f32::abs(*x_i),
@@ -58,10 +74,9 @@ impl Akaze {
                             || (keypoint.class_id != 0
                                 && keypoint.class_id - 1 == prev_keypoint.class_id)
                         {
-                            let dist = (keypoint.point.0 * ratio - prev_keypoint.point.0)
-                                * (keypoint.point.0 * ratio - prev_keypoint.point.0)
-                                + (keypoint.point.1 * ratio - prev_keypoint.point.1)
-                                    * (keypoint.point.1 * ratio - prev_keypoint.point.1);
+                            let dx = keypoint.point.0 * ratio - prev_keypoint.point.0;
+                            let dy = keypoint.point.1 * ratio - prev_keypoint.point.1;
+                            let dist = dx * dx + dy * dy;
                             if dist <= keypoint.size * keypoint.size {
                                 if keypoint.response > prev_keypoint.response {
                                     id_repeated = k;
@@ -97,13 +112,6 @@ impl Akaze {
                         }
                     }
                 }
-
-                // increment iterators
-                x_i = x_iter.next().unwrap();
-                x_m_i = x_m_iter.next().unwrap();
-                x_p_i = x_p_iter.next().unwrap();
-                y_m_i = y_m_iter.next().unwrap();
-                y_p_i = y_p_iter.next().unwrap();
             }
         }
         // Now filter points with the upper scale level
@@ -111,12 +119,13 @@ impl Akaze {
         for i in 0..keypoint_cache.len() {
             let mut is_repeated = false;
             let kp_i = keypoint_cache[i];
-            for kp_j in &keypoint_cache[i..] {
+            for kp_j in &keypoint_cache[i + 1..] {
                 // Compare response with the upper scale
                 if (kp_i.class_id + 1) == kp_j.class_id {
-                    let dist = (kp_i.point.0 - kp_j.point.0) * (kp_i.point.0 - kp_j.point.0)
-                        + (kp_i.point.1 - kp_j.point.1) * (kp_i.point.1 - kp_j.point.1);
-                    if dist <= kp_i.size * kp_i.size {
+                    let dx = kp_i.point.0 - kp_j.point.0;
+                    let dy = kp_i.point.1 - kp_j.point.1;
+                    let dist = dx * dx + dy * dy;
+                    if dist <= kp_i.size * kp_i.size && kp_i.response <= kp_j.response {
                         is_repeated = true;
                         break;
                     }
@@ -219,11 +228,15 @@ fn compute_main_orientation(keypoint: &mut KeyPoint, evolutions: &[EvolutionStep
     let mut res_y: [f32; 109usize] = [0f32; 109usize];
     let mut angs: [f32; 109usize] = [0f32; 109usize];
     let id: [usize; 13usize] = [6, 5, 4, 3, 2, 1, 0, 1, 2, 3, 4, 5, 6];
-    let ratio = (1 << evolutions[keypoint.class_id].octave) as f32;
+    let level = keypoint.class_id;
+    let ratio = (1 << evolutions[level].octave) as f32;
     let s = f32::round(0.5f32 * keypoint.size / ratio);
     let xf = keypoint.point.0 / ratio;
     let yf = keypoint.point.1 / ratio;
-    let level = keypoint.class_id;
+    // Open CV fast atan2 returns values in the range [0, 2*pi[ in degrees,
+    // while f32::atan2 returns in the range [-pi, pi].
+    // As the functions below assume the former, we need to convert the range.
+    let cv_fast_atan2_equiv = |y: f32, x: f32| (y.atan2(x) + 2. * PI).rem_euclid(2. * PI);
     // Calculate derivatives responses for points within radius of 6*scale
     let mut idx = 0;
     for i in -6..=6 {
@@ -234,23 +247,22 @@ fn compute_main_orientation(keypoint: &mut KeyPoint, evolutions: &[EvolutionStep
                 let gweight = GAUSS25[id[(i + 6) as usize]][id[(j + 6) as usize]];
                 res_x[idx] = gweight * evolutions[level].Lx.get(ix, iy);
                 res_y[idx] = gweight * evolutions[level].Ly.get(ix, iy);
-                angs[idx] = res_y[idx].atan2(res_y[idx]);
+                angs[idx] = cv_fast_atan2_equiv(res_y[idx], res_x[idx]);
                 idx += 1;
             }
         }
     }
     // Loop slides pi/3 window around feature point
     let mut ang1 = 0f32;
-    let mut sum_x = 0f32;
-    let mut sum_y = 0f32;
     let mut max = 0f32;
     while ang1 < 2.0f32 * PI {
+        let mut sum_x = 0f32;
+        let mut sum_y = 0f32;
         let ang2 = if ang1 + PI / 3.0f32 > 2.0f32 * PI {
             ang1 - 5.0f32 * PI / 3.0f32
         } else {
             ang1 + PI / 3.0f32
         };
-        ang1 += 0.15f32;
         for k in 0..109 {
             let ang = angs[k];
             if (ang1 < ang2 && ang1 < ang && ang < ang2)
@@ -266,8 +278,9 @@ fn compute_main_orientation(keypoint: &mut KeyPoint, evolutions: &[EvolutionStep
         if val > max {
             // store largest orientation
             max = val;
-            keypoint.angle = sum_y.atan2(sum_x);
+            keypoint.angle = cv_fast_atan2_equiv(sum_y, sum_x);
         }
+        ang1 += 0.15f32;
     }
 }
 
@@ -318,10 +331,13 @@ fn do_subpixel_refinement(
         if f32::abs(dst[0]) <= 1.0 && f32::abs(dst[1]) <= 1.0 {
             let mut keypoint_clone = *keypoint;
             keypoint_clone.point = ((x as f32) + dst[0], (y as f32) + dst[1]);
+            let power = f32::powf(2.0f32, evolutions[keypoint.class_id].octave as f32);
             keypoint_clone.point = (
-                keypoint_clone.point.0 * ratio + 0.5f32 * (ratio - 1f32),
-                keypoint_clone.point.1 * ratio + 0.5f32 * (ratio - 1f32),
+                keypoint_clone.point.0 * power + 0.5f32 * (power - 1f32),
+                keypoint_clone.point.1 * power + 0.5f32 * (power - 1f32),
             );
+            assert_eq!(keypoint_clone.angle, 0.);
+            keypoint_clone.size *= 2.;
             result.push(keypoint_clone);
         }
     }

@@ -18,6 +18,17 @@ use log::*;
 use nonlinear_diffusion::pm_g2;
 use std::{cmp::Reverse, path::Path};
 
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("tried to sample ({x},{y}) out of image bounds ({width}, {height})")]
+    SampleOutOfBounds {
+        x: isize,
+        y: isize,
+        width: usize,
+        height: usize,
+    },
+}
+
 /// A point of interest in an image.
 /// This pretty much follows from OpenCV conventions.
 #[derive(Debug, Clone, Copy)]
@@ -157,7 +168,7 @@ impl Akaze {
             self.base_scale_offset
         );
         let mut contrast_factor = contrast_factor::compute_contrast_factor(
-            &evolutions[0].Lsmooth,
+            image,
             self.contrast_percentile,
             1.0f64,
             self.contrast_factor_num_bins,
@@ -184,9 +195,9 @@ impl Akaze {
             }
             evolutions[i].Lsmooth = gaussian_blur(&evolutions[i].Lt, 1.0f32);
             trace!("Gaussian blur finished.");
-            evolutions[i].Lx = derivatives::scharr_horizontal(&evolutions[i].Lsmooth, 1);
+            evolutions[i].Lx = derivatives::simple_scharr_horizontal(&evolutions[i].Lsmooth);
             trace!("Computing derivative Lx done.");
-            evolutions[i].Ly = derivatives::scharr_vertical(&evolutions[i].Lsmooth, 1);
+            evolutions[i].Ly = derivatives::simple_scharr_vertical(&evolutions[i].Lsmooth);
             trace!("Computing derivative Ly done.");
             evolutions[i].Lflow = pm_g2(&evolutions[i].Lx, &evolutions[i].Ly, contrast_factor);
             trace!("Lflow finished.");
@@ -257,7 +268,7 @@ impl Akaze {
         keypoints.sort_unstable_by_key(|kp| Reverse(FloatOrd(kp.response)));
         keypoints.truncate(self.maximum_features);
         trace!("Extracting descriptors.");
-        let descriptors = self.extract_descriptors(&evolutions, &keypoints);
+        let (keypoints, descriptors) = self.extract_descriptors(&evolutions, &keypoints);
         trace!("Computing descriptors finished.");
         info!("Extracted {} features", keypoints.len());
         (keypoints, descriptors)
