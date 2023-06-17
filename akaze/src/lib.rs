@@ -18,8 +18,6 @@ use log::*;
 use nonlinear_diffusion::pm_g2;
 use std::{cmp::Reverse, path::Path, time::Instant};
 
-#[cfg(feature = "rayon")]
-use rayon::prelude::*;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
