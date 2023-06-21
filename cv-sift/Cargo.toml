@@ -15,9 +15,12 @@ readme = "README.md"
 
 [dependencies]
 # cv = { version = "0.6.0", path="../cv" }
-image = { version = "0.23.14", default-features = false }
-imgshow = { version = "*", path="../imgshow" }
+image = { version = "0.24.6" }
 nalgebra = "0.29"
 num = "0.4"
 itertools = "0.10"
-# imgproc-rs = { version = "0.2.3", features = ["parallel"] }
+tracing = "0.1.37"
+
+[dev-dependencies]
+test-case = "3.1.0"
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }

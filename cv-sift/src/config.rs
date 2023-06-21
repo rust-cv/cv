@@ -1,6 +1,6 @@
 
 
-
+#[derive(Debug, Clone, Copy)]
 pub struct SIFTConfig {
     pub sigma: f64,
     pub num_intervals: usize,

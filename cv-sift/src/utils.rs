@@ -3,7 +3,7 @@
 /// 
 /// ### Two exactly equal slices must be equal.
 /// ```
-/// use cv_sift::utils::assert_similar;
+/// use cv_sift::assert_similar;
 /// 
 /// let a = vec![1.0, 2.0, 3.0];
 /// let b = vec![1.0, 2.0, 3.0];
@@ -12,7 +12,7 @@
 /// 
 /// ### Elements differ no more than 1e-8.
 /// ```
-/// use cv_sift::utils::assert_similar;
+/// use cv_sift::assert_similar;
 /// 
 /// let a = vec![1.0, 2.0 - 1e-8, 3.0];
 /// let b = vec![1.0, 2.0, 3.0 - 1e-9];
@@ -31,7 +31,7 @@ pub fn assert_similar(v1: &[f64], v2: &[f64]) {
 /// Assert two given slices of floats are not equal.
 /// ### Some elements differ more than 1e-8.
 /// ```
-/// use cv_sift::utils::assert_not_similar;
+/// use cv_sift::assert_not_similar;
 /// 
 /// let a = vec![1.0, 2.0 - 1e-8, 3.0];
 /// let b = vec![1.0 - 1e-5, 2.0, 3.0 - 1e-9];
