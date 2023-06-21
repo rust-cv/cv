@@ -21,14 +21,31 @@ use std::{cmp::Reverse, path::Path};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
-struct Instant;
+struct Instant(u64);
 #[cfg(target_arch = "wasm32")]
 impl Instant {
     fn now() -> Self {
-        Instant
+        #[cfg(feature = "web-sys")]
+        {
+            Self(web_sys::window().unwrap().performance().unwrap().now() as u64)
+        }
+        #[cfg(not(feature = "web-sys"))]
+        {
+            Self(0)
+        }
     }
     fn elapsed(&self) -> std::time::Duration {
-        std::time::Duration::from_secs(0)
+        #[cfg(feature = "web-sys")]
+        {
+            std::time::Duration::from_millis(
+                (web_sys::window().unwrap().performance().unwrap().now() as u64)
+                    .saturating_sub(self.0),
+            )
+        }
+        #[cfg(not(feature = "web-sys"))]
+        {
+            std::time::Duration::from_secs(0)
+        }
     }
 }
 
