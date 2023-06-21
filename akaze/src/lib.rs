@@ -21,25 +21,24 @@ use std::{cmp::Reverse, path::Path};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
-struct Instant(u64);
+struct Instant(f64);
 #[cfg(target_arch = "wasm32")]
 impl Instant {
     fn now() -> Self {
         #[cfg(feature = "web-sys")]
         {
-            Self(web_sys::window().unwrap().performance().unwrap().now() as u64)
+            Self(web_sys::window().unwrap().performance().unwrap().now())
         }
         #[cfg(not(feature = "web-sys"))]
         {
-            Self(0)
+            Self(0.)
         }
     }
     fn elapsed(&self) -> std::time::Duration {
         #[cfg(feature = "web-sys")]
         {
-            std::time::Duration::from_millis(
-                (web_sys::window().unwrap().performance().unwrap().now() as u64)
-                    .saturating_sub(self.0),
+            std::time::Duration::from_secs_f64(
+                (web_sys::window().unwrap().performance().unwrap().now() - self.0) * 0.001,
             )
         }
         #[cfg(not(feature = "web-sys"))]
@@ -268,7 +267,6 @@ impl Akaze {
         let start = Instant::now();
         self.detector_response(evolutions);
         info!("Computed detector response in: {:?}", start.elapsed());
-        trace!("Computing detector response finished.");
         let start = Instant::now();
         let keypoints = self.detect_keypoints(evolutions);
         info!("Detected keypoints in: {:?}", start.elapsed());
@@ -310,28 +308,31 @@ impl Akaze {
         &self,
         float_image: &GrayFloatImage,
     ) -> (Vec<KeyPoint>, Vec<BitArray<64>>) {
+        trace!("Allocating evolutions.");
         let start = Instant::now();
         let mut evolutions =
             self.allocate_evolutions(float_image.0.width(), float_image.0.height());
         info!("Allocated evolutions in: {:?}", start.elapsed());
+        trace!("Creating non-linear space.");
         let start = Instant::now();
         self.create_nonlinear_scale_space(&mut evolutions, float_image);
         info!("Created non-linear scale space in: {:?}", start.elapsed());
         trace!("Finding image keypoints.");
-        let start = Instant::now();
         let mut keypoints = self.find_image_keypoints(&mut evolutions);
-        info!("Found keypoints in: {:?}", start.elapsed());
         trace!("Sorting keypoints by response and truncating the worst keypoints based on the set maximum");
         let start = Instant::now();
         keypoints.sort_unstable_by_key(|kp| Reverse(FloatOrd(kp.response)));
         keypoints.truncate(self.maximum_features);
-        info!("Keypoints storted in: {:?}", start.elapsed());
+        info!(
+            "Keypoints sorted in: {:?}, {} left.",
+            start.elapsed(),
+            keypoints.len()
+        );
         trace!("Extracting descriptors.");
         let start = Instant::now();
         let (keypoints, descriptors) = self.extract_descriptors(&evolutions, &keypoints);
         info!("Extracted keypoints in: {:?}", start.elapsed());
         trace!("Computing descriptors finished.");
-        info!("Extracted {} features", keypoints.len());
         (keypoints, descriptors)
     }
 
