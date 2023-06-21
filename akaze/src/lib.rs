@@ -16,7 +16,21 @@ use evolution::*;
 use float_ord::FloatOrd;
 use log::*;
 use nonlinear_diffusion::pm_g2;
-use std::{cmp::Reverse, path::Path, time::Instant};
+use std::{cmp::Reverse, path::Path};
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
+#[cfg(target_arch = "wasm32")]
+struct Instant;
+#[cfg(target_arch = "wasm32")]
+impl Instant {
+    fn now() -> Self {
+        Instant
+    }
+    fn elapsed(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(0)
+    }
+}
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
