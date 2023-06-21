@@ -8,7 +8,6 @@ members = [
     "cv-optimize",
     "cv-sfm",
     "cv-sift",
-    "cv-sift-bin",
     "akaze",
     "eight-point",
     "lambda-twist",
