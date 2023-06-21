@@ -1,4 +1,4 @@
-use nalgebra::{Point2};
+
 
 
 pub struct SIFTConfig {
@@ -24,16 +24,4 @@ impl SIFTConfig {
     pub fn new() -> Self {
         SIFTConfig::default()
     }
-}
-
-pub struct KeyPoint {
-    pub pt: Point2<f64>,
-    pub octave: usize,
-    pub size: f64,
-    pub angle: f64,
-    pub response: f64
-}
-
-pub struct Descriptor {
-    pub vector: [f64; 128]
 }

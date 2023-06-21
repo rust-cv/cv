@@ -1,5 +1,5 @@
 use image::{DynamicImage};
-use cv_sift::{image::SimpleRGBAImage, pyramid::image_pyramid, sift::SIFTConfig};
+use cv_sift::{SimpleRGBAImage, pyramid::image_pyramid, SIFTConfig};
 
 fn test_scale_space_pyramid_given_image(in_path: &str, out_path: &str) {
 

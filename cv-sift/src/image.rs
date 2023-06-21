@@ -92,24 +92,6 @@ impl<'a, T: Num + NumCast + Clone + Send + Sync + Scalar + Copy> SimpleRGBAImage
         (self.height, self.width)
     }
 
-    pub fn to_gray_channel(&self) -> DMatrix<T> {
-        let mut gray = DMatrix::<T>::zeros(self.height as usize, self.width as usize);
-        for (idx, [r, g, b, _]) in self.into_iter().enumerate() {
-
-            let x = idx as usize / self.width as usize;
-            let y = idx as usize % self.width as usize;
-
-            let r_float = r.to_f64().unwrap();
-            let g_float = g.to_f64().unwrap();
-            let b_float = b.to_f64().unwrap();
-
-            let gray_val = (1.0f64 / 3.0f64) * (r_float + g_float + b_float);
-
-            gray[(x, y)] = NumCast::from(gray_val).unwrap();
-        }
-        gray
-    }
-
     pub fn zeros_like((height, width): (u32, u32)) -> SimpleRGBAImage<T> {
         SimpleRGBAImage::<T>::from_slice(
             &vec![NumCast::from(0_f64).unwrap(); height as usize * width as usize * 4_usize],
