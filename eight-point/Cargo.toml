@@ -2,7 +2,7 @@
 name = "eight-point"
 version = "0.8.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "Eight-point algorithm for essential matrix estimation"
 documentation = "https://docs.rs/eight-point/"
 repository = "https://github.com/rust-cv/cv"
@@ -14,10 +14,10 @@ readme = "README.md"
 [dependencies]
 cv-core = { version = "0.15.0", path = "../cv-core" }
 cv-pinhole = { version = "0.6.0", path = "../cv-pinhole" }
-float-ord = "0.3.1"
-derive_more = "0.99.16"
+float-ord = "0.3.2"
+derive_more = "0.99.17"
 num-traits = { version = "0.2.14", default-features = false }
-arrayvec = { version = "0.7.1", default-features = false }
+arrayvec = { version = "0.7.2", default-features = false }
 
 [dev-dependencies]
-nalgebra = { version = "0.28.0", features = ["rand"] }
+nalgebra = { version = "0.30.1", features = ["rand"] }

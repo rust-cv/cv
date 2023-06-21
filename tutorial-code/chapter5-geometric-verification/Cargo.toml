@@ -1,7 +1,6 @@
 [package]
-name = "chapter3-akaze-feature-extraction"
+name = "chapter5-geometric-verification"
 version = "0.1.0"
-authors = ["codec-abc <viot.camille@outlook.com>"]
 edition = "2021"
 
 [dependencies]
@@ -10,3 +9,7 @@ image = "0.24"
 imageproc = "0.23"
 open = "2.0.2"
 tempfile = "3.3.0"
+itertools = "0.10.3"
+palette = "0.6.0"
+rand = "0.8.4"
+rand_xoshiro = "0.6.0"

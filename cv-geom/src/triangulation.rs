@@ -26,7 +26,7 @@ use cv_core::{
 /// ```
 /// use cv_core::nalgebra::{Vector3, Point3, Rotation3};
 /// use cv_core::{TriangulatorRelative, CameraToCamera, CameraPoint, Pose, Projective};
-/// use cv_geom::LinearEigenTriangulator;
+/// use cv_geom::triangulation::LinearEigenTriangulator;
 ///
 /// let point = CameraPoint::from_point(Point3::new(0.3, 0.1, 2.0));
 /// let pose = CameraToCamera::from_parts(Vector3::new(0.1, 0.1, 0.1), Rotation3::new(Vector3::new(0.1, 0.1, 0.1)));
@@ -53,6 +53,7 @@ impl LinearEigenTriangulator {
     /// Set the epsilon used in the symmetric eigen solver.
     ///
     /// Default is `1e-12`.
+    #[must_use]
     pub fn epsilon(self, epsilon: f64) -> Self {
         Self { epsilon, ..self }
     }
@@ -60,6 +61,7 @@ impl LinearEigenTriangulator {
     /// Set the maximum number of iterations for the symmetric eigen solver.
     ///
     /// Default is `1000`.
+    #[must_use]
     pub fn max_iterations(self, max_iterations: usize) -> Self {
         Self {
             max_iterations,
@@ -148,7 +150,7 @@ impl TriangulatorObservations for LinearEigenTriangulator {
 /// ```
 /// use cv_core::nalgebra::{Vector3, Point3, Rotation3};
 /// use cv_core::{TriangulatorRelative, CameraToCamera, CameraPoint, Pose, Projective};
-/// use cv_geom::SineL1Triangulator;
+/// use cv_geom::triangulation::SineL1Triangulator;
 ///
 /// let point = CameraPoint::from_point(Point3::new(0.3, 0.1, 2.0));
 /// let pose = CameraToCamera::from_parts(Vector3::new(0.1, 0.1, 0.1), Rotation3::new(Vector3::new(0.1, 0.1, 0.1)));
@@ -264,7 +266,7 @@ impl TriangulatorObservations for SineL1Triangulator {
             point += delta;
 
             // Quit if we reach the accuracy of the epsilon.
-            if delta.norm_squared() < epsilon_squared {
+            if delta.norm_squared() / point.coords.norm_squared() < epsilon_squared {
                 break;
             }
         }
@@ -291,6 +293,7 @@ impl RelativeDltTriangulator {
     /// Set the epsilon used in the SVD solver.
     ///
     /// Default is `1e-9`.
+    #[must_use]
     pub fn epsilon(self, epsilon: f64) -> Self {
         Self { epsilon, ..self }
     }
@@ -298,6 +301,7 @@ impl RelativeDltTriangulator {
     /// Set the maximum number of iterations for the SVD solver.
     ///
     /// Default is `100`.
+    #[must_use]
     pub fn max_iterations(self, max_iterations: usize) -> Self {
         Self {
             max_iterations,
@@ -341,15 +345,11 @@ impl TriangulatorRelative for RelativeDltTriangulator {
 
         // Extract the null-space vector from V* corresponding to the smallest
         // singular value, which is the homogeneous coordiate of the output.
-        svd.singular_values
-            .iter()
-            .enumerate()
-            .min_by_key(|&(_, &n)| float_ord::FloatOrd(n))
-            .map(|(ix, _)| svd.v_t.unwrap().row(ix).transpose().into_owned())
+        Some(svd.v_t.unwrap().row(3).transpose())
             .map(CameraPoint::from_homogeneous)
             .filter(|point| {
                 // Ensure the point contains no NaN or infinity.
-                point.homogeneous().iter().all(|n| n.is_finite())
+                point.homogeneous().iter().all(|x| x.is_finite())
             })
             .filter(|point| {
                 // Ensure the cheirality constraint.
@@ -370,7 +370,7 @@ impl TriangulatorRelative for RelativeDltTriangulator {
 ///
 /// # Example
 /// ```
-/// use cv_geom::MeanMeanTriangulator;
+/// use cv_geom::triangulation::MeanMeanTriangulator;
 /// use cv_core::{nalgebra::{Vector3, Rotation3}, CameraToCamera, Pose, Projective, CameraPoint, TriangulatorRelative};
 /// // Create a pose.
 /// let pose = CameraToCamera::from_parts(Vector3::new(0.1, 0.1, 0.1), Rotation3::from_scaled_axis(Vector3::new(0.1, 0.1, 0.1)));
@@ -404,7 +404,7 @@ impl TriangulatorObservations for MeanMeanTriangulator {
                 (sum_center + position, sum_bearings + bearing.into_inner())
             },
         );
-        let average_center = sum_center / total as f64;
+        let average_center = sum_center / total;
         let average_bearing = sum_bearings.normalize();
 
         let average_projection_distance = pairs
@@ -450,7 +450,7 @@ impl TriangulatorObservations for MeanMeanTriangulator {
 ///
 /// # Example
 /// ```
-/// use cv_geom::AngularL1Triangulator;
+/// use cv_geom::triangulation::AngularL1Triangulator;
 /// use cv_core::{nalgebra::{Vector3, Rotation3}, CameraToCamera, Pose, Projective, CameraPoint, TriangulatorRelative};
 /// // Create a pose.
 /// let pose = CameraToCamera::from_parts(Vector3::new(0.1, 0.1, 0.1), Rotation3::from_scaled_axis(Vector3::new(0.1, 0.1, 0.1)));
@@ -536,7 +536,7 @@ impl TriangulatorRelative for AngularL1Triangulator {
 ///
 /// # Example
 /// ```
-/// use cv_geom::AngularLInfinityTriangulator;
+/// use cv_geom::triangulation::AngularLInfinityTriangulator;
 /// use cv_core::{nalgebra::{Vector3, Rotation3}, CameraToCamera, Pose, Projective, CameraPoint, TriangulatorRelative};
 /// // Create a pose.
 /// let pose = CameraToCamera::from_parts(Vector3::new(0.1, 0.1, 0.1), Rotation3::from_scaled_axis(Vector3::new(0.1, 0.1, 0.1)));
@@ -602,5 +602,80 @@ impl TriangulatorRelative for AngularLInfinityTriangulator {
             // Ensure the cheirality constraint.
             point.bearing().dot(&a).is_sign_positive() && point.bearing().dot(&b).is_sign_positive()
         })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use cv_core::nalgebra::{IsometryMatrix3, Vector3, Vector4};
+
+    fn old_triangulate_relative_dlt(
+        tr: &RelativeDltTriangulator,
+        relative_pose: CameraToCamera,
+        a: UnitVector3<f64>,
+        b: UnitVector3<f64>,
+    ) -> Option<CameraPoint> {
+        let pose = relative_pose.homogeneous();
+        let mut design = Matrix4::zeros();
+        design
+            .row_mut(0)
+            .copy_from(&RowVector4::new(-a.z, 0.0, a.x, 0.0));
+        design
+            .row_mut(1)
+            .copy_from(&RowVector4::new(0.0, -a.z, a.y, 0.0));
+        design
+            .row_mut(2)
+            .copy_from(&(b.x * pose.row(2) - b.z * pose.row(0)));
+        design
+            .row_mut(3)
+            .copy_from(&(b.y * pose.row(2) - b.z * pose.row(1)));
+
+        let svd = design.try_svd_unordered(false, true, tr.epsilon, tr.max_iterations)?;
+        svd.singular_values
+            .iter()
+            .enumerate()
+            .min_by_key(|&(_, &n)| float_ord::FloatOrd(n))
+            .map(|(ix, _)| svd.v_t.unwrap().row(ix).transpose().into_owned())
+            .map(CameraPoint::from_homogeneous)
+            .filter(|point| point.homogeneous().iter().all(|n| n.is_finite()))
+            .filter(|point| {
+                point.bearing().dot(&a).is_sign_positive()
+                    && point
+                        .bearing()
+                        .dot(&(relative_pose.isometry().inverse() * b))
+                        .is_sign_positive()
+            })
+    }
+
+    #[test]
+    fn test_triangulate_relative_dlt() {
+        for _ in 0..100 {
+            let dlt = RelativeDltTriangulator::default();
+            let pose = CameraToCamera(IsometryMatrix3::new(
+                Vector3::new_random(),
+                Vector3::new_random(),
+            ));
+            let real_point = CameraPoint::from_homogeneous(Vector4::new_random());
+            let triangulated_point = dlt
+                .triangulate_relative(
+                    pose,
+                    real_point.bearing(),
+                    pose.transform(real_point).bearing(),
+                )
+                .unwrap()
+                .point()
+                .unwrap();
+            let old_triangulated_point = old_triangulate_relative_dlt(
+                &dlt,
+                pose,
+                real_point.bearing(),
+                pose.transform(real_point).bearing(),
+            )
+            .unwrap()
+            .point()
+            .unwrap();
+            assert_eq!(triangulated_point, old_triangulated_point);
+        }
     }
 }

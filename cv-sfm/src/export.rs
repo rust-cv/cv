@@ -21,6 +21,7 @@ pub fn export(
     mut writer: impl Write,
     points_and_colors: Vec<(Point3<f64>, [u8; 3])>,
     cameras: Vec<ExportCamera>,
+    camera_faces: bool,
 ) {
     // crete a ply objet
     let mut ply = Ply::<DefaultElement>::new();
@@ -45,14 +46,16 @@ pub fn export(
     point_element.properties.add(p);
     ply.header.elements.add(point_element);
 
-    // Define the face element which will be used for cameras.
-    let mut face_element = ElementDef::new("face".to_string());
-    let vertex_list = PropertyDef::new(
-        "vertex_index".to_string(),
-        PropertyType::List(ScalarType::UChar, ScalarType::Int),
-    );
-    face_element.properties.add(vertex_list);
-    ply.header.elements.add(face_element);
+    if camera_faces {
+        // Define the face element which will be used for cameras.
+        let mut face_element = ElementDef::new("face".to_string());
+        let vertex_list = PropertyDef::new(
+            "vertex_index".to_string(),
+            PropertyType::List(ScalarType::UChar, ScalarType::Int),
+        );
+        face_element.properties.add(vertex_list);
+        ply.header.elements.add(face_element);
+    }
 
     let mut faces: Vec<DefaultElement> = vec![];
     let mut vertices: Vec<DefaultElement> = vec![];
@@ -102,10 +105,12 @@ pub fn export(
                 )
             });
 
-        add_triangle(center_point, down_right, up_right);
-        add_triangle(center_point, up_right, up_left);
-        add_triangle(center_point, up_left, down_left);
-        add_triangle(center_point, down_left, down_right);
+        if camera_faces {
+            add_triangle(center_point, down_right, up_right);
+            add_triangle(center_point, up_right, up_left);
+            add_triangle(center_point, up_left, down_left);
+            add_triangle(center_point, down_left, down_right);
+        }
     }
 
     // Add points
@@ -114,7 +119,9 @@ pub fn export(
     }
 
     ply.payload.insert("vertex".to_string(), vertices);
-    ply.payload.insert("face".to_string(), faces);
+    if camera_faces {
+        ply.payload.insert("face".to_string(), faces);
+    }
 
     // set up a writer
     let w = Writer::new();

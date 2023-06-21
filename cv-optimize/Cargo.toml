@@ -2,14 +2,11 @@
 name = "cv-optimize"
 version = "0.1.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
-levenberg-marquardt = "0.10.0"
 cv-core = { version = "0.15.0", path = "../cv-core" }
 cv-geom = { version = "0.7.0", path = "../cv-geom" }
-nalgebra = { version = "0.28.0", features = ["alloc"], default-features = false }
-num-traits = "0.2.14"
-average = "0.13.1"
-itertools = "0.10.1"
+itertools = "0.10.3"
 log = { version = "0.4.14", default-features = false }
+float-ord = { version = "0.3.2", default-features = false }

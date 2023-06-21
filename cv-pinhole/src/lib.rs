@@ -48,10 +48,12 @@ impl CameraIntrinsics {
         }
     }
 
+    #[must_use]
     pub fn focals(self, focals: Vector2<f64>) -> Self {
         Self { focals, ..self }
     }
 
+    #[must_use]
     pub fn focal(self, focal: f64) -> Self {
         Self {
             focals: Vector2::new(focal, focal),
@@ -59,6 +61,7 @@ impl CameraIntrinsics {
         }
     }
 
+    #[must_use]
     pub fn principal_point(self, principal_point: Point2<f64>) -> Self {
         Self {
             principal_point,
@@ -66,6 +69,7 @@ impl CameraIntrinsics {
         }
     }
 
+    #[must_use]
     pub fn skew(self, skew: f64) -> Self {
         Self { skew, ..self }
     }
@@ -128,7 +132,7 @@ impl CameraModel for CameraIntrinsics {
     /// assert!((kp.0 - ukp.0).norm() < 1e-6);
     /// ```
     fn uncalibrate(&self, projection: UnitVector3<f64>) -> Option<KeyPoint> {
-        projection.z.is_sign_positive().then(|| ())?;
+        projection.z.is_sign_positive().then_some(())?;
         let projection = projection.xy() / projection.z;
         let y = projection.y * self.focals.y;
         let x = projection.x * self.focals.x + self.skew * projection.y;
@@ -160,7 +164,7 @@ impl CameraIntrinsicsK1Distortion {
 
 impl CameraModel for CameraIntrinsicsK1Distortion {
     /// Takes in a point from an image in pixel coordinates and
-    /// converts it to a [`NormalizedKeyPoint`].
+    /// converts it to a [`UnitVector3`] bearing.
     ///
     /// ```
     /// use cv_core::{KeyPoint, CameraModel};
@@ -197,7 +201,7 @@ impl CameraModel for CameraIntrinsicsK1Distortion {
         UnitVector3::new_normalize(undistorted.to_homogeneous())
     }
 
-    /// Converts a [`NormalizedKeyPoint`] back into pixel coordinates.
+    /// Converts a [`UnitVector3`] bearing back into pixel coordinates.
     ///
     /// ```
     /// use cv_core::{KeyPoint, CameraModel};
@@ -218,7 +222,7 @@ impl CameraModel for CameraIntrinsicsK1Distortion {
     /// assert!((kp.0 - ukp.0).norm() < 1e-6, "{:?}", (kp.0 - ukp.0).norm());
     /// ```
     fn uncalibrate(&self, projection: UnitVector3<f64>) -> Option<KeyPoint> {
-        projection.z.is_sign_positive().then(|| ())?;
+        projection.z.is_sign_positive().then_some(())?;
         let undistorted = projection.xy() / projection.z;
         // You can set up a quadratic to solve for r^2 with the undistorted keypoint. This is the result.
         let u2 = undistorted.norm_squared();
@@ -275,7 +279,7 @@ impl CameraSpecification {
     pub fn intrinsics_centered(&self, focal: f64) -> CameraIntrinsics {
         CameraIntrinsics::identity()
             .focal(focal)
-            .principal_point(self.pixel_dimensions.map(|p| p as f64 / 2.0 - 0.5).into())
+            .principal_point(self.pixel_dimensions.map(|p| p / 2.0 - 0.5).into())
     }
 }
 
@@ -300,7 +304,7 @@ impl CameraSpecification {
 /// let nkpb = point_b.bearing();
 ///
 /// // Create a triangulator.
-/// let triangulator = cv_geom::LinearEigenTriangulator::new();
+/// let triangulator = cv_geom::triangulation::LinearEigenTriangulator::new();
 ///
 /// // Since the normalized keypoints were computed exactly, there should be no reprojection error.
 /// let errors = cv_pinhole::pose_reprojection_error(pose, FeatureMatch(nkpa, nkpb), triangulator).unwrap();
@@ -352,7 +356,7 @@ pub fn pose_reprojection_error(
 /// let nkpb = point_b.bearing();
 ///
 /// // Create a triangulator.
-/// let triangulator = cv_geom::LinearEigenTriangulator::new();
+/// let triangulator = cv_geom::triangulation::LinearEigenTriangulator::new();
 ///
 /// // Since the normalized keypoints were computed exactly, there should be no reprojection error.
 /// let average_error = cv_pinhole::average_pose_reprojection_error(pose, FeatureMatch(nkpa, nkpb), triangulator).unwrap();

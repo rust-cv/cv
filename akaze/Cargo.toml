@@ -2,7 +2,7 @@
 name = "akaze"
 version = "0.7.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "AKAZE feature extraction algorithm for computer vision"
 keywords = ["keypoint", "descriptor", "vision", "sfm", "slam"]
 categories = ["computer-vision", "science::robotics"]
@@ -13,28 +13,37 @@ readme = "README.md"
 
 [dependencies]
 cv-core = { version = "0.15.0", path = "../cv-core" }
-image = { version = "0.23.14", default-features = false }
+image = { version = "0.24", default-features = false }
 log = { version = "0.4.14", default-features = false }
 primal = { version = "0.3.0", default-features = false }
-derive_more = { version = "0.99.16", default-features = false }
-nshare = { version = "0.7.0", features = ["ndarray", "image"] }
-ndarray = { version = "0.15.3", default-features = false }
-float-ord = { version = "0.3.1", default-features = false }
+derive_more = { version = "0.99.17", default-features = false }
+nshare = { git = "https://github.com/rust-cv/nshare.git", rev = "cd4a5c007ecf4ef62c938a6ac64fd90edf895360", default-features = false, features = [
+    "ndarray",
+    "image",
+] }
+ndarray = { version = "0.15.4", default-features = false }
+float-ord = { version = "0.3.2", default-features = false }
 space = "0.17.0"
-bitarray = "0.9.3"
+bitarray = "0.9.0"
+thiserror = { version = "1.0.40", default-features = false }
+serde = { version = "1.0", default-features = false, features = ["derive"], optional = true }
+imageproc = "0.23.0"
 
 
 [dev-dependencies]
 eight-point = { version = "0.8.0", path = "../eight-point" }
 cv-pinhole = { version = "0.6.0", path = "../cv-pinhole" }
-arrsac = "0.7.0"
+arrsac = "0.10.0"
 rand = "0.8.4"
 rand_pcg = "0.3.1"
-criterion = "0.3.4"
+criterion = "0.3.5"
 pretty_env_logger = "0.4.0"
-image = "0.23.14"
-bitarray = { version = "0.9.3", features = ["space"] }
+image = "0.24"
+bitarray = { version = "0.9.0", features = ["space"] }
 
 [[bench]]
 name = "criterion"
 harness = false
+
+[features]
+serde = ["dep:serde", "bitarray/serde"]

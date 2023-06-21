@@ -1,7 +1,8 @@
 use crate::{CameraPoint, FeatureMatch, FeatureWorldMatch, Projective, Skew3, WorldPoint};
 use derive_more::{AsMut, AsRef, From, Into};
 use nalgebra::{
-    IsometryMatrix3, Matrix4, Matrix4x6, Matrix6x4, Rotation3, Vector3, Vector4, Vector6,
+    zero, IsometryMatrix3, Matrix3x4, Matrix4, Matrix4x6, Matrix6x4, Rotation3, Vector3, Vector4,
+    Vector6,
 };
 use sample_consensus::Model;
 
@@ -32,6 +33,7 @@ pub trait Pose: From<IsometryMatrix3<f64>> + Clone + Copy {
     }
 
     /// Applies a scale factor to the pose (scales the translation component)
+    #[must_use]
     fn scale(self, scale: f64) -> Self {
         let mut isometry = self.isometry();
         isometry.translation.vector *= scale;
@@ -247,43 +249,49 @@ impl Pose for CameraToCamera {
 impl Model<FeatureMatch> for CameraToCamera {
     fn residual(&self, data: &FeatureMatch) -> f64 {
         let &FeatureMatch(a, b) = data;
-        let a = self.isometry() * a;
-        let translation = self.isometry().translation.vector;
-        // Correct a and b to intersect at the point which minimizes L1 distance as per
-        // "Closed-Form Optimal Two-View Triangulation Based on Angular Errors" algorithm
-        // 12 and 13. The L1 distance minimized is the two angles between the two
-        // epipolar planes and the two bearings.
 
-        // Compute the cross product of `a` and the unit translation. The magnitude increases as
-        // they become more perpendicular. The unit vector `na` describes the normal of the plane
-        // formed by `a` and the translation.
-        let cross_a = a.cross(&translation);
-        let cross_a_norm_squared = cross_a.norm_squared();
-        // Compute the cross product of `b` and the unit translation. The magnitude increases as
-        // they become more perpendicular. The unit vector `nb` describes the normal of the plane
-        // formed by `b` and the translation.
-        let cross_b = b.cross(&translation);
-        let cross_b_norm_squared = cross_b.norm_squared();
-
-        let residual = if cross_a_norm_squared < cross_b_norm_squared {
-            // If `a` is less perpendicular to the translation, we compute the projection length of `a`
-            // onto `b`'s epipolar plane normal (how far it is out of the epipolar plane) and then
-            // take the absolute value to get sine distance.
-            a.dot(&cross_b.scale(cross_b_norm_squared.sqrt().recip()))
-                .abs()
-        } else {
-            // If `b` is less perpendicular to the translation, we compute the projection length of `b`
-            // onto `a`'s epipolar plane normal (how far it is out of the epipolar plane) and then
-            // take the absolute value to get sine distance.
-            b.dot(&cross_a.scale(cross_a_norm_squared.sqrt().recip()))
-                .abs()
-        };
-        // Check chierality as well.
-        if residual.is_nan() || a.dot(&b).is_sign_negative() {
-            1.0
-        } else {
-            residual
+        // TODO: This should not need to be here, and the residual function of CameraToCamera should
+        // actually be implemented externally and passed to the sample consensus process.
+        let mut design: Matrix4<f64> = zero();
+        for (pose, bearing) in [(CameraToCamera::identity(), a), (*self, b)] {
+            let bearing: Vector3<f64> = bearing.into_inner();
+            // Get the pose as a 3x4 matrix.
+            let rot = pose.0.rotation.matrix();
+            let trans = pose.0.translation.vector;
+            let pose = Matrix3x4::<f64>::from_columns(&[
+                rot.column(0),
+                rot.column(1),
+                rot.column(2),
+                trans.column(0),
+            ]);
+            // Set up the least squares problem.
+            let term = pose - bearing * bearing.transpose() * pose;
+            design += term.transpose() * term;
         }
+
+        let se = if let Some(eigen) = design.try_symmetric_eigen(1e-12, 1024) {
+            eigen
+        } else {
+            return 2.0;
+        };
+
+        // Find the smallest eigenvalue where our point will lie in the null space homogeneous vector.
+        se.eigenvalues
+            .iter()
+            .enumerate()
+            .min_by_key(|&(_, &n)| n.abs().to_bits())
+            .map(|(ix, _)| se.eigenvectors.column(ix).into_owned())
+            .map(CameraPoint::from_homogeneous)
+            .filter(|point| {
+                // Ensure the point contains no NaN or infinity.
+                point.homogeneous().iter().all(|n| n.is_finite())
+            })
+            .map(|point| {
+                // Ensure the cheirality constraint.
+                0.5 * (1.0 - a.dot(&point.bearing()) + 1.0
+                    - b.dot(&self.transform(point).bearing()))
+            })
+            .unwrap_or(2.0)
     }
 }
 

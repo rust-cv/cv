@@ -2,10 +2,10 @@
 name = "chapter2-first-program"
 version = "0.1.0"
 authors = ["codec-abc <viot.camille@outlook.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 cv = { version = "0.6.0", path = "../../cv" }
-image = "0.23.14"
-imageproc = "0.22.0"
+open = "2.0.2"
 rand = "0.8.4"
+tempfile = "3.3.0"

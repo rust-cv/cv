@@ -2,16 +2,16 @@
 name = "nister-stewenius"
 version = "0.1.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
-edition = "2018"
+edition = "2021"
 license = "MIT"
 
 [dependencies]
-arrayvec = { version = "0.7.1", default-features = false }
+arrayvec = { version = "0.7.2", default-features = false }
 cv-core = { version = "0.15.0", path = "../cv-core" }
 cv-pinhole = { version = "0.6.0", path = "../cv-pinhole" }
-float-ord = "0.3.1"
+float-ord = "0.3.2"
 sample-consensus = "1.0.2"
 
 [dev-dependencies]
-itertools = "0.10.1"
-nalgebra = "0.28.0"
+itertools = "0.10.3"
+nalgebra = "0.30.1"

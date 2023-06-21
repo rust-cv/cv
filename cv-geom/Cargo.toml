@@ -2,7 +2,7 @@
 name = "cv-geom"
 version = "0.7.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "Contains computational geometry algorithms used in computer vision"
 documentation = "https://docs.rs/cv-geom/"
 repository = "https://github.com/rust-cv/cv"
@@ -13,4 +13,4 @@ readme = "README.md"
 
 [dependencies]
 cv-core = { version = "0.15.0", path = "../cv-core" }
-float-ord = "0.3.1"
+float-ord = "0.3.2"

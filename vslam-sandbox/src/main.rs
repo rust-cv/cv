@@ -1,11 +1,11 @@
-use cv::{
-    camera::pinhole::{CameraIntrinsics, CameraIntrinsicsK1Distortion},
-    consensus::Arrsac,
-    estimate::{EightPoint, LambdaTwist},
-    geom::triangulation::LinearEigenTriangulator,
-    nalgebra::{Point2, Vector2},
-    sfm::{VSlam, VSlamSettings},
-};
+use arrsac::Arrsac;
+use cv_core::nalgebra::{Point2, Vector2};
+use cv_geom::triangulation::LinearEigenTriangulator;
+use cv_pinhole::{CameraIntrinsics, CameraIntrinsicsK1Distortion};
+use cv_sfm::{VSlam, VSlamSettings};
+use eight_point::EightPoint;
+use lambda_twist::LambdaTwist;
+
 use log::*;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256PlusPlus;
@@ -27,7 +27,7 @@ struct Opt {
     #[structopt(short, long, default_value = "vslam-settings.json")]
     settings: PathBuf,
     /// The maximum cosine distance an observation can have to be exported.
-    #[structopt(long, default_value = "0.0000005")]
+    #[structopt(long, default_value = "0.000001")]
     export_maximum_cosine_distance: f64,
     /// Export required observations
     #[structopt(long, default_value = "3")]
@@ -50,6 +50,9 @@ struct Opt {
     /// The K1 radial distortion for "The Zurich Urban Micro Aerial Vehicle Dataset"
     #[structopt(long, default_value = "-0.28052513")]
     radial_distortion: f64,
+    /// If true, will use actual PLY faces for cameras rather than just points.
+    #[structopt(long)]
+    no_camera_faces: bool,
     /// Output directory for reconstruction PLY files
     #[structopt(short, long)]
     output: Option<PathBuf>,
@@ -103,12 +106,15 @@ fn main() {
             settings.single_view_consensus_threshold,
             Xoshiro256PlusPlus::seed_from_u64(0),
         )
-        .max_candidate_hypotheses(1024),
+        .initialization_hypotheses(16384)
+        .max_candidate_hypotheses(1024)
+        .estimations_per_block(256),
         Arrsac::new(
             settings.two_view_consensus_threshold,
             Xoshiro256PlusPlus::seed_from_u64(0),
         )
-        .max_candidate_hypotheses(8192),
+        .initialization_hypotheses(8192)
+        .max_candidate_hypotheses(1024),
         LambdaTwist::new(),
         EightPoint::new(),
         LinearEigenTriangulator::new(),
@@ -148,7 +154,7 @@ fn main() {
                         frame_path.file_name().unwrap().to_str().unwrap(),
                         reconstruction.data().as_ffi()
                     ));
-                    vslam.export_reconstruction(reconstruction, &path);
+                    vslam.export_reconstruction(reconstruction, &path, !opt.no_camera_faces);
                     info!("exported {}", path.display());
                     // Restore the pre-export settings.
                     vslam.settings = old_settings;

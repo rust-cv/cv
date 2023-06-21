@@ -1,7 +1,8 @@
 use derive_more::{Deref, DerefMut};
-use image::{imageops, DynamicImage, GenericImageView, ImageBuffer, Luma};
+use image::{DynamicImage, ImageBuffer, Luma, Pixel};
+use imageproc::filter::separable_filter_equal;
 use log::*;
-use ndarray::{Array2, ArrayView2, ArrayViewMut2};
+use ndarray::{azip, s, Array2, ArrayView2, ArrayViewMut2};
 use nshare::{MutNdarray2, RefNdarray2};
 use std::f32;
 
@@ -61,7 +62,27 @@ impl GrayFloatImage {
                     Luma([f32::from(gray_image[(x, y)][0]) / 65535f32])
                 })
             }
-            _ => unreachable!(),
+            DynamicImage::ImageRgb32F(float_image) => {
+                info!(
+                    "Loaded a {} x {} 32-bit RGB float image",
+                    input_image.width(),
+                    input_image.height()
+                );
+                ImageBuffer::from_fn(float_image.width(), float_image.height(), |x, y| {
+                    Luma([float_image[(x, y)].to_luma()[0]])
+                })
+            }
+            DynamicImage::ImageRgba32F(float_image) => {
+                info!(
+                    "Loaded a {} x {} 32-bit RGBA float image",
+                    input_image.width(),
+                    input_image.height()
+                );
+                ImageBuffer::from_fn(float_image.width(), float_image.height(), |x, y| {
+                    Luma([float_image[(x, y)].to_luma()[0]])
+                })
+            }
+            _ => panic!("DynamicImage::grayscale() returned unexpected type"),
         })
     }
 
@@ -111,106 +132,49 @@ impl GrayFloatImage {
     pub fn half_size(&self) -> Self {
         let width = self.width() / 2;
         let height = self.height() / 2;
-        Self(imageops::resize(
-            &self.0,
-            width as u32,
-            height as u32,
-            imageops::FilterType::Nearest,
-        ))
-    }
-}
+        let mut half = Array2::zeros((height, width));
 
-/// Fill border with neighboring pixels. A way of preventing instability
-/// around the image borders for things like derivatives.
-///
-/// # Arguments
-/// * `output` - the image to operate upon.
-/// * `half_width` the number of pixels around the borders to operate on.
-pub fn fill_border(output: &mut GrayFloatImage, half_width: usize) {
-    for x in 0..output.width() {
-        let plus = output.get(x, half_width);
-        let minus = output.get(x, output.height() - half_width - 1);
-        for y in 0..half_width {
-            output.put(x, y, plus);
-        }
-        for y in (output.height() - half_width)..output.height() {
-            output.put(x, y, minus);
-        }
-    }
-    for y in 0..output.height() {
-        let plus = output.get(half_width, y);
-        let minus = output.get(output.width() - half_width - 1, y);
-        for x in 0..half_width {
-            output.put(x, y, plus);
-        }
-        for x in (output.width() - half_width)..output.width() {
-            output.put(x, y, minus);
-        }
-    }
-}
+        // 2x2 tiles for everything except the bottom, right, and bottom right corner.
+        azip!((
+            out in &mut half,
+            window in self.ref_array2().slice(s![..height * 2, ..width * 2]).exact_chunks((2, 2)),
+        ) {
+            *out = window.sum() * 0.25;
+        });
 
-/// Horizontal image filter for variable kernel sizes.
-///
-/// # Arguments
-/// * `image` - the input image.
-/// * `kernel` the kernel to apply.
-/// # Return value
-/// The filter result.
-#[inline(always)]
-pub fn horizontal_filter(image: &GrayFloatImage, kernel: &[f32]) -> GrayFloatImage {
-    // Cannot have an even-sized kernel
-    debug_assert!(kernel.len() % 2 == 1);
-    let half_width = (kernel.len() / 2) as i32;
-    let w = image.width() as i32;
-    let h = image.height() as i32;
-    let mut output = GrayFloatImage::new(image.width(), image.height());
-    for k in -half_width..=half_width {
-        let mut out_itr = output.iter_mut();
-        let mut image_itr = image.iter();
-        let mut out_ptr = out_itr.nth(half_width as usize).unwrap();
-        let mut image_val = image_itr.nth((half_width + k) as usize).unwrap();
-        let kernel_value = kernel[(k + half_width) as usize];
-        for _ in half_width..(w * h - half_width - 1) {
-            *out_ptr += kernel_value * image_val;
-            out_ptr = out_itr.next().unwrap();
-            image_val = image_itr.next().unwrap();
+        // Bottom (only if not divisible!)
+        if height * 2 != self.height() {
+            azip!((
+                out in half.slice_mut(s![-1.., ..]),
+                window in self.ref_array2().slice(s![-1.., ..width * 2]).exact_chunks((1, 2)),
+            ) {
+                *out = window.sum() * 0.5;
+            });
         }
-    }
-    fill_border(&mut output, half_width as usize);
-    output
-}
 
-/// Vertical image filter for variable kernel sizes.
-///
-/// # Arguments
-/// * `image` - the input image.
-/// * `kernel` the kernel to apply.
-/// # Return value
-/// The filter result.
-#[inline(always)]
-pub fn vertical_filter(image: &GrayFloatImage, kernel: &[f32]) -> GrayFloatImage {
-    // Cannot have an even-sized kernel
-    debug_assert!(kernel.len() % 2 == 1);
-    let half_width = (kernel.len() / 2) as i32;
-    let w = image.width() as i32;
-    let h = image.height() as i32;
-    let mut output = GrayFloatImage::new(image.width(), image.height());
-    for k in -half_width..=half_width {
-        let mut out_itr = output.iter_mut();
-        let mut image_itr = image.iter();
-        let mut out_ptr = out_itr.nth((half_width * w) as usize).unwrap();
-        let mut image_val = image_itr
-            .nth(((half_width * w) + (k * w)) as usize)
-            .unwrap();
-        let kernel_value = kernel[(k + half_width) as usize];
-        for _ in (half_width * w)..(w * h - (half_width * w) - 1) {
-            *out_ptr += kernel_value * image_val;
-            out_ptr = out_itr.next().unwrap();
-            image_val = image_itr.next().unwrap();
+        // Right (only if not divisible!)
+        if width * 2 != self.width() {
+            azip!((
+                out in half.slice_mut(s![.., -1..]),
+                window in self.ref_array2().slice(s![..height * 2, -1..]).exact_chunks((2, 1)),
+            ) {
+                *out = window.sum() * 0.5;
+            });
         }
+
+        // Bottom right corner (only if not divisible by both)
+        if width * 2 != self.width() && height * 2 != self.height() {
+            // This is overkill, but it just copies the bottom right corner pixel.
+            azip!((
+                out in half.slice_mut(s![-1.., -1..]),
+                &pixel in self.ref_array2().slice(s![-1.., -1..]),
+            ) {
+                *out = pixel;
+            });
+        }
+
+        Self::from_array2(half)
     }
-    fill_border(&mut output, half_width as usize);
-    output
 }
 
 /// The Gaussian function.
@@ -254,11 +218,11 @@ fn gaussian_kernel(r: f32, kernel_size: usize) -> Vec<f32> {
 /// # Return value
 /// The resulting image after the filter was applied.
 pub fn gaussian_blur(image: &GrayFloatImage, r: f32) -> GrayFloatImage {
-    // a separable Gaussian kernel
-    let kernel_size = (f32::ceil(r) as usize) * 2 + 1usize;
+    assert!(r > 0.0, "sigma must be > 0.0");
+    let kernel_radius = (2.0 * r).ceil() as usize;
+    let kernel_size = kernel_radius * 2 + 1;
     let kernel = gaussian_kernel(r, kernel_size);
-    let img_horizontal = horizontal_filter(image, &kernel);
-    vertical_filter(&img_horizontal, &kernel)
+    GrayFloatImage(separable_filter_equal(image, &kernel))
 }
 
 #[cfg(test)]

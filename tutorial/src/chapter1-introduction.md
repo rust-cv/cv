@@ -1,14 +1,14 @@
-## An introduction to Rust-CV
+# Introduction to Rust-CV
 
 Rust CV is a project that aims to bring Computer Vision (CV) algorithms to the Rust programming language. To follow this tutorial a basic understanding of Rust, and its ecosystem, is required. Also, computer vision knowledge would help.
 
-### About this book
+## About this book
 
 This tutorial aims to help you understand how to use Rust-CV and what it has to offer. In is current state, this tutorial is rather incomplete and a lot of examples are missing. If you spot an error or wish to add a page feel free to do a PR. We are very open so don't hesitate to contribute.
 
 The code examples in this book can be found [here](https://github.com/rust-cv/cv/tree/master/tutorial-code/). The source for the book can be found [here](https://github.com/rust-cv/cv/tree/master/tutorial/).
 
-### Project structure
+## Project structure
 
 Before using Rust-CV it is important to understand how the ecosystem is set-up and how to use it.
 

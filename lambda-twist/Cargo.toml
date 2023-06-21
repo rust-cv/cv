@@ -2,7 +2,7 @@
 name = "lambda-twist"
 version = "0.7.0"
 authors = ["Matthieu Pizenberg <matthieu.pizenberg@gmail.com>", "Geordon Worley <vadixidav@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "p3p pose estimation given world points and feature bearings"
 documentation = "https://docs.rs/lambda-twist/"
 repository = "https://github.com/rust-cv/cv"
@@ -17,13 +17,13 @@ rustdoc-args = [ "--html-in-header", "katex-header.html" ]
 [dependencies]
 cv-core = { version = "0.15.0", path = "../cv-core" }
 num-traits = { version = "0.2.14", default-features = false }
-arrayvec = { version = "0.7.1", default-features = false }
+arrayvec = { version = "0.7.2", default-features = false }
 
 [dev-dependencies]
-approx = "0.5.0"
-arrsac = "0.7.0"
+approx = "0.5.1"
+arrsac = "0.10.0"
 rand = { version = "0.8.4", features = ["small_rng"] }
 quickcheck = "1.0.3"
 quickcheck_macros = "1.0.0"
-itertools = "0.10.1"
+itertools = "0.10.3"
 cv-pinhole = { version = "0.6.0", path = "../cv-pinhole" }

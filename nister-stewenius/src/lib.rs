@@ -207,16 +207,9 @@ fn compute_eigenvector(m: &Square10, lambda: f64) -> Option<OVector<f64, U10>> {
     (m - Square10::from_diagonal_element(lambda))
         .try_svd(false, true, SVD_CONVERGENCE, SVD_ITERATIONS)
         .and_then(|svd| {
-            // Find the lowest singular value's index and value.
-            let (ix, &v) = svd
-                .singular_values
-                .iter()
-                .enumerate()
-                .min_by_key(|&(_, &v)| float_ord::FloatOrd(v))
-                .unwrap();
             // Ensure that the singular value is below a threshold.
-            if v < SVD_NULL_THRESHOLD {
-                Some(svd.v_t.unwrap().row(ix).transpose().into_owned())
+            if svd.singular_values[9] < SVD_NULL_THRESHOLD {
+                Some(svd.v_t?.row(9).transpose())
             } else {
                 None
             }
@@ -331,7 +324,7 @@ impl Estimator<FeatureMatch> for NisterStewenius {
             .filter_map(|essential| {
                 essential.possible_unscaled_poses(self.epsilon, self.iterations)
             })
-            .flat_map(core::array::IntoIter::new)
+            .flat_map(IntoIterator::into_iter)
             .collect()
     }
 }
@@ -420,6 +413,40 @@ mod test {
                     assert!((o1_comp - man_comp).abs() < 1e-8);
                 }
             }
+        }
+    }
+
+    fn old_compute_eigenvector(m: &Square10, lambda: f64) -> Option<OVector<f64, U10>> {
+        (m - Square10::from_diagonal_element(lambda))
+            .try_svd_unordered(false, true, SVD_CONVERGENCE, SVD_ITERATIONS)
+            .and_then(|svd| {
+                // Find the lowest singular value's index and value.
+                let (ix, &v) = svd
+                    .singular_values
+                    .iter()
+                    .enumerate()
+                    .min_by_key(|&(_, &v)| float_ord::FloatOrd(v))
+                    .unwrap();
+                // Ensure that the singular value is below a threshold.
+                if v < SVD_NULL_THRESHOLD {
+                    Some(svd.v_t.unwrap().row(ix).transpose().into_owned())
+                } else {
+                    None
+                }
+            })
+    }
+
+    #[test]
+    fn test_compute_eigenvector() {
+        for i in 0..100 {
+            let s10 = Square10::new_random();
+            // simple prng for testing purposes
+            let lambda = (i as f64 * 12.3456789).sin();
+
+            let old = old_compute_eigenvector(&s10, lambda);
+            let new = compute_eigenvector(&s10, lambda);
+
+            assert_eq!(old, new);
         }
     }
 }

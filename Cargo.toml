@@ -15,14 +15,17 @@ members = [
     "nister-stewenius",
     "vslam-sandbox",
     "kpdraw",
-    "imgshow",
     "tutorial-code/chapter2-first-program",
     "tutorial-code/chapter3-akaze-feature-extraction",
+    "tutorial-code/chapter4-feature-matching",
+    "tutorial-code/chapter5-geometric-verification",
 ]
 
 [profile.dev]
 # The tests take a very long time without optimization.
-opt-level = 3
+opt-level = 1
+# This is needed to reduce memory usage during compilation, or CI will fail
+codegen-units = 1
 
 [profile.bench]
 # Necessary to generate flamegraphs
@@ -31,6 +34,7 @@ codegen-units = 1
 lto = "fat"
 
 [profile.release]
+# Necessary to generate flamegraphs
+debug = true
 codegen-units = 1
 lto = "fat"
-debug = true

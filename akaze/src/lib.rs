@@ -9,17 +9,33 @@ mod nonlinear_diffusion;
 mod scale_space_extrema;
 
 use crate::image::{gaussian_blur, GrayFloatImage};
-use ::image::{DynamicImage, GenericImageView, ImageResult};
+use ::image::{DynamicImage, ImageResult};
 use bitarray::BitArray;
 use cv_core::{nalgebra::Point2, ImagePoint};
 use evolution::*;
+use float_ord::FloatOrd;
 use log::*;
 use nonlinear_diffusion::pm_g2;
-use std::path::Path;
+use std::{cmp::Reverse, path::Path};
+
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("tried to sample ({x},{y}) out of image bounds ({width}, {height})")]
+    SampleOutOfBounds {
+        x: isize,
+        y: isize,
+        width: usize,
+        height: usize,
+    },
+}
 
 /// A point of interest in an image.
 /// This pretty much follows from OpenCV conventions.
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct KeyPoint {
     /// The horizontal coordinate in a coordinate system is
     /// defined s.t. +x faces right and starts from the top
@@ -53,12 +69,15 @@ impl ImagePoint for KeyPoint {
 /// Contains the configuration parameters of AKAZE.
 ///
 /// The most important parameter to pay attention to is `detector_threshold`.
-/// [`Config::new`] can be used to set this threshold and let all other parameters
-/// remain default. You can also use the helpers [`Config::sparse`] and
-/// [`Config::dense`]. The default value of `detector_threshold` is `0.001`.
+/// [`Akaze::new`] can be used to set this threshold and let all other parameters
+/// remain default. You can also use the helpers [`Akaze::sparse`] and
+/// [`Akaze::dense`]. The default value of `detector_threshold` is `0.001`.
 ///
 #[derive(Debug, Copy, Clone)]
 pub struct Akaze {
+    /// The maximum number of features to extract
+    pub maximum_features: usize,
+
     /// Default number of sublevels per scale level
     pub num_sublevels: u32,
 
@@ -118,6 +137,7 @@ impl Akaze {
 impl Default for Akaze {
     fn default() -> Akaze {
         Akaze {
+            maximum_features: usize::MAX,
             num_sublevels: 4,
             max_octave_evolution: 4,
             base_scale_offset: 1.6f64,
@@ -152,7 +172,7 @@ impl Akaze {
             self.base_scale_offset
         );
         let mut contrast_factor = contrast_factor::compute_contrast_factor(
-            &evolutions[0].Lsmooth,
+            image,
             self.contrast_percentile,
             1.0f64,
             self.contrast_factor_num_bins,
@@ -179,9 +199,9 @@ impl Akaze {
             }
             evolutions[i].Lsmooth = gaussian_blur(&evolutions[i].Lt, 1.0f32);
             trace!("Gaussian blur finished.");
-            evolutions[i].Lx = derivatives::scharr_horizontal(&evolutions[i].Lsmooth, 1);
+            evolutions[i].Lx = derivatives::simple_scharr_horizontal(&evolutions[i].Lsmooth);
             trace!("Computing derivative Lx done.");
-            evolutions[i].Ly = derivatives::scharr_vertical(&evolutions[i].Lsmooth, 1);
+            evolutions[i].Ly = derivatives::simple_scharr_vertical(&evolutions[i].Lsmooth);
             trace!("Computing derivative Ly done.");
             evolutions[i].Lflow = pm_g2(&evolutions[i].Lx, &evolutions[i].Ly, contrast_factor);
             trace!("Lflow finished.");
@@ -202,7 +222,7 @@ impl Akaze {
     /// # Return Value
     /// The resulting keypoints.
     ///
-    fn find_image_keypoints(&self, evolutions: &mut Vec<EvolutionStep>) -> Vec<KeyPoint> {
+    pub fn find_image_keypoints(&self, evolutions: &mut [EvolutionStep]) -> Vec<KeyPoint> {
         self.detector_response(evolutions);
         trace!("Computing detector response finished.");
         self.detect_keypoints(evolutions)
@@ -210,13 +230,10 @@ impl Akaze {
 
     /// Extract features using the Akaze feature extractor.
     ///
-    /// This performs all operations end-to-end. The client might be only interested
-    /// in certain portions of the process, all of which are exposed in public functions,
-    /// but this function can document how the various parts fit together.
+    /// This performs all operations end-to-end.
     ///
     /// # Arguments
     /// * `image` - The input image for which to extract features.
-    /// * `options` - The options for the algorithm. Set this to `None` for default options.
     ///
     /// Returns the keypoints and the descriptors.
     ///
@@ -230,12 +247,32 @@ impl Akaze {
     ///
     pub fn extract(&self, image: &DynamicImage) -> (Vec<KeyPoint>, Vec<BitArray<64>>) {
         let float_image = GrayFloatImage::from_dynamic(image);
-        let mut evolutions = self.allocate_evolutions(image.width(), image.height());
-        self.create_nonlinear_scale_space(&mut evolutions, &float_image);
+        self.extract_from_gray_float_image(&float_image)
+    }
+
+    /// Extract features using the Akaze feature extractor.
+    ///
+    /// This performs all operations end-to-end.
+    ///
+    /// # Arguments
+    /// * `float_image` - The input image for which to extract features, already in float grayscale.
+    ///
+    /// Returns the keypoints and the descriptors.
+    ///
+    pub fn extract_from_gray_float_image(
+        &self,
+        float_image: &GrayFloatImage,
+    ) -> (Vec<KeyPoint>, Vec<BitArray<64>>) {
+        let mut evolutions =
+            self.allocate_evolutions(float_image.0.width(), float_image.0.height());
+        self.create_nonlinear_scale_space(&mut evolutions, float_image);
         trace!("Finding image keypoints.");
-        let keypoints = self.find_image_keypoints(&mut evolutions);
+        let mut keypoints = self.find_image_keypoints(&mut evolutions);
+        trace!("Sorting keypoints by response and truncating the worst keypoints based on the set maximum");
+        keypoints.sort_unstable_by_key(|kp| Reverse(FloatOrd(kp.response)));
+        keypoints.truncate(self.maximum_features);
         trace!("Extracting descriptors.");
-        let descriptors = self.extract_descriptors(&evolutions, &keypoints);
+        let (keypoints, descriptors) = self.extract_descriptors(&evolutions, &keypoints);
         trace!("Computing descriptors finished.");
         info!("Extracted {} features", keypoints.len());
         (keypoints, descriptors)

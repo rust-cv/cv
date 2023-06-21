@@ -106,7 +106,7 @@ Here are some of the domains of computer vision that Rust CV intends to persue a
       * [ ] Lowe's ratio test matching
   * [ ] Geometric verification (utilized abstractions in [sample-consensus](https://docs.rs/sample-consensus/0.2.0/sample_consensus/))
     * [ ] [Consensus algorithms](https://docs.rs/sample-consensus/0.2.0/sample_consensus/trait.Consensus.html)
-      * [x] [ARRSAC](https://docs.rs/arrsac/0.3.0/arrsac/struct.Arrsac.html)
+      * [x] [ARRSAC](https://docs.rs/arrsac/0.9.0/arrsac/struct.Arrsac.html)
       * [ ] AC-RANSAC
       * [ ] RANSAC ([Wikipedia](https://en.wikipedia.org/wiki/Random_sample_consensus))
     * [ ] [Estimation algorithms](https://docs.rs/sample-consensus/0.2.0/sample_consensus/trait.Estimator.html)

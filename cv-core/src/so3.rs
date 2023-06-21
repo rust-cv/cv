@@ -3,7 +3,7 @@ use core::{
     ops::{Add, AddAssign},
 };
 use derive_more::{AsMut, AsRef, Deref, DerefMut, From, Into};
-use nalgebra::{IsometryMatrix3, Matrix3, Matrix4, Rotation3, Unit, Vector3};
+use nalgebra::{Const, IsometryMatrix3, Matrix3, Matrix4, Rotation3, Unit, Vector3, Vector6};
 use num_traits::Float;
 #[cfg(feature = "serde-serialize")]
 use serde::{Deserialize, Serialize};
@@ -59,6 +59,19 @@ impl Se3TangentSpace {
         IsometryMatrix3::from_parts((rotation * self.translation).into(), rotation)
     }
 
+    /// For tangent spaces where the translation and rotation are both rotational, this retrieves the
+    /// translation and rotation rotation matrix. The rotation matrix for the translation rotates the translation,
+    /// while the rotation matrix for the rotation is left-multiplied by the rotation.
+    ///
+    /// Returns `(translation_rotation, rotation)`.
+    #[must_use]
+    #[inline(always)]
+    pub fn rotations(self) -> (Rotation3<f64>, Rotation3<f64>) {
+        let translation_rotation = Rotation3::from_scaled_axis(self.translation);
+        let rotation = Rotation3::from_scaled_axis(self.rotation);
+        (translation_rotation, rotation)
+    }
+
     /// Scales both the rotation and the translation.
     #[must_use]
     #[inline(always)]
@@ -66,6 +79,49 @@ impl Se3TangentSpace {
         self.translation *= scale;
         self.rotation *= scale;
         self
+    }
+
+    /// Scales the translation.
+    #[must_use]
+    #[inline(always)]
+    pub fn scale_translation(mut self, scale: f64) -> Self {
+        self.translation *= scale;
+        self
+    }
+
+    /// Scales the rotation.
+    #[must_use]
+    #[inline(always)]
+    pub fn scale_rotation(mut self, scale: f64) -> Self {
+        self.rotation *= scale;
+        self
+    }
+
+    #[inline(always)]
+    pub fn to_vec(&self) -> Vector6<f64> {
+        Vector6::new(
+            self.translation.x,
+            self.translation.y,
+            self.translation.z,
+            self.rotation.x,
+            self.rotation.y,
+            self.rotation.z,
+        )
+    }
+
+    #[inline(always)]
+    pub fn from_vec(v: Vector6<f64>) -> Self {
+        Self {
+            translation: v.rows_generic(0, Const::<3>).into_owned(),
+            rotation: v.rows_generic(3, Const::<3>).into_owned(),
+        }
+    }
+
+    /// Assumes an L2 tangent space is provided as input and returns the L1 tangent space.
+    #[inline(always)]
+    #[must_use]
+    pub fn l1(&self) -> Self {
+        Self::new(self.translation.normalize(), self.rotation.normalize())
     }
 }
 
@@ -147,6 +203,7 @@ impl Skew3 {
     }
 
     /// Computes the lie bracket [self, rhs].
+    #[must_use]
     pub fn bracket(self, rhs: Self) -> Self {
         Self::vee(self.hat() * rhs.hat() - rhs.hat() * self.hat())
     }

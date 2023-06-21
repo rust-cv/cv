@@ -2,7 +2,7 @@
 //!
 //! ## Triangulation
 //!
-//! In this problem we know the relative pose of cameras and the [`Bearing`] of the same feature
+//! In this problem we know the relative pose of cameras and the bearing of the same feature
 //! observed in each camera frame. We want to find the point of intersection from all cameras.
 //!
 //! - `p` the point we are trying to triangulate

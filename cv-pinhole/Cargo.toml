@@ -2,7 +2,7 @@
 name = "cv-pinhole"
 version = "0.6.0"
 authors = ["Geordon Worley <vadixidav@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "Pinhole camera model for comptuer vision"
 documentation = "https://docs.rs/cv-pinhole/"
 repository = "https://github.com/rust-cv/cv"
@@ -18,11 +18,11 @@ serde-serialize = ["serde", "nalgebra/serde-serialize"]
 
 [dependencies]
 cv-core = { version = "0.15.0", path = "../cv-core" }
-derive_more = "0.99.16"
+derive_more = "0.99.17"
 num-traits = { version = "0.2.14", default-features = false }
-float-ord = "0.3.1"
-serde = { version = "1.0.126", features = ["derive"], default-features = false, optional = true }
-nalgebra = { version = "0.28.0", default-features = false }
+float-ord = "0.3.2"
+serde = { version = "1.0.136", features = ["derive"], default-features = false, optional = true }
+nalgebra = { version = "0.30.1", default-features = false }
 
 [dev-dependencies]
 cv-geom = { version = "0.7.0", path = "../cv-geom" }
