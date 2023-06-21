@@ -21,7 +21,7 @@ pub fn open<P: AsRef<std::path::Path>>(p: P) -> Result<DynamicImage> {
 ///     use cv_sift::base_image;
 ///     use image::{DynamicImage};
 ///     
-///     let img = image::open("../res/box.png").unwrap();
+///     let img = image::open("tests/fixtures/box.png").unwrap();
 ///     assert_eq!(img.height(), 223);
 ///     assert_eq!(img.width(), 324);
 ///     let base_img = base_image(&img, 1.6, 0.5);
