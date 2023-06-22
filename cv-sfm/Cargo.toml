@@ -8,12 +8,12 @@ edition = "2021"
 serde-serialize = [
     "serde",
     "cv-core/serde-serialize",
-    "bitarray/serde",
     "cv-pinhole/serde-serialize",
     "bitarray/serde",
     "slotmap/serde",
     "hgg/serde",
     "hamming-lsh/serde",
+    "akaze/serde",
 ]
 
 [dependencies]

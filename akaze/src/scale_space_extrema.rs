@@ -2,6 +2,9 @@ use crate::{evolution::EvolutionStep, Akaze, KeyPoint};
 use log::*;
 use std::f32::consts::PI;
 
+#[cfg(feature = "rayon")]
+use rayon::prelude::*;
+
 impl Akaze {
     /// Compute scale space extrema to get the detector response.
     ///
@@ -11,7 +14,7 @@ impl Akaze {
     fn find_scale_space_extrema(&self, evolutions: &mut [EvolutionStep]) -> Vec<KeyPoint> {
         let mut keypoint_cache: Vec<KeyPoint> = vec![];
         let smax = 10.0f32 * f32::sqrt(2.0f32);
-        for (e_id, evolution) in evolutions.iter_mut().enumerate() {
+        for (e_id, evolution) in evolutions.iter().enumerate() {
             let w = evolution.Ldet.width();
             let h = evolution.Ldet.height();
             // maintain 9 iterators, one for the current pixel and one
@@ -239,12 +242,12 @@ fn compute_main_orientation(keypoint: &mut KeyPoint, evolutions: &[EvolutionStep
     let cv_fast_atan2_equiv = |y: f32, x: f32| (y.atan2(x) + 2. * PI).rem_euclid(2. * PI);
     // Calculate derivatives responses for points within radius of 6*scale
     let mut idx = 0;
-    for i in -6..=6 {
-        for j in -6..=6 {
+    for j in -6..=6 {
+        for i in -6..=6 {
             if i * i + j * j < 36 {
                 let iy = f32::round(yf + (j as f32) * s) as usize;
                 let ix = f32::round(xf + (i as f32) * s) as usize;
-                let gweight = GAUSS25[id[(i + 6) as usize]][id[(j + 6) as usize]];
+                let gweight = GAUSS25[id[(j + 6) as usize]][id[(i + 6) as usize]];
                 res_x[idx] = gweight * evolutions[level].Lx.get(ix, iy);
                 res_y[idx] = gweight * evolutions[level].Ly.get(ix, iy);
                 angs[idx] = cv_fast_atan2_equiv(res_y[idx], res_x[idx]);
@@ -295,8 +298,7 @@ fn do_subpixel_refinement(
     in_keypoints: &[KeyPoint],
     evolutions: &[EvolutionStep],
 ) -> Vec<KeyPoint> {
-    let mut result: Vec<KeyPoint> = vec![];
-    for keypoint in in_keypoints.iter() {
+    let process_keypoint = |keypoint: &KeyPoint| {
         let ratio = f32::powf(2.0f32, keypoint.octave as f32);
         let x = f32::round(keypoint.point.0 / ratio) as usize;
         let y = f32::round(keypoint.point.1 / ratio) as usize;
@@ -338,16 +340,23 @@ fn do_subpixel_refinement(
             );
             assert_eq!(keypoint_clone.angle, 0.);
             keypoint_clone.size *= 2.;
-            result.push(keypoint_clone);
+            compute_main_orientation(&mut keypoint_clone, evolutions);
+            Some(keypoint_clone)
+        } else {
+            None
         }
-    }
+    };
+    #[cfg(not(feature = "rayon"))]
+    let result: Vec<_> = in_keypoints.iter().filter_map(process_keypoint).collect();
+    #[cfg(feature = "rayon")]
+    let result: Vec<_> = in_keypoints
+        .par_iter()
+        .filter_map(process_keypoint)
+        .collect();
     debug!(
         "{}/{} remain after subpixel refinement.",
         result.len(),
         in_keypoints.len()
     );
-    for keypoint in result.iter_mut() {
-        compute_main_orientation(keypoint, evolutions);
-    }
     result
 }

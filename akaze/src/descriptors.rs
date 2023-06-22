@@ -1,6 +1,9 @@
 use crate::{Akaze, Error, EvolutionStep, KeyPoint};
 use bitarray::BitArray;
 
+#[cfg(feature = "rayon")]
+use rayon::prelude::*;
+
 impl Akaze {
     /// Extract descriptors from keypoints/an evolution
     ///
@@ -15,15 +18,30 @@ impl Akaze {
         evolutions: &[EvolutionStep],
         keypoints: &[KeyPoint],
     ) -> (Vec<KeyPoint>, Vec<BitArray<64>>) {
-        keypoints
-            .iter()
-            .filter_map(|&keypoint| {
-                Some((
-                    keypoint,
-                    self.get_mldb_descriptor(&keypoint, evolutions).ok()?,
-                ))
-            })
-            .unzip()
+        #[cfg(not(feature = "rayon"))]
+        {
+            keypoints
+                .iter()
+                .filter_map(|&keypoint| {
+                    Some((
+                        keypoint,
+                        self.get_mldb_descriptor(&keypoint, evolutions).ok()?,
+                    ))
+                })
+                .unzip()
+        }
+        #[cfg(feature = "rayon")]
+        {
+            keypoints
+                .par_iter()
+                .filter_map(|&keypoint| {
+                    Some((
+                        keypoint,
+                        self.get_mldb_descriptor(&keypoint, evolutions).ok()?,
+                    ))
+                })
+                .unzip()
+        }
     }
 
     /// Computes the rotation invariant M-LDB binary descriptor (maximum descriptor length)

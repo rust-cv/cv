@@ -1,21 +1,13 @@
-use crate::image::GrayFloatImage;
+use crate::image::{separable_filter, GrayFloatImage};
 
 pub fn simple_scharr_horizontal(image: &GrayFloatImage) -> GrayFloatImage {
     // similar to cv::Scharr with xorder=1, yorder=0, scale=1, delta=0
-    GrayFloatImage(imageproc::filter::separable_filter(
-        &image.0,
-        &[-1., 0., 1.],
-        &[3., 10., 3.],
-    ))
+    GrayFloatImage(separable_filter(&image.0, &[-1., 0., 1.], &[3., 10., 3.]))
 }
 
 pub fn simple_scharr_vertical(image: &GrayFloatImage) -> GrayFloatImage {
     // similar to cv::Scharr with xorder=0, yorder=1, scale=1, delta=0
-    GrayFloatImage(imageproc::filter::separable_filter(
-        &image.0,
-        &[3., 10., 3.],
-        &[-1., 0., 1.],
-    ))
+    GrayFloatImage(separable_filter(&image.0, &[3., 10., 3.], &[-1., 0., 1.]))
 }
 
 /// Compute the Scharr derivative horizontally
@@ -34,11 +26,7 @@ pub fn scharr_horizontal(image: &GrayFloatImage, sigma_size: u32) -> GrayFloatIm
     }
     let main_kernel = computer_scharr_kernel(sigma_size, FilterOrder::Main);
     let off_kernel = computer_scharr_kernel(sigma_size, FilterOrder::Off);
-    GrayFloatImage(imageproc::filter::separable_filter(
-        &image.0,
-        &main_kernel,
-        &off_kernel,
-    ))
+    GrayFloatImage(separable_filter(&image.0, &main_kernel, &off_kernel))
 }
 
 /// Compute the Scharr derivative vertically
@@ -57,11 +45,7 @@ pub fn scharr_vertical(image: &GrayFloatImage, sigma_size: u32) -> GrayFloatImag
     }
     let main_kernel = computer_scharr_kernel(sigma_size, FilterOrder::Main);
     let off_kernel = computer_scharr_kernel(sigma_size, FilterOrder::Off);
-    GrayFloatImage(imageproc::filter::separable_filter(
-        &image.0,
-        &off_kernel,
-        &main_kernel,
-    ))
+    GrayFloatImage(separable_filter(&image.0, &off_kernel, &main_kernel))
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]

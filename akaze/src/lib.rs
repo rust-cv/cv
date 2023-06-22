@@ -4,7 +4,7 @@ mod descriptors;
 mod detector_response;
 mod evolution;
 mod fed_tau;
-mod image;
+pub mod image;
 mod nonlinear_diffusion;
 mod scale_space_extrema;
 
@@ -17,6 +17,36 @@ use float_ord::FloatOrd;
 use log::*;
 use nonlinear_diffusion::pm_g2;
 use std::{cmp::Reverse, path::Path};
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
+#[cfg(target_arch = "wasm32")]
+struct Instant(f64);
+#[cfg(target_arch = "wasm32")]
+impl Instant {
+    fn now() -> Self {
+        #[cfg(feature = "web-sys")]
+        {
+            Self(web_sys::window().unwrap().performance().unwrap().now())
+        }
+        #[cfg(not(feature = "web-sys"))]
+        {
+            Self(0.)
+        }
+    }
+    fn elapsed(&self) -> std::time::Duration {
+        #[cfg(feature = "web-sys")]
+        {
+            std::time::Duration::from_secs_f64(
+                (web_sys::window().unwrap().performance().unwrap().now() - self.0) * 0.001,
+            )
+        }
+        #[cfg(not(feature = "web-sys"))]
+        {
+            std::time::Duration::from_secs(0)
+        }
+    }
+}
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -199,16 +229,27 @@ impl Akaze {
             }
             evolutions[i].Lsmooth = gaussian_blur(&evolutions[i].Lt, 1.0f32);
             trace!("Gaussian blur finished.");
-            evolutions[i].Lx = derivatives::simple_scharr_horizontal(&evolutions[i].Lsmooth);
-            trace!("Computing derivative Lx done.");
-            evolutions[i].Ly = derivatives::simple_scharr_vertical(&evolutions[i].Lsmooth);
-            trace!("Computing derivative Ly done.");
+            #[cfg(not(feature = "rayon"))]
+            {
+                evolutions[i].Lx = derivatives::simple_scharr_horizontal(&evolutions[i].Lsmooth);
+                trace!("Computing derivative Lx done.");
+                evolutions[i].Ly = derivatives::simple_scharr_vertical(&evolutions[i].Lsmooth);
+                trace!("Computing derivative Ly done.");
+            }
+            #[cfg(feature = "rayon")]
+            {
+                (evolutions[i].Lx, evolutions[i].Ly) = rayon::join(
+                    || derivatives::simple_scharr_horizontal(&evolutions[i].Lsmooth),
+                    || derivatives::simple_scharr_vertical(&evolutions[i].Lsmooth),
+                );
+            }
             evolutions[i].Lflow = pm_g2(&evolutions[i].Lx, &evolutions[i].Ly, contrast_factor);
             trace!("Lflow finished.");
-            for j in 0..evolutions[i].fed_tau_steps.len() {
+            let evolution = &mut evolutions[i];
+            for j in 0..evolution.fed_tau_steps.len() {
                 trace!("Starting diffusion step.");
-                let step_size = evolutions[i].fed_tau_steps[j];
-                nonlinear_diffusion::calculate_step(&mut evolutions[i], step_size as f32);
+                let step_size = evolution.fed_tau_steps[j];
+                nonlinear_diffusion::calculate_step(evolution, step_size as f32);
                 trace!("Diffusion step finished with step size {}", step_size);
             }
         }
@@ -223,9 +264,13 @@ impl Akaze {
     /// The resulting keypoints.
     ///
     pub fn find_image_keypoints(&self, evolutions: &mut [EvolutionStep]) -> Vec<KeyPoint> {
+        let start = Instant::now();
         self.detector_response(evolutions);
-        trace!("Computing detector response finished.");
-        self.detect_keypoints(evolutions)
+        info!("Computed detector response in: {:?}", start.elapsed());
+        let start = Instant::now();
+        let keypoints = self.detect_keypoints(evolutions);
+        info!("Detected keypoints in: {:?}", start.elapsed());
+        keypoints
     }
 
     /// Extract features using the Akaze feature extractor.
@@ -263,18 +308,31 @@ impl Akaze {
         &self,
         float_image: &GrayFloatImage,
     ) -> (Vec<KeyPoint>, Vec<BitArray<64>>) {
+        trace!("Allocating evolutions.");
+        let start = Instant::now();
         let mut evolutions =
             self.allocate_evolutions(float_image.0.width(), float_image.0.height());
+        info!("Allocated evolutions in: {:?}", start.elapsed());
+        trace!("Creating non-linear space.");
+        let start = Instant::now();
         self.create_nonlinear_scale_space(&mut evolutions, float_image);
+        info!("Created non-linear scale space in: {:?}", start.elapsed());
         trace!("Finding image keypoints.");
         let mut keypoints = self.find_image_keypoints(&mut evolutions);
         trace!("Sorting keypoints by response and truncating the worst keypoints based on the set maximum");
+        let start = Instant::now();
         keypoints.sort_unstable_by_key(|kp| Reverse(FloatOrd(kp.response)));
         keypoints.truncate(self.maximum_features);
+        info!(
+            "Keypoints sorted in: {:?}, {} left.",
+            start.elapsed(),
+            keypoints.len()
+        );
         trace!("Extracting descriptors.");
+        let start = Instant::now();
         let (keypoints, descriptors) = self.extract_descriptors(&evolutions, &keypoints);
+        info!("Extracted keypoints in: {:?}", start.elapsed());
         trace!("Computing descriptors finished.");
-        info!("Extracted {} features", keypoints.len());
         (keypoints, descriptors)
     }
 
