@@ -1,17 +1,9 @@
-use std::{error::Error, fmt::Display};
+use thiserror::Error;
 
-
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum SIFTError {
-    Unsupported(String)
+    #[error("{0}")]
+    Unsupported(String),
 }
 
-impl Display for SIFTError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:#?}", self)
-    }
-}
-
-impl Error for SIFTError {}
-
-pub type Result<T> = std::result::Result<T, SIFTError>;
+pub type Result<T, E = SIFTError> = std::result::Result<T, E>;

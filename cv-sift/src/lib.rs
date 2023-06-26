@@ -1,9 +1,13 @@
 mod config;
-mod imageproc;
 mod pyramid;
 
 // Expose all utils.
 mod utils;
+pub mod conversion;
+pub mod imageproc;
+
+// #[cfg(test)]
+pub mod ext;
 
 mod errors;
 

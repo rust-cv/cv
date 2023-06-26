@@ -20,6 +20,7 @@ nalgebra = "0.29"
 num = "0.4"
 itertools = "0.10"
 tracing = "0.1.37"
+thiserror = "1.0.40"
 
 [dev-dependencies]
 test-case = "3.1.0"

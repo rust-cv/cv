@@ -1,13 +1,11 @@
-use image::{DynamicImage, ImageBuffer, Luma};
+use std::convert::TryInto;
+use image::{DynamicImage, ImageBuffer, Rgb, Pixel};
 use crate::errors::{SIFTError, Result};
-use tracing::{
-    debug,
-    trace,
-};
+use tracing::{debug, trace};
 use image::imageops;
 
+pub type ImageRgb32F = ImageBuffer<Rgb<f32>, Vec<f32>>;
 
-pub type GrayImageBuffer = ImageBuffer<Luma<f32>, Vec<f32>>;
 
 pub fn open<P: AsRef<std::path::Path>>(p: P) -> Result<DynamicImage> {
     image::open(p)
@@ -74,56 +72,38 @@ pub fn base_image(
 }
 
 
-pub fn try_get_grayscale_buffer(img: &DynamicImage) -> crate::errors::Result<GrayImageBuffer> {
-    match img {
-        DynamicImage::ImageRgb32F(p) 
-        => {
-            Ok(GrayImageBuffer::from_raw(
-                p.width(), 
-                p.height(), 
-                p.pixels().into_iter().map(|pixel| pixel.0[0]).collect::<Vec<_>>()
+/// Returns a difference of two images.
+pub fn subtract(minuend: &ImageRgb32F, subtrahend: &ImageRgb32F) -> Result<ImageRgb32F> {
+    assert_eq!(minuend.height(), subtrahend.height());
+    assert_eq!(minuend.width(), subtrahend.width());
+
+    let (width, height) = (minuend.width() as u32, minuend.height() as u32);
+
+    let mut result_mat = ImageRgb32F::new(width, height);
+    let mut result_mat_pixels = result_mat.pixels_mut();
+
+    for (minuend_pixel, subtrahend_pixel) in minuend.pixels().zip(subtrahend.pixels()){
+
+        let output_pixel: [f32; 3] =
+        minuend_pixel
+            .channels()
+            .iter()
+            .zip(
+            subtrahend_pixel
+                .channels()
+                .iter()
             )
-            .unwrap())
-        },
-        DynamicImage::ImageRgba32F(p) 
-        => {
-            Ok(GrayImageBuffer::from_raw(
-                p.width(), 
-                p.height(), 
-            p.pixels().into_iter().map(|pixel| pixel.0[0]).collect::<Vec<_>>()
-            )
-            .unwrap())
-        },
-        DynamicImage::ImageLuma16(p) => {
-            Ok(GrayImageBuffer::from_raw(
-                p.width(), 
-                p.height(), 
-                p.pixels().into_iter().map(|pixel| pixel.0[0] as f32).collect::<Vec<_>>()
-            ).unwrap())
-        }
-        DynamicImage::ImageLumaA16(p) => {
-            Ok(GrayImageBuffer::from_raw(
-                p.width(), 
-                p.height(), 
-                p.pixels().into_iter().map(|pixel| pixel.0[0] as f32).collect::<Vec<_>>()
-            ).unwrap())
-        }
-        DynamicImage::ImageLuma8(p) => {
-            Ok(GrayImageBuffer::from_raw(
-                p.width(), 
-                p.height(), 
-                p.pixels().into_iter().map(|pixel| pixel.0[0] as f32).collect::<Vec<_>>()
-            ).unwrap())
-        }
-        DynamicImage::ImageLumaA8(p) => {
-            Ok(GrayImageBuffer::from_raw(
-                p.width(), 
-                p.height(), 
-                p.pixels().into_iter().map(|pixel| pixel.0[0] as f32).collect::<Vec<_>>()
-            ).unwrap())
-        }
-        _ => {
-            Err(crate::errors::SIFTError::Unsupported("Grayscale image can only be one of ImageLuma8, ImageLumaA8, ImageLuma16, ImageLumaA16, ImageRgb32F, ImageRgba32F.".to_string()))
-        }
+            .map(|(minuend_p, subtrahend_p)| {
+                *minuend_p - *subtrahend_p
+            })
+            .collect::<Vec<f32>>()
+            .try_into()
+            .unwrap();
+
+        let next_pixel = result_mat_pixels.next().unwrap();
+        *next_pixel = Rgb(output_pixel);
     }
+    Ok(result_mat)
 }
+
+
