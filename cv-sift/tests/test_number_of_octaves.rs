@@ -1,4 +1,4 @@
-use cv_sift::number_of_octaves;
+use cv_sift::pyramid::number_of_octaves;
 use test_case::test_case;
 
 #[test_case(223, 324, 7; "223x324")]

@@ -1,45 +1,43 @@
 use std::convert::TryInto;
-use image::{DynamicImage, ImageBuffer, Rgb, Pixel};
-use crate::errors::{SIFTError, Result};
-use tracing::{debug, trace};
+use image::{DynamicImage, Rgb};
+use tracing::{
+    trace,
+    debug
+};
 use image::imageops;
+use crate::ImageRgb32F;
+use crate::errors::Result;
+use image::Pixel;
+use crate::conversion::try_get_rgb_32f;
 
-pub type ImageRgb32F = ImageBuffer<Rgb<f32>, Vec<f32>>;
-
-
-pub fn open<P: AsRef<std::path::Path>>(p: P) -> Result<DynamicImage> {
-    image::open(p)
-    .map_err(|err| SIFTError::Unsupported(err.to_string()))
-}
 
 
 /// Scale the image by a factor of 2 and apply some blur.
 /// # Examples
 /// ```
-///     use cv_sift::base_image;
+///     use cv_sift::pyramid::generate_base_image;
 ///     use image::{DynamicImage};
-///     
+///
 ///     let img = image::open("tests/fixtures/box.png").unwrap();
 ///     assert_eq!(img.height(), 223);
 ///     assert_eq!(img.width(), 324);
-///     let base_img = base_image(&img, 1.6, 0.5);
+///     let base_img = generate_base_image(&img, 1.6, 0.5).unwrap();
 ///     assert_eq!(base_img.height(), 446);
 ///     assert_eq!(base_img.width(), 648);
-/// 
+///
 /// ```
-pub fn base_image(
+pub fn generate_base_image(
     img: &DynamicImage,
     sigma: f64,
     assumed_blur: f64
-) -> DynamicImage {
-
+) -> Result<ImageRgb32F> {
     let (height, width) = (img.height(), img.width());
 
     trace!(
-        height, 
-        width, 
-        sigma, 
-        assumed_blur, 
+        height,
+        width,
+        sigma,
+        assumed_blur,
         "Computing base image"
     );
 
@@ -68,7 +66,7 @@ pub fn base_image(
     debug!(final_sigma, "Computed final_sigma for blurring.");
 
     let blurred = scaled.blur(final_sigma as f32);
-    blurred.grayscale()
+    try_get_rgb_32f(&blurred)
 }
 
 
@@ -85,20 +83,20 @@ pub fn subtract(minuend: &ImageRgb32F, subtrahend: &ImageRgb32F) -> Result<Image
     for (minuend_pixel, subtrahend_pixel) in minuend.pixels().zip(subtrahend.pixels()){
 
         let output_pixel: [f32; 3] =
-        minuend_pixel
-            .channels()
-            .iter()
-            .zip(
-            subtrahend_pixel
+            minuend_pixel
                 .channels()
                 .iter()
-            )
-            .map(|(minuend_p, subtrahend_p)| {
-                *minuend_p - *subtrahend_p
-            })
-            .collect::<Vec<f32>>()
-            .try_into()
-            .unwrap();
+                .zip(
+                    subtrahend_pixel
+                        .channels()
+                        .iter()
+                )
+                .map(|(minuend_p, subtrahend_p)| {
+                    *minuend_p - *subtrahend_p
+                })
+                .collect::<Vec<f32>>()
+                .try_into()
+                .unwrap();
 
         let next_pixel = result_mat_pixels.next().unwrap();
         *next_pixel = Rgb(output_pixel);

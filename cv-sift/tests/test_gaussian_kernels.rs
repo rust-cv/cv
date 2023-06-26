@@ -1,5 +1,5 @@
-use cv_sift::gaussian_kernels;
-use cv_sift::assert_similar;
+use cv_sift::pyramid::gaussian_kernels;
+use cv_sift::utils::assert_similar;
 use test_case::test_case;
 
 #[test_case(0.0, 1, vec![0.; 4]; "0 point 0 and 1")]

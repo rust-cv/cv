@@ -1,18 +1,12 @@
-mod config;
-mod pyramid;
-
+pub mod config;
+pub mod pyramid;
 // Expose all utils.
-mod utils;
+pub mod utils;
 pub mod conversion;
-pub mod imageproc;
-
 // #[cfg(test)]
 pub mod ext;
-
 mod errors;
 
-pub use config::*;
-pub use imageproc::*;
-pub use pyramid::*;
-pub use utils::*;
+pub type ImageRgb32F = image::ImageBuffer<image::Rgb<f32>, Vec<f32>>;
+
 pub use errors::*;

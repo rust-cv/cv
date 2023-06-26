@@ -1,12 +1,9 @@
-
 /// List of gaussian kernels at which to blur the input image.
 /// # Examples
 /// ```
-///      use cv_sift::{
-///         gaussian_kernels,
-///      };
-///      use cv_sift::{assert_similar};
-/// 
+///      use cv_sift::pyramid::gaussian_kernels;
+///      use cv_sift::utils::assert_similar;
+///
 ///      let kernels = gaussian_kernels(1.6, 3);
 ///      let expected: [f64; 6] = [
 ///          1.6,
@@ -36,22 +33,4 @@ pub fn gaussian_kernels(
     }
 
     kernels
-}
-
-/// Compute the number of octaves in the image pyramid as a function of height and width of the image.
-/// # Examples
-/// ```
-///     use cv_sift::{
-///        number_of_octaves
-///    };
-/// 
-///   let num_octaves = number_of_octaves(223, 324);
-///   assert_eq!(num_octaves, 7);
-/// ```
-pub fn number_of_octaves(height: u32, width: u32) -> u32 {
-    if height < width {
-        ((height as f64).log2() - 1.0).round() as u32
-    } else {
-        ((width as f64).log2() - 1.0).round() as u32
-    }
 }

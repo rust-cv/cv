@@ -1,8 +1,8 @@
-
-use cv_sift::imageproc::subtract;
 use cv_sift::conversion::try_get_rgb_32f;
 use cv_sift::ext::ImageExt;
 use cv_sift::ImageRgb32F;
+use cv_sift::pyramid::subtract;
+
 
 #[test]
 fn subtraction_reflexivity() {
