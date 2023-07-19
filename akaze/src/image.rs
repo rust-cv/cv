@@ -91,7 +91,7 @@ impl GrayFloatImage {
                     input_image.height()
                 );
                 ImageBuffer::from_fn(rgb_image.width(), rgb_image.height(), |x, y| {
-                    Luma([rgb_image[(x, y)].to_luma()[0]])
+                    Luma([f32::from(rgb_image[(x, y)].to_luma()[0]) / 255f32])
                 })
             }
             DynamicImage::ImageRgba8(rgba_image) => {
@@ -101,7 +101,7 @@ impl GrayFloatImage {
                     input_image.height()
                 );
                 ImageBuffer::from_fn(rgba_image.width(), rgba_image.height(), |x, y| {
-                    Luma([rgba_image[(x, y)].to_luma()[0]])
+                    Luma([f32::from(rgba_image[(x, y)].to_luma()[0]) / 255f32])
                 })
             }
             DynamicImage::ImageRgb16(rgb_image) => {
@@ -111,7 +111,7 @@ impl GrayFloatImage {
                     input_image.height()
                 );
                 ImageBuffer::from_fn(rgb_image.width(), rgb_image.height(), |x, y| {
-                    Luma([rgb_image[(x, y)].to_luma()[0]])
+                    Luma([f32::from(rgb_image[(x, y)].to_luma()[0]) / 65535f32])
                 })
             }
             DynamicImage::ImageRgba16(rgba_image) => {
@@ -121,7 +121,7 @@ impl GrayFloatImage {
                     input_image.height()
                 );
                 ImageBuffer::from_fn(rgba_image.width(), rgba_image.height(), |x, y| {
-                    Luma([rgba_image[(x, y)].to_luma()[0]])
+                    Luma([f32::from(rgba_image[(x, y)].to_luma()[0]) / 65535f32])
                 })
             }
             _ => panic!("DynamicImage::grayscale() returned unexpected type"),
