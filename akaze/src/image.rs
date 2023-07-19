@@ -64,6 +64,26 @@ impl GrayFloatImage {
                     Luma([f32::from(gray_image[(x, y)][0]) / 65535f32])
                 })
             }
+            DynamicImage::ImageLumaA8(gray_image) => {
+                info!(
+                    "Loaded a {} x {} 8-bit image",
+                    input_image.width(),
+                    input_image.height()
+                );
+                ImageBuffer::from_fn(gray_image.width(), gray_image.height(), |x, y| {
+                    Luma([f32::from(gray_image[(x, y)][0]) / 255f32])
+                })
+            }
+            DynamicImage::ImageLumaA16(gray_image) => {
+                info!(
+                    "Loaded a {} x {} 16-bit image",
+                    input_image.width(),
+                    input_image.height()
+                );
+                ImageBuffer::from_fn(gray_image.width(), gray_image.height(), |x, y| {
+                    Luma([f32::from(gray_image[(x, y)][0]) / 65535f32])
+                })
+            }
             DynamicImage::ImageRgb32F(float_image) => {
                 info!(
                     "Loaded a {} x {} 32-bit RGB float image",
