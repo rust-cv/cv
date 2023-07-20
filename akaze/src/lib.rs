@@ -27,7 +27,11 @@ impl Instant {
     fn now() -> Self {
         #[cfg(feature = "web-sys")]
         {
-            Self(web_sys::window().unwrap().performance().unwrap().now())
+            Self(
+                web_sys::window()
+                    .and_then(|w| w.performance())
+                    .map_or(0., |p| p.now()),
+            )
         }
         #[cfg(not(feature = "web-sys"))]
         {
@@ -37,9 +41,7 @@ impl Instant {
     fn elapsed(&self) -> std::time::Duration {
         #[cfg(feature = "web-sys")]
         {
-            std::time::Duration::from_secs_f64(
-                (web_sys::window().unwrap().performance().unwrap().now() - self.0) * 0.001,
-            )
+            std::time::Duration::from_secs_f64((Self::now().0 - self.0) * 0.001)
         }
         #[cfg(not(feature = "web-sys"))]
         {
