@@ -27,11 +27,13 @@ impl Instant {
     fn now() -> Self {
         #[cfg(feature = "web-sys")]
         {
-            Self(
-                web_sys::window()
-                    .and_then(|w| w.performance())
-                    .map_or(0., |p| p.now()),
-            )
+            use web_sys::wasm_bindgen::JsCast;
+            let now = web_sys::js_sys::global()
+                .dyn_into::<web_sys::WorkerGlobalScope>()
+                .and_then(|w| w.performance())
+                .or_else(|_| web_sys::window().and_then(|w| w.performance()))
+                .map_or(0., |p| p.now());
+            Self(now)
         }
         #[cfg(not(feature = "web-sys"))]
         {
@@ -39,14 +41,7 @@ impl Instant {
         }
     }
     fn elapsed(&self) -> std::time::Duration {
-        #[cfg(feature = "web-sys")]
-        {
-            std::time::Duration::from_secs_f64((Self::now().0 - self.0) * 0.001)
-        }
-        #[cfg(not(feature = "web-sys"))]
-        {
-            std::time::Duration::from_secs(0)
-        }
+        std::time::Duration::from_secs_f64((Self::now().0 - self.0) * 0.001)
     }
 }
 
