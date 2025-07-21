@@ -5,10 +5,7 @@
 
 use conv::ValueInto;
 use image::{GenericImageView, Pixel};
-use imageproc::{
-    definitions::{Clamp, Image},
-    math::cast,
-};
+use imageproc::definitions::{Clamp, Image};
 
 fn blend_cubic<P>(px0: &P, px1: &P, px2: &P, px3: &P, x: f32) -> P
 where
@@ -18,10 +15,10 @@ where
     let mut outp = *px0;
 
     for i in 0..(P::CHANNEL_COUNT as usize) {
-        let p0 = cast(px0.channels()[i]);
-        let p1 = cast(px1.channels()[i]);
-        let p2 = cast(px2.channels()[i]);
-        let p3 = cast(px3.channels()[i]);
+        let p0 = px0.channels()[i].value_into().unwrap();
+        let p1 = px1.channels()[i].value_into().unwrap();
+        let p2 = px2.channels()[i].value_into().unwrap();
+        let p3 = px3.channels()[i].value_into().unwrap();
         #[rustfmt::skip]
         let pval = p1 + 0.5 * x * (p2 - p0 + x * (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3 + x * (3.0 * (p1 - p2) + p3 - p0)));
         outp.channels_mut()[i] = <P as Pixel>::Subpixel::clamp(pval);

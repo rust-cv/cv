@@ -13,15 +13,15 @@ readme = "README.md"
 
 [dependencies]
 cv-core = { version = "0.15.0", path = "../cv-core" }
-image = { version = "0.24", default-features = false }
+image = { version = "0.25", default-features = false }
 log = { version = "0.4.14", default-features = false }
 primal = { version = "0.3.0", default-features = false }
 derive_more = { version = "0.99.17", default-features = false }
-nshare = { git = "https://github.com/rust-cv/nshare.git", rev = "cd4a5c007ecf4ef62c938a6ac64fd90edf895360", default-features = false, features = [
+nshare = { version = "0.10", default-features = false, features = [
     "ndarray",
     "image",
 ] }
-ndarray = { version = "0.15.4", default-features = false }
+ndarray = { version = "0.16", default-features = false }
 float-ord = { version = "0.3.2", default-features = false }
 space = "0.17.0"
 bitarray = "0.9.0"
@@ -41,9 +41,9 @@ rand = "0.8.4"
 rand_pcg = "0.3.1"
 criterion = "0.3.5"
 pretty_env_logger = "0.4.0"
-image = "0.24"
+image = "0.25"
 bitarray = { version = "0.9.0", features = ["space"] }
-imageproc = "0.23.0"
+imageproc = "0.25.0"
 
 [[bench]]
 name = "criterion"

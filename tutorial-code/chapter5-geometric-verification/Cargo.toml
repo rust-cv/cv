@@ -5,8 +5,8 @@ edition = "2021"
 
 [dependencies]
 cv = { version = "0.6.0", path = "../../cv" }
-image = "0.24"
-imageproc = "0.23"
+image = "0.25"
+imageproc = "0.25"
 open = "2.0.2"
 tempfile = "3.3.0"
 itertools = "0.10.3"

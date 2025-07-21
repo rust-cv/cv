@@ -1,4 +1,3 @@
-use image::ImageOutputFormat;
 use std::{
     io::{Cursor, Write},
     path::PathBuf,
@@ -36,7 +35,7 @@ fn main() {
     } else {
         let mut output = Cursor::new(Vec::new());
         image
-            .write_to(&mut output, ImageOutputFormat::Png)
+            .write_to(&mut output, image::ImageFormat::Png)
             .expect("failed to write image to stdout");
         stdout
             .lock()

@@ -59,8 +59,8 @@ hgg = { version = "0.4.1", optional = true }
 levenberg-marquardt = { version = "0.12.0", optional = true }
 arrsac = { version = "0.10.0", optional = true }
 bitarray = { version = "0.9.0", features = ["space"], optional = true }
-image = { version = "0.24", default-features = false, optional = true }
-imageproc = { version = "0.23", default-features = false, optional = true }
+image = { version = "0.25", default-features = false, optional = true }
+imageproc = { version = "0.25", default-features = false, optional = true }
 eye = { version = "0.4.1", optional = true }
 ndarray-vision = { version = "0.3.0", default-features = false, optional = true }
 
