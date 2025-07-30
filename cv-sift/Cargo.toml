@@ -1,0 +1,27 @@
+[package]
+name = "cv-sift"
+version = "0.1.0"
+edition = "2018"
+authors = ["Aalekh Patel <aalekh.gwpeck.7998@icloud.com>"]
+description = "SIFT feature extraction algorithm for computer vision"
+keywords = ["keypoint", "descriptor", "vision", "sfm", "slam", "sift"]
+categories = ["computer-vision", "science::robotics"]
+repository = "https://github.com/rust-cv/cv"
+documentation = "https://docs.rs/cv-sift/"
+license = "MIT"
+readme = "README.md"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# cv = { version = "0.6.0", path="../cv" }
+image = { version = "0.24.6" }
+nalgebra = "0.32.2"
+num = "0.4"
+itertools = "0.11.0"
+tracing = "0.1.37"
+thiserror = "1.0.40"
+
+[dev-dependencies]
+test-case = "3.1.0"
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
